@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Trading Agent</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0d1117; color: #c9d1d9; font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.3rem; color: #58a6ff; letter-spacing: 1px; }
+    #last-update { color: #8b949e; font-size: 12px; }
+
+    main { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+    .card .label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    .card .value { font-size: 1.6rem; font-weight: 600; margin-top: 4px; }
+    .card .value.green { color: #3fb950; }
+    .card .value.red   { color: #f85149; }
+
+    .grid2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+
+    section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+    section h2 { color: #58a6ff; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 6px 8px; text-align: left; border-bottom: 1px solid #30363d; }
+    td { padding: 8px 8px; border-bottom: 1px solid #21262d; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1c2128; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-buy    { background: #1a4231; color: #3fb950; }
+    .badge-sell   { background: #3d1414; color: #f85149; }
+    .badge-hold   { background: #2d2d2d; color: #8b949e; }
+    .badge-bull   { background: #1a4231; color: #3fb950; }
+    .badge-bear   { background: #3d1414; color: #f85149; }
+    .badge-neutral{ background: #2d2d2d; color: #8b949e; }
+
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tab { background: none; border: 1px solid #30363d; color: #8b949e; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .tab.active { border-color: #58a6ff; color: #58a6ff; }
+
+    #tab-trades, #tab-signals { display: none; }
+    #tab-trades.show, #tab-signals.show { display: block; }
+
+    .error { color: #f85149; padding: 12px; }
+
+    canvas { max-height: 220px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>AI Trading Agent — Paper Mode</h1>
+  <span id="last-update">Loading...</span>
+</header>
+
+<main>
+  <!-- Summary cards -->
+  <div class="cards">
+    <div class="card"><div class="label">Portfolio Value</div><div class="value" id="equity">—</div></div>
+    <div class="card"><div class="label">Cash Available</div><div class="value" id="cash">—</div></div>
+    <div class="card"><div class="label">Open Positions</div><div class="value" id="pos-count">—</div></div>
+    <div class="card"><div class="label">Unrealized P&L</div><div class="value" id="unrealized-pl">—</div></div>
+  </div>
+
+  <!-- Chart + Positions -->
+  <div class="grid2">
+    <section>
+      <h2>Portfolio Value Over Time</h2>
+      <canvas id="chart"></canvas>
+    </section>
+    <section>
+      <h2>Open Positions</h2>
+      <table>
+        <thead><tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Price</th><th>P&L %</th></tr></thead>
+        <tbody id="positions-tbody"><tr><td colspan="5" style="color:#8b949e">Loading...</td></tr></tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- Trade log / Signal log tabs -->
+  <section>
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('trades')">Trade History</button>
+      <button class="tab"        onclick="showTab('signals')">Signal Log</button>
+    </div>
+    <div id="tab-trades" class="show">
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Action</th><th>Type</th><th>Qty</th><th>Price</th><th>Alloc%</th><th>Conf</th><th>Rationale</th></tr></thead>
+        <tbody id="trades-tbody"><tr><td colspan="9" style="color:#8b949e">No trades yet.</td></tr></tbody>
+      </table>
+    </div>
+    <div id="tab-signals">
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>RSI</th><th>MACD</th><th>Sentiment</th><th>Congress</th><th>Insider</th><th>EPS Growth</th></tr></thead>
+        <tbody id="signals-tbody"><tr><td colspan="8" style="color:#8b949e">No signals yet.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+let chart = null;
+
+function fmt(n) { return n != null ? '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—'; }
+function pct(n)  { return n != null ? (n > 0 ? '+' : '') + Number(n).toFixed(2) + '%' : '—'; }
+function badge(v, map) {
+  const key = (v || '').toLowerCase();
+  const cls  = map[key] || 'badge-neutral';
+  return `<span class="badge ${cls}">${v || '—'}</span>`;
+}
+
+async function loadPortfolio() {
+  try {
+    const r = await fetch('/api/portfolio');
+    const d = await r.json();
+    if (d.error) { document.getElementById('equity').textContent = d.error; return; }
+
+    const { portfolio, positions, history } = d;
+    document.getElementById('equity').textContent     = fmt(portfolio.equity);
+    document.getElementById('cash').textContent       = fmt(portfolio.cash);
+    document.getElementById('pos-count').textContent  = positions.length;
+
+    const totalPL = positions.reduce((s, p) => s + (p.unrealized_pl || 0), 0);
+    const plEl = document.getElementById('unrealized-pl');
+    plEl.textContent = fmt(totalPL);
+    plEl.className   = 'value ' + (totalPL >= 0 ? 'green' : 'red');
+
+    // Positions table
+    const tbody = document.getElementById('positions-tbody');
+    if (positions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#8b949e">No open positions.</td></tr>';
+    } else {
+      tbody.innerHTML = positions.map(p => `
+        <tr>
+          <td><strong>${p.symbol}</strong></td>
+          <td>${p.qty}</td>
+          <td>${fmt(p.avg_entry)}</td>
+          <td>${fmt(p.current_price)}</td>
+          <td style="color:${p.unrealized_plpc >= 0 ? '#3fb950' : '#f85149'}">${pct(p.unrealized_plpc)}</td>
+        </tr>`).join('');
+    }
+
+    // Chart
+    const labels = history.map(s => s.ts.slice(0,10)).reverse();
+    const values = history.map(s => s.equity).reverse();
+    if (chart) { chart.destroy(); }
+    chart = new Chart(document.getElementById('chart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Equity',
+          data: values,
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.08)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+          y: { ticks: { color: '#8b949e', callback: v => '$' + v.toLocaleString() }, grid: { color: '#21262d' } },
+        }
+      }
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function loadTrades() {
+  const r = await fetch('/api/trades');
+  const trades = await r.json();
+  const tbody = document.getElementById('trades-tbody');
+  if (!trades.length) return;
+  const actionMap = { buy: 'badge-buy', sell: 'badge-sell', hold: 'badge-hold' };
+  tbody.innerHTML = trades.map(t => `
+    <tr>
+      <td style="color:#8b949e">${t.ts.slice(0,19).replace('T',' ')}</td>
+      <td><strong>${t.symbol}</strong></td>
+      <td>${badge(t.action, actionMap)}</td>
+      <td>${t.asset_type}</td>
+      <td>${t.qty != null ? Number(t.qty).toFixed(4) : '—'}</td>
+      <td>${fmt(t.price)}</td>
+      <td>${t.allocation != null ? t.allocation.toFixed(1)+'%' : '—'}</td>
+      <td>${t.confidence}/10</td>
+      <td style="color:#8b949e">${t.rationale || '—'}</td>
+    </tr>`).join('');
+}
+
+async function loadSignals() {
+  const r = await fetch('/api/signals');
+  const sigs = await r.json();
+  const tbody = document.getElementById('signals-tbody');
+  if (!sigs.length) return;
+  const sentMap  = { positive: 'badge-bull', negative: 'badge-bear', neutral: 'badge-neutral' };
+  const congMap  = { bullish: 'badge-bull', bearish: 'badge-bear', neutral: 'badge-neutral' };
+  tbody.innerHTML = sigs.map(s => `
+    <tr>
+      <td style="color:#8b949e">${(s.ts||'').slice(0,19).replace('T',' ')}</td>
+      <td><strong>${s.symbol}</strong></td>
+      <td>${s.technical?.rsi ?? '—'}</td>
+      <td>${s.technical?.macd_cross ?? '—'}</td>
+      <td>${badge(s.sentiment?.label, sentMap)}</td>
+      <td>${badge(s.congress?.net_signal, congMap)}</td>
+      <td>${s.insider?.count ?? 0} filings</td>
+      <td>${s.fundamentals?.eps_growth_yoy != null ? (s.fundamentals.eps_growth_yoy*100).toFixed(1)+'%' : '—'}</td>
+    </tr>`).join('');
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['trades','signals'][i] === name));
+  document.getElementById('tab-trades').classList.toggle('show', name === 'trades');
+  document.getElementById('tab-signals').classList.toggle('show', name === 'signals');
+}
+
+function updateTimestamp() {
+  document.getElementById('last-update').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+}
+
+async function refresh() {
+  await Promise.all([loadPortfolio(), loadTrades(), loadSignals()]);
+  updateTimestamp();
+}
+
+refresh();
+setInterval(refresh, 30000); // auto-refresh every 30s
+</script>
+</body>
+</html>
