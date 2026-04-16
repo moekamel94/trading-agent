@@ -1,13 +1,15 @@
 """
-Generates pre-market (9:00 AM ET) and close (4:05 PM ET) daily summaries.
-Summaries are stored in the DB and served to the dashboard.
+Generates pre-market (9:00 AM ET) and close (4:05 PM ET) daily summaries
+and emails them to the configured address.
 """
 from datetime import datetime, timezone
 
 import database.db as db
 from broker import alpaca
-from signals import technical, sentiment, congress, insider, fundamentals
-from agent import claude_agent
+from signals import technical, sentiment
+from risk import manager as risk_mgr
+from basket import manager as basket_mgr
+from notifications import email
 
 
 def _fmt_usd(v):
@@ -22,16 +24,15 @@ def _pl_str(v):
 
 
 def run_premarket(dry_run: bool = False):
-    """
-    Runs 30 min before market open (9:00 AM ET).
-    Scans all watchlist tickers, collects signals, asks Claude for outlook,
-    and stores a plain-text summary in the DB.
-    """
-    from config import STOCK_WATCHLIST, CRYPTO_WATCHLIST
+    """9:00 AM ET — scan signals, email outlook for the day."""
+    import config
+    from signals import congress, insider, fundamentals
+    from agent import claude_agent
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
-        f"PRE-MARKET SUMMARY — {ts}",
+        f"PRE-MARKET SUMMARY  {ts}",
+        f"Mode: {'DRY RUN' if dry_run else 'LIVE PAPER TRADING'}",
         "=" * 60,
     ]
 
@@ -43,18 +44,20 @@ def run_premarket(dry_run: bool = False):
         lines.append(f"Open positions   : {len(positions)}")
         lines.append("")
     except Exception as e:
+        portfolio = {"equity": 0, "cash": 0}
+        positions = []
         lines.append(f"[Portfolio fetch error: {e}]")
         lines.append("")
 
     port_ctx = {
         "equity": portfolio.get("equity", 0),
-        "cash": portfolio.get("cash", 0),
+        "cash":   portfolio.get("cash", 0),
         "position_count": len(positions),
         "options_pct": 0,
-        "crypto_pct": 0,
+        "crypto_pct":  0,
     }
 
-    watchlist = STOCK_WATCHLIST + CRYPTO_WATCHLIST
+    watchlist = basket_mgr.load() + config.CRYPTO_WATCHLIST
     lines.append("SIGNAL OUTLOOK PER TICKER")
     lines.append("-" * 60)
 
@@ -72,33 +75,34 @@ def run_premarket(dry_run: bool = False):
                 "congressional": cong, "insider": insd, "fundamentals": fund,
             }
 
-            decision = claude_agent.decide(symbol, signals, port_ctx)
+            passes, criteria_reason = risk_mgr.check_entry_criteria(signals)
+            if not passes:
+                lines.append(f"  {symbol:<10} SKIP  | {criteria_reason}")
+                continue
 
+            decision = claude_agent.decide(symbol, signals, port_ctx)
             rsi_str  = f"RSI {tech.get('rsi', 'N/A')}" if tech else "no data"
             sent_lbl = sent.get("label", "neutral")
-            cong_lbl = cong.get("net_signal", "neutral")
 
             lines.append(
-                f"  {symbol:<10} -> {decision['action']:<4}  conf={decision['confidence']}/10 | "
-                f"{rsi_str} | sentiment={sent_lbl} | congress={cong_lbl}"
+                f"  {symbol:<10} {decision['action']:<4}  conf={decision['confidence']}/10 | "
+                f"{rsi_str} | sentiment={sent_lbl}"
             )
-            lines.append(f"    Rationale: {decision.get('rationale', '')}")
+            lines.append(f"    Why: {decision.get('rationale', '')}")
         except Exception as e:
-            lines.append(f"  {symbol:<10} -> ERROR: {e}")
+            lines.append(f"  {symbol:<10} ERROR: {e}")
 
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("premarket", body)
+    email.send(f"[Trading Agent] Pre-Market Summary {datetime.now(timezone.utc).strftime('%Y-%m-%d')}", body)
 
 
 def run_close():
-    """
-    Runs just after market close (4:05 PM ET).
-    Summarises everything traded today — what was bought/sold and why.
-    """
+    """4:05 PM ET — recap all trades made today and current positions."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
-        f"CLOSE-OF-DAY SUMMARY — {ts}",
+        f"CLOSE-OF-DAY SUMMARY  {ts}",
         "=" * 60,
     ]
 
@@ -110,18 +114,20 @@ def run_close():
         lines.append(f"Open positions     : {len(positions)}")
         lines.append("")
     except Exception as e:
+        positions = []
         lines.append(f"[Portfolio fetch error: {e}]")
         lines.append("")
 
     trades = db.get_today_trades()
 
     if not trades:
-        lines.append("No trades executed today.")
+        lines.append("No trades were executed today.")
+        lines.append("(All stocks either failed the entry criteria or Claude confidence was below 7/10)")
     else:
-        lines.append(f"TRADES TODAY ({len(trades)} total)")
-        lines.append("-" * 60)
         buys  = [t for t in trades if t["action"] == "BUY"]
         sells = [t for t in trades if t["action"] == "SELL"]
+        lines.append(f"TRADES TODAY  ({len(buys)} bought, {len(sells)} sold)")
+        lines.append("-" * 60)
 
         if buys:
             lines.append("\nBOUGHT:")
@@ -148,7 +154,6 @@ def run_close():
     lines.append("-" * 60)
 
     try:
-        positions = alpaca.get_positions()
         if not positions:
             lines.append("  No open positions.")
         for p in positions:
@@ -164,3 +169,4 @@ def run_close():
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("close", body)
+    email.send(f"[Trading Agent] Close-of-Day Summary {datetime.now(timezone.utc).strftime('%Y-%m-%d')}", body)

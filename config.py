@@ -10,6 +10,10 @@ ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.marke
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NEWDATA_API_KEY   = os.getenv("NEWDATA_API_KEY", "")
 
+# --- Email ---
+EMAIL_ADDRESS     = os.getenv("EMAIL_ADDRESS", "mohammed.a.kamil@gmail.com")
+EMAIL_APP_PASSWORD= os.getenv("EMAIL_APP_PASSWORD", "")
+
 # --- Watchlist ---
 STOCK_WATCHLIST = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
