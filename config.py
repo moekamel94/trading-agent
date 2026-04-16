@@ -8,6 +8,7 @@ ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+NEWDATA_API_KEY   = os.getenv("NEWDATA_API_KEY", "")
 
 # --- Watchlist ---
 STOCK_WATCHLIST = [
@@ -16,7 +17,7 @@ STOCK_WATCHLIST = [
 ]
 
 CRYPTO_WATCHLIST = [
-    "BTC/USD", "ETH/USD", "SOL/USD",
+    "BTC/USD",
 ]
 
 # --- Risk Parameters ---
