@@ -16,6 +16,7 @@ from signals import technical, sentiment, congress, insider, fundamentals
 from agent import claude_agent
 from risk import manager
 from summaries import reporter
+from basket import manager as basket_mgr
 
 # Load S&P 500 list once at startup for options eligibility check
 _SP500 = config.get_sp500_tickers()
@@ -63,7 +64,7 @@ def run_cycle(dry_run: bool = False):
     print(f"Portfolio: equity=${portfolio['equity']:,.2f}  cash=${portfolio['cash']:,.2f}  positions={port_ctx['position_count']}")
 
     # --- Check stop-loss / take-profit ---
-    exits = manager.check_stops(positions)
+    exits = manager.check_stops(positions, signals_map={})
     for exit_order in exits:
         sym    = exit_order["symbol"]
         reason = exit_order["reason"]
@@ -76,7 +77,9 @@ def run_cycle(dry_run: bool = False):
                 print(f"    ERROR closing {sym}: {e}")
 
     # --- Signal + decision loop ---
-    watchlist = config.STOCK_WATCHLIST + config.CRYPTO_WATCHLIST
+    stock_basket = basket_mgr.load()
+    watchlist = stock_basket + config.CRYPTO_WATCHLIST
+    signals_map = {}  # used by exit checks
 
     for symbol in watchlist:
         print(f"\n  [{symbol}] collecting signals...")
@@ -97,6 +100,13 @@ def run_cycle(dry_run: bool = False):
             "insider":      insd,
             "fundamentals": fund,
         }
+        signals_map[symbol] = signals
+
+        # --- Hard criteria gate: block BUY before calling Claude (saves API cost) ---
+        passes, criteria_reason = manager.check_entry_criteria(signals)
+        if not passes:
+            print(f"  [{symbol}] -> SKIP | {criteria_reason}")
+            continue
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = manager.validate(decision, port_ctx)
@@ -154,6 +164,13 @@ def main():
 
         scheduler = BlockingScheduler(timezone="America/New_York")
         scheduler.add_job(
+            basket_mgr.refresh,
+            CronTrigger(day_of_week="mon",
+                        hour=config.BASKET_REFRESH_HOUR,
+                        minute=config.BASKET_REFRESH_MINUTE),
+            id="basket_refresh",
+        )
+        scheduler.add_job(
             lambda: reporter.run_premarket(dry_run=args.dry_run),
             CronTrigger(day_of_week="mon-fri",
                         hour=config.PREMARKET_SUMMARY_HOUR,
@@ -176,6 +193,7 @@ def main():
         )
         print(
             f"Scheduler started:\n"
+            f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
             f"  Trading cycle      : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
             f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"

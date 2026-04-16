@@ -27,7 +27,7 @@ STOP_LOSS_PCT        = 7.0   # auto-sell if down this %
 TAKE_PROFIT_PCT      = 20.0  # auto-sell if up this %
 MAX_OPTIONS_PCT      = 25.0  # max % of portfolio in options
 MAX_CRYPTO_PCT       = 30.0  # max % of portfolio in crypto
-MIN_CONFIDENCE       = 6     # minimum Claude confidence (1-10) to trade
+MIN_CONFIDENCE       = 7     # minimum Claude confidence (1-10) to trade
 TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
 
@@ -40,6 +40,25 @@ PREMARKET_SUMMARY_HOUR   = 9
 PREMARKET_SUMMARY_MINUTE = 0   # 9:00 AM — 30 min before open
 CLOSE_SUMMARY_HOUR       = 16
 CLOSE_SUMMARY_MINUTE     = 5   # 4:05 PM — just after close
+
+# --- Hard Entry Criteria (ALL must pass or trade is blocked) ---
+CRITERIA_RSI_MIN        = 40    # RSI floor — not in panic/crash
+CRITERIA_RSI_MAX        = 68    # RSI ceiling — not overbought
+CRITERIA_PRICE_ABOVE_SMA50 = True   # price must be above 50-day SMA
+CRITERIA_MACD_NOT_BEARISH  = True   # MACD must not be in bearish crossover
+CRITERIA_EPS_GROWTH_MIN    = 0.05   # EPS growth YoY >= 5%
+CRITERIA_REVENUE_GROWTH_MIN= 0.03   # Revenue growth YoY >= 3%
+CRITERIA_PROFIT_MARGIN_MIN = 0.08   # Net profit margin >= 8%
+CRITERIA_PE_MAX            = 55     # P/E ratio <= 55 (not wildly overvalued)
+CRITERIA_SENTIMENT_NOT_NEG = True   # sentiment must not be negative
+
+# --- Hard Exit Criteria (any ONE triggers sell) ---
+EXIT_RSI_OVERBOUGHT     = 75    # RSI above this -> trim position
+EXIT_MACD_BEARISH_CROSS = True  # MACD bearish crossover on open position -> sell
+
+# --- Basket ---
+BASKET_REFRESH_HOUR   = 8
+BASKET_REFRESH_MINUTE = 0   # Monday 8:00 AM ET
 
 # --- Options ---
 OPTION_DAYS_TO_EXPIRY = 30  # target ~30 days out
