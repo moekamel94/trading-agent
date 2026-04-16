@@ -2,7 +2,8 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, GetOptionContractsRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, ContractType
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, StockLatestNewsRequest
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
+from alpaca.data.enums import DataFeed
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta, timezone
 import config
@@ -42,7 +43,7 @@ def get_positions():
 def get_stock_bars(symbol: str, days: int = 60):
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
-    req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start, end=end)
+    req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start, end=end, feed=DataFeed.IEX)
     bars = _stock_data.get_stock_bars(req)
     return bars[symbol].df if symbol in bars else None
 
@@ -54,11 +55,6 @@ def get_crypto_bars(symbol: str, days: int = 60):
     bars = _crypto_data.get_crypto_bars(req)
     return bars[symbol].df if symbol in bars else None
 
-
-def get_news(symbol: str, limit: int = 10):
-    req = StockLatestNewsRequest(symbols=[symbol.replace("/", "")], limit=limit)
-    news = _stock_data.get_news(req)
-    return news.get(symbol.replace("/", ""), [])
 
 
 def place_market_order(symbol: str, qty: float, side: str):

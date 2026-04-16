@@ -107,7 +107,7 @@ def run_cycle(dry_run: bool = False):
         rationale  = decision["rationale"]
         asset_type = decision["asset_type"]
 
-        print(f"  [{symbol}] → {action} | confidence={confidence} | alloc={alloc}% | {rationale}")
+        print(f"  [{symbol}] -> {action} | confidence={confidence} | alloc={alloc}% | {rationale}")
 
         if action in ("BUY", "SELL") and not dry_run:
             price = tech.get("price", 0) or 1

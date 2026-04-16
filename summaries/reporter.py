@@ -79,12 +79,12 @@ def run_premarket(dry_run: bool = False):
             cong_lbl = cong.get("net_signal", "neutral")
 
             lines.append(
-                f"  {symbol:<10} → {decision['action']:<4}  conf={decision['confidence']}/10 | "
+                f"  {symbol:<10} -> {decision['action']:<4}  conf={decision['confidence']}/10 | "
                 f"{rsi_str} | sentiment={sent_lbl} | congress={cong_lbl}"
             )
             lines.append(f"    Rationale: {decision.get('rationale', '')}")
         except Exception as e:
-            lines.append(f"  {symbol:<10} → ERROR: {e}")
+            lines.append(f"  {symbol:<10} -> ERROR: {e}")
 
     body = "\n".join(lines)
     print("\n" + body)

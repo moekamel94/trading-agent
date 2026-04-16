@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import ta
 
 
 def compute(df: pd.DataFrame) -> dict:
@@ -8,50 +8,48 @@ def compute(df: pd.DataFrame) -> dict:
 
     close = df["close"]
 
-    df.ta.rsi(length=14, append=True)
-    df.ta.macd(fast=12, slow=26, signal=9, append=True)
-    df.ta.sma(length=50, append=True)
-    df.ta.sma(length=200, append=True)
-    df.ta.bbands(length=20, append=True)
+    rsi        = ta.momentum.RSIIndicator(close, window=14).rsi()
+    macd_obj   = ta.trend.MACD(close, window_fast=12, window_slow=26, window_sign=9)
+    macd_line  = macd_obj.macd()
+    macd_sig   = macd_obj.macd_signal()
+    sma50      = ta.trend.SMAIndicator(close, window=50).sma_indicator()
+    sma200     = ta.trend.SMAIndicator(close, window=200).sma_indicator()
+    bb         = ta.volatility.BollingerBands(close, window=20, window_dev=2)
+    bb_upper   = bb.bollinger_hband()
+    bb_lower   = bb.bollinger_lband()
 
-    latest = df.iloc[-1]
-    prev   = df.iloc[-2] if len(df) > 1 else latest
+    price       = float(close.iloc[-1])
+    rsi_val     = rsi.iloc[-1]
+    macd_now    = macd_line.iloc[-1]
+    macd_sig_now= macd_sig.iloc[-1]
+    macd_prev   = macd_line.iloc[-2] if len(macd_line) > 1 else macd_now
+    macd_sig_prev = macd_sig.iloc[-2] if len(macd_sig) > 1 else macd_sig_now
+    sma50_val   = sma50.iloc[-1]
+    sma200_val  = sma200.iloc[-1]
+    bbu         = bb_upper.iloc[-1]
+    bbl         = bb_lower.iloc[-1]
 
-    rsi = latest.get("RSI_14")
-    macd_line = latest.get("MACD_12_26_9")
-    macd_signal = latest.get("MACDs_12_26_9")
-    sma50  = latest.get("SMA_50")
-    sma200 = latest.get("SMA_200")
-    bb_upper = latest.get("BBU_20_2.0")
-    bb_lower = latest.get("BBL_20_2.0")
-    price = float(close.iloc[-1])
-
-    prev_macd  = prev.get("MACD_12_26_9")
-    prev_macd_sig = prev.get("MACDs_12_26_9")
-
-    # MACD crossover direction
     macd_cross = None
-    if macd_line is not None and macd_signal is not None:
-        if prev_macd is not None and prev_macd_sig is not None:
-            if prev_macd < prev_macd_sig and macd_line > macd_signal:
-                macd_cross = "bullish"
-            elif prev_macd > prev_macd_sig and macd_line < macd_signal:
-                macd_cross = "bearish"
+    if pd.notna(macd_prev) and pd.notna(macd_sig_prev):
+        if macd_prev < macd_sig_prev and macd_now > macd_sig_now:
+            macd_cross = "bullish"
+        elif macd_prev > macd_sig_prev and macd_now < macd_sig_now:
+            macd_cross = "bearish"
 
-    golden_cross = (sma50 and sma200 and sma50 > sma200)
-    death_cross  = (sma50 and sma200 and sma50 < sma200)
+    golden_cross = bool(pd.notna(sma50_val) and pd.notna(sma200_val) and sma50_val > sma200_val)
+    death_cross  = bool(pd.notna(sma50_val) and pd.notna(sma200_val) and sma50_val < sma200_val)
 
     bb_position = None
-    if bb_upper and bb_lower:
-        bb_position = "above_upper" if price > bb_upper else ("below_lower" if price < bb_lower else "inside")
+    if pd.notna(bbu) and pd.notna(bbl):
+        bb_position = "above_upper" if price > bbu else ("below_lower" if price < bbl else "inside")
 
     return {
-        "rsi":          round(rsi, 2) if rsi is not None else None,
+        "rsi":          round(float(rsi_val), 2) if pd.notna(rsi_val) else None,
         "macd_cross":   macd_cross,
         "golden_cross": golden_cross,
         "death_cross":  death_cross,
         "bb_position":  bb_position,
         "price":        price,
-        "sma50":        round(sma50, 2) if sma50 else None,
-        "sma200":       round(sma200, 2) if sma200 else None,
+        "sma50":        round(float(sma50_val), 2) if pd.notna(sma50_val) else None,
+        "sma200":       round(float(sma200_val), 2) if pd.notna(sma200_val) else None,
     }
