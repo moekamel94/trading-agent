@@ -72,6 +72,8 @@
     .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
     .tab { background: none; border: 1px solid #30363d; color: #8b949e; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
     .tab.active { border-color: #58a6ff; color: #58a6ff; }
+    .sum-tab { background: none; border: 1px solid #30363d; color: #8b949e; padding: 4px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-bottom: 10px; }
+    .sum-tab.active { border-color: #3fb950; color: #3fb950; }
 
     #tab-trades, #tab-signals { display: none; }
     #tab-trades.show, #tab-signals.show { display: block; }
@@ -110,6 +112,16 @@
       </table>
     </section>
   </div>
+
+  <!-- Daily Summaries -->
+  <section style="margin-bottom:16px">
+    <h2>Daily Summaries</h2>
+    <div class="tabs">
+      <button class="sum-tab active" onclick="showSummary(0)" id="sum-tab-0">Latest</button>
+      <button class="sum-tab"        onclick="showSummary(1)" id="sum-tab-1">Previous</button>
+    </div>
+    <pre id="summary-body" style="white-space:pre-wrap;font-size:12px;color:#c9d1d9;background:#0d1117;padding:12px;border-radius:6px;max-height:300px;overflow-y:auto">No summaries yet.</pre>
+  </section>
 
   <!-- Trade log / Signal log tabs -->
   <section>
@@ -253,8 +265,26 @@ function updateTimestamp() {
   document.getElementById('last-update').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
 }
 
+let _summaries = [];
+
+async function loadSummaries() {
+  const r = await fetch('/api/summaries');
+  _summaries = await r.json();
+  showSummary(0);
+}
+
+function showSummary(idx) {
+  document.querySelectorAll('.sum-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  const el = document.getElementById('summary-body');
+  if (!_summaries.length) { el.textContent = 'No summaries yet.'; return; }
+  const s = _summaries[idx];
+  if (!s) { el.textContent = 'Not available.'; return; }
+  const kindLabel = s.kind === 'premarket' ? 'PRE-MARKET' : 'CLOSE';
+  el.textContent = s.body;
+}
+
 async function refresh() {
-  await Promise.all([loadPortfolio(), loadTrades(), loadSignals()]);
+  await Promise.all([loadPortfolio(), loadTrades(), loadSignals(), loadSummaries()]);
   updateTimestamp();
 }
 

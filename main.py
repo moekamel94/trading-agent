@@ -15,6 +15,10 @@ from broker import alpaca
 from signals import technical, sentiment, congress, insider, fundamentals
 from agent import claude_agent
 from risk import manager
+from summaries import reporter
+
+# Load S&P 500 list once at startup for options eligibility check
+_SP500 = config.get_sp500_tickers()
 
 
 def _portfolio_context(portfolio, positions):
@@ -112,6 +116,10 @@ def run_cycle(dry_run: bool = False):
             if qty > 0:
                 try:
                     if asset_type == "option":
+                        if symbol not in _SP500:
+                            print(f"    SKIPPED option on {symbol} — not in S&P 500")
+                            continue
+                        from alpaca.trading.enums import ContractType
                         direction = decision.get("option_direction", "call")
                         contracts = alpaca.get_option_chain(symbol, config.OPTION_DAYS_TO_EXPIRY)
                         target_type = ContractType.CALL if direction == "call" else ContractType.PUT
@@ -146,14 +154,32 @@ def main():
 
         scheduler = BlockingScheduler(timezone="America/New_York")
         scheduler.add_job(
-            lambda: run_cycle(dry_run=args.dry_run),
-            CronTrigger(
-                day_of_week="mon-fri",
-                hour=config.RUN_HOUR,
-                minute=config.RUN_MINUTE,
-            ),
+            lambda: reporter.run_premarket(dry_run=args.dry_run),
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.PREMARKET_SUMMARY_HOUR,
+                        minute=config.PREMARKET_SUMMARY_MINUTE),
+            id="premarket_summary",
         )
-        print(f"Scheduler started — runs Mon-Fri at {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET")
+        scheduler.add_job(
+            lambda: run_cycle(dry_run=args.dry_run),
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.RUN_HOUR,
+                        minute=config.RUN_MINUTE),
+            id="trading_cycle",
+        )
+        scheduler.add_job(
+            reporter.run_close,
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.CLOSE_SUMMARY_HOUR,
+                        minute=config.CLOSE_SUMMARY_MINUTE),
+            id="close_summary",
+        )
+        print(
+            f"Scheduler started:\n"
+            f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
+            f"  Trading cycle      : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
+            f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
+        )
         try:
             scheduler.start()
         except KeyboardInterrupt:

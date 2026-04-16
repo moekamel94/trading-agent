@@ -43,6 +43,13 @@ def init():
             cash        REAL,
             positions   TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS summaries (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            body        TEXT NOT NULL
+        );
         """)
 
 
@@ -82,6 +89,31 @@ def get_snapshots(limit=30):
     with _conn() as c:
         rows = c.execute("SELECT ts, equity, cash FROM snapshots ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [{"ts": r[0], "equity": r[1], "cash": r[2]} for r in rows]
+
+
+def log_summary(kind: str, body: str):
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO summaries (ts, kind, body) VALUES (?,?,?)",
+            (datetime.utcnow().isoformat(), kind, body),
+        )
+
+
+def get_summaries(limit=10):
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT ts, kind, body FROM summaries ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [{"ts": r[0], "kind": r[1], "body": r[2]} for r in rows]
+
+
+def get_today_trades():
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM trades WHERE ts LIKE ? ORDER BY id ASC", (f"{today}%",)
+        ).fetchall()
+    return [dict(zip(["id","ts","symbol","action","asset_type","qty","price","allocation","confidence","rationale"], r)) for r in rows]
 
 
 def get_signals(limit=50):

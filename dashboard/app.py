@@ -34,6 +34,11 @@ def api_signals():
     return jsonify(db.get_signals(50))
 
 
+@app.route("/api/summaries")
+def api_summaries():
+    return jsonify(db.get_summaries(10))
+
+
 if __name__ == "__main__":
     db.init()
     app.run(debug=True, port=5000)
