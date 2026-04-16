@@ -6,6 +6,7 @@ from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.enums import DataFeed
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta, timezone
+import pandas as pd
 import config
 
 
@@ -45,7 +46,9 @@ def get_stock_bars(symbol: str, days: int = 60):
     start = end - timedelta(days=days)
     req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start, end=end, feed=DataFeed.IEX)
     bars = _stock_data.get_stock_bars(req)
-    return bars[symbol].df if symbol in bars else None
+    if symbol not in bars.data or not bars.data[symbol]:
+        return None
+    return pd.DataFrame([b.model_dump() for b in bars.data[symbol]])
 
 
 def get_crypto_bars(symbol: str, days: int = 60):
@@ -53,17 +56,20 @@ def get_crypto_bars(symbol: str, days: int = 60):
     start = end - timedelta(days=days)
     req = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start, end=end)
     bars = _crypto_data.get_crypto_bars(req)
-    return bars[symbol].df if symbol in bars else None
+    if symbol not in bars.data or not bars.data[symbol]:
+        return None
+    return pd.DataFrame([b.model_dump() for b in bars.data[symbol]])
 
 
 
 def place_market_order(symbol: str, qty: float, side: str):
     order_side = OrderSide.BUY if side.upper() == "BUY" else OrderSide.SELL
+    is_crypto = "/" in symbol
     req = MarketOrderRequest(
         symbol=symbol,
         qty=qty,
         side=order_side,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
     )
     return _trading.submit_order(req)
 
