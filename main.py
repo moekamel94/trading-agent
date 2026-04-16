@@ -1,9 +1,9 @@
 """
-Entry point. Run directly for a single cycle, or with --schedule for daily automation.
-Usage:
-  python main.py            # run one full cycle now
-  python main.py --dry-run  # simulate without placing trades
-  python main.py --schedule # start scheduler (runs daily at configured time)
+Entry point.
+  python main.py              # run one full cycle now
+  python main.py --dry-run    # simulate without placing trades
+  python main.py --schedule   # start APScheduler (legacy, prefer Task Scheduler)
+  python main.py --btc-check  # check BTC position only (runs every 6h via Task Scheduler)
 """
 import sys
 import argparse
@@ -152,13 +152,83 @@ def run_cycle(dry_run: bool = False):
     print(f"\nCycle complete. Equity: ${portfolio_final['equity']:,.2f}")
 
 
+def run_btc_check():
+    """Lightweight BTC-only check — runs every 6h via Task Scheduler."""
+    print(f"\n[BTC CHECK] {datetime.now(timezone.utc).isoformat()}")
+    db.init()
+    positions = alpaca.get_positions()
+    btc_positions = [p for p in positions if "BTC" in p["symbol"]]
+
+    if not btc_positions:
+        print("[BTC CHECK] No BTC position held — nothing to check.")
+        return
+
+    exits = manager.check_stops(btc_positions)
+    for exit_order in exits:
+        sym    = exit_order["symbol"]
+        reason = exit_order["reason"]
+        print(f"[BTC CHECK] EXIT {sym} — {reason}")
+        try:
+            alpaca.place_market_order(sym, abs(btc_positions[0]["qty"]), "SELL")
+            db.log_trade(sym, "SELL", "crypto", btc_positions[0]["qty"], 0, 0, 10, reason)
+        except Exception as e:
+            print(f"[BTC CHECK] Order error: {e}")
+        return
+
+    # Also buy BTC if not holding and signals are good
+    from signals import technical
+    bars = alpaca.get_crypto_bars("BTC/USD")
+    tech = technical.compute(bars)
+    from signals import sentiment as sent_mod
+    sent = sent_mod.compute("BTC/USD")
+    signals = {"technical": tech, "sentiment": sent, "congressional": {}, "insider": {}, "fundamentals": {}}
+
+    passes, reason = manager.check_entry_criteria(signals)
+    if not passes:
+        print(f"[BTC CHECK] Criteria not met: {reason}")
+        return
+
+    portfolio = alpaca.get_portfolio()
+    port_ctx  = _portfolio_context(portfolio, positions)
+    decision  = claude_agent.decide("BTC/USD", signals, port_ctx)
+    decision  = manager.validate(decision, port_ctx)
+
+    if decision["action"] == "BUY":
+        price = tech.get("price", 1)
+        qty   = manager.compute_qty("BTC/USD", decision["allocation_pct"], price, portfolio)
+        if qty > 0:
+            try:
+                alpaca.place_market_order("BTC/USD", qty, "BUY")
+                db.log_trade("BTC/USD", "BUY", "crypto", qty, price,
+                             decision["allocation_pct"], decision["confidence"], decision["rationale"])
+                print(f"[BTC CHECK] BUY executed — {decision['rationale']}")
+            except Exception as e:
+                print(f"[BTC CHECK] Order error: {e}")
+    else:
+        print(f"[BTC CHECK] HOLD — {decision.get('rationale', '')}")
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run",  action="store_true", help="Simulate without placing trades")
-    parser.add_argument("--schedule", action="store_true", help="Run on daily schedule")
+    parser.add_argument("--dry-run",        action="store_true")
+    parser.add_argument("--schedule",       action="store_true")
+    parser.add_argument("--btc-check",      action="store_true")
+    parser.add_argument("--premarket",      action="store_true")
+    parser.add_argument("--close-summary",  action="store_true")
+    parser.add_argument("--basket-refresh", action="store_true")
     args = parser.parse_args()
 
-    if args.schedule:
+    if args.btc_check:
+        run_btc_check()
+    elif args.premarket:
+        db.init()
+        reporter.run_premarket(dry_run=False)
+    elif args.close_summary:
+        db.init()
+        reporter.run_close()
+    elif args.basket_refresh:
+        basket_mgr.refresh()
+    elif args.schedule:
         from apscheduler.schedulers.blocking import BlockingScheduler
         from apscheduler.triggers.cron import CronTrigger
 
@@ -204,6 +274,7 @@ def main():
             print("Scheduler stopped.")
     else:
         run_cycle(dry_run=args.dry_run)
+
 
 
 if __name__ == "__main__":
