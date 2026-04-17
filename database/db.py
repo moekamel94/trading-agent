@@ -79,6 +79,10 @@ def log_snapshot(equity, cash, positions):
         )
 
 
+def get_recent_trades(limit=10):
+    return get_trades(limit)
+
+
 def get_trades(limit=100):
     with _conn() as c:
         rows = c.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
