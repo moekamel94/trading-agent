@@ -214,6 +214,28 @@ _TOOLS = [
             "required": [],
         },
     },
+    # ── Environment / secrets ─────────────────────────────────────────────────
+    {
+        "name": "set_env_var",
+        "description": (
+            "Add or update an environment variable (API key, token, etc.) in the server's .env file. "
+            "Use this when Mohammed shares a new API key or credential. "
+            "Always request_approval first since this changes server config."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key":   {"type": "string", "description": "Variable name e.g. OPENAI_API_KEY"},
+                "value": {"type": "string", "description": "The value/key to store"},
+            },
+            "required": ["key", "value"],
+        },
+    },
+    {
+        "name": "list_env_vars",
+        "description": "List all environment variable names in the .env file (values are hidden for security).",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
     # ── Discord management ────────────────────────────────────────────────────
     {
         "name": "create_discord_channel",
@@ -401,6 +423,40 @@ async def _exec_tool(name: str, inputs: dict, channel=None) -> str:
             path = inputs.get("path") or _DEFAULT_DIR
             items = sorted(os.listdir(path))
             return "\n".join(items)
+
+        # ── Environment / secrets ─────────────────────────────────────────────
+        elif name == "set_env_var":
+            env_path = os.path.join(_DEFAULT_DIR, ".env")
+            key   = inputs["key"].strip().upper()
+            value = inputs["value"].strip()
+            if os.path.exists(env_path):
+                with open(env_path, "r") as f:
+                    lines = f.readlines()
+            else:
+                lines = []
+            # Replace existing or append
+            found = False
+            for i, line in enumerate(lines):
+                if line.startswith(f"{key}="):
+                    lines[i] = f"{key}={value}\n"
+                    found = True
+                    break
+            if not found:
+                lines.append(f"{key}={value}\n")
+            with open(env_path, "w") as f:
+                f.writelines(lines)
+            # Restart self to pick up new env
+            subprocess.Popen(["systemctl", "restart", "kimmy"])
+            return f"Set {key} in .env and restarting to apply it."
+
+        elif name == "list_env_vars":
+            env_path = os.path.join(_DEFAULT_DIR, ".env")
+            if not os.path.exists(env_path):
+                return "No .env file found."
+            with open(env_path, "r") as f:
+                lines = f.readlines()
+            keys = [l.split("=")[0] for l in lines if "=" in l and not l.startswith("#")]
+            return "Variables set:\n" + "\n".join(f"• {k}" for k in keys)
 
         # ── Discord management ────────────────────────────────────────────────
         elif name == "create_discord_channel":
