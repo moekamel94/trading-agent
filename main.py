@@ -17,6 +17,7 @@ from agent import claude_agent
 from risk import manager
 from summaries import reporter
 from basket import manager as basket_mgr
+from notifications import telegram_bot as tg
 
 # Load S&P 500 list once at startup for options eligibility check
 _SP500 = config.get_sp500_tickers()
@@ -141,6 +142,13 @@ def run_cycle(dry_run: bool = False):
                     else:
                         alpaca.place_market_order(symbol, qty, action)
                         db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
+                        tg.send(
+                            f"<b>TRADE EXECUTED</b>\n"
+                            f"{'BUY' if action=='BUY' else 'SELL'} {symbol}\n"
+                            f"Type: {asset_type} | Qty: {qty:.4f} @ ${price:,.2f}\n"
+                            f"Allocation: {alloc:.1f}% | Confidence: {confidence}/10\n"
+                            f"Why: {rationale}"
+                        )
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")
 
@@ -216,9 +224,12 @@ def main():
     parser.add_argument("--premarket",      action="store_true")
     parser.add_argument("--close-summary",  action="store_true")
     parser.add_argument("--basket-refresh", action="store_true")
+    parser.add_argument("--bot",            action="store_true")
     args = parser.parse_args()
 
-    if args.btc_check:
+    if args.bot:
+        tg.run_bot()
+    elif args.btc_check:
         run_btc_check()
     elif args.premarket:
         db.init()
