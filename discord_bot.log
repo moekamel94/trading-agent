@@ -1,0 +1,12 @@
+WARNING:discord.client:PyNaCl is not installed, voice will NOT be supported
+WARNING:discord.client:davey is not installed, voice will NOT be supported
+[Discord] Starting Jarvis...
+[2026-04-17 18:32:08] [INFO    ] discord.client: logging in using static token
+INFO:discord.client:logging in using static token
+[Discord] Slash commands synced.
+[2026-04-17 18:32:10] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: ead724a522e432abaab628675303a429).
+INFO:discord.gateway:Shard ID None has connected to Gateway (Session ID: ead724a522e432abaab628675303a429).
+[Discord] Jarvis online as bot1494713798270124175#7897 (1494713798270124175)
+[Discord] Server: AI agent (1493974149180297216)
+[Discord] Server: Kimmy (1494717075023990814)
+[Discord] Ready — waiting for messages.

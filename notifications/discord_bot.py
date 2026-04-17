@@ -1,21 +1,32 @@
 """
-Discord bot — multiple Claude agents, one per channel.
-Each text channel is its own agent with its own conversation history.
-Channel name determines the agent's persona:
-  #trading-*  → Trading agent (portfolio tools + strict trading persona)
-  #code-*     → Code-focused assistant
-  #research-* → Research & analysis assistant
-  anything else → General assistant (all tools available)
+Kimmy — Mohammed's personal AI assistant on Discord.
+Powered by Claude. Capabilities mirror Claude Code:
+  - Answer any question
+  - Web search
+  - Fetch URLs / read web pages
+  - Run shell commands (with approval)
+  - Read / write / list files (write needs approval)
+  - Execute Python code
+  - Manage the trading agent
+  - Persistent conversation memory per channel (SQLite)
 
-Trade alerts from the trading cycle are posted to DISCORD_ALERT_CHANNEL_ID.
+Channel personas (based on channel name):
+  #trading-*  → Trading/markets expert
+  #code-*     → Senior software engineer
+  #research-* → Research analyst
+  anything    → Full general assistant
 
-Start with:  python main.py --discord
+Trade alerts from the trading cycle post to DISCORD_ALERT_CHANNEL_ID.
+Start: python main.py --discord
 """
 import asyncio
 import json
 import os
+import re
+import sqlite3
 import subprocess
 import sys
+import textwrap
 import uuid
 from datetime import datetime, timezone
 
@@ -25,45 +36,184 @@ from discord.ext import commands
 
 import config
 
-# Per-channel conversation history
-_history: dict[int, list] = {}
+# ---------------------------------------------------------------------------
+# Persistent memory — stores conversation history in SQLite
+# ---------------------------------------------------------------------------
 
-# Pending approval requests: approval_id -> {"event": Event, "approved": bool}
+_MEM_DB = os.path.join(os.path.dirname(__file__), "..", "kimmy_memory.db")
+
+def _mem_init():
+    with sqlite3.connect(_MEM_DB) as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel   INTEGER NOT NULL,
+                role      TEXT NOT NULL,
+                content   TEXT NOT NULL,
+                ts        TEXT NOT NULL
+            )
+        """)
+
+def _mem_load(channel_id: int, limit: int = 20) -> list:
+    with sqlite3.connect(_MEM_DB) as c:
+        rows = c.execute(
+            "SELECT role, content FROM history WHERE channel=? ORDER BY id DESC LIMIT ?",
+            (channel_id, limit)
+        ).fetchall()
+    return [{"role": r, "content": c} for r, c in reversed(rows)]
+
+def _mem_save(channel_id: int, role: str, content: str):
+    with sqlite3.connect(_MEM_DB) as c:
+        c.execute(
+            "INSERT INTO history (channel, role, content, ts) VALUES (?,?,?,?)",
+            (channel_id, role, content, datetime.now(timezone.utc).isoformat())
+        )
+
+def _mem_clear(channel_id: int):
+    with sqlite3.connect(_MEM_DB) as c:
+        c.execute("DELETE FROM history WHERE channel=?", (channel_id,))
+
+_mem_init()
+
+# ---------------------------------------------------------------------------
+# Pending approvals
+# ---------------------------------------------------------------------------
+
 _pending: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
-# Agent personas — keyed by channel name prefix
+# System prompts
 # ---------------------------------------------------------------------------
 
-_PERSONAS: dict[str, str] = {
-    "trading": (
-        "You are a trading assistant for Mohammed's paper trading agent. "
-        "You have deep knowledge of markets, technical analysis, and his Alpaca portfolio. "
-        "Use trading tools to give live data. Be concise — this is a Discord channel. "
-        f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d')} UTC."
-    ),
-    "code": (
-        "You are a senior software engineer assistant for Mohammed. "
-        "Help with code, debugging, architecture, and shell commands. "
-        "Use file and shell tools freely (with approval for destructive actions). "
-        f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d')} UTC."
-    ),
-    "research": (
-        "You are a research analyst for Mohammed. "
-        "Help with market research, analysis, summarizing information, and strategy. "
-        "Be thorough and data-driven. "
-        f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d')} UTC."
-    ),
-    "default": (
-        "You are Jarvis — Mohammed's personal AI assistant running on his Discord server. "
-        "You can do anything: answer questions, run commands, manage files, help with trading. "
-        "For risky or destructive actions, always ask for approval first via the approval tool. "
-        "Be concise and helpful. "
-        f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d')} UTC."
-    ),
+_BASE = (
+    "You are Kimmy — Mohammed's personal AI assistant, exactly like Claude Code but running on his Discord server.\n"
+    "Mohammed travels and relies on you as his primary AI assistant. Treat every request seriously and completely.\n\n"
+    "You can do EVERYTHING:\n"
+    "- Answer any question on any topic (science, math, finance, history, coding, etc.)\n"
+    "- Search the web for up-to-date information\n"
+    "- Read web pages and URLs\n"
+    "- Write, debug, and explain code in any language\n"
+    "- Run shell commands on the cloud server\n"
+    "- Read and write files on the server\n"
+    "- Execute Python code snippets\n"
+    "- Manage his trading agent (portfolio, positions, trades, BTC)\n"
+    "- Help with any task, plan, or decision\n\n"
+    "Rules:\n"
+    "- For shell commands or file writes that change state: use request_approval first\n"
+    "- For read-only operations (reading files, listing dirs, running safe scripts): no approval needed\n"
+    "- Always use web_search when you need current information you might not have\n"
+    "- Be thorough — if a task needs multiple steps, do all of them\n"
+    "- Keep responses clear and concise (this is Discord, not a document editor)\n"
+    "- If code is long, use code blocks\n"
+    f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
+)
+
+_PERSONAS = {
+    "trading": _BASE + "\n\nThis is the #trading channel — focus on markets, portfolio, and trading strategy.",
+    "code":    _BASE + "\n\nThis is the #code channel — focus on software engineering, debugging, and architecture.",
+    "research":_BASE + "\n\nThis is the #research channel — focus on research, analysis, and deep dives.",
+    "default": _BASE,
 }
 
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
 _TOOLS = [
+    # ── Knowledge & Web ───────────────────────────────────────────────────────
+    {
+        "name": "web_search",
+        "description": "Search the web for current information. Use this whenever you need up-to-date facts, prices, news, or anything that may have changed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query":       {"type": "string", "description": "Search query."},
+                "max_results": {"type": "integer", "description": "Number of results (default 5)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "fetch_url",
+        "description": "Fetch and read the content of any URL (web page, API, docs, etc.).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to fetch."}
+            },
+            "required": ["url"],
+        },
+    },
+    # ── Code execution ────────────────────────────────────────────────────────
+    {
+        "name": "run_python",
+        "description": "Execute a Python code snippet on the server and return the output. Great for calculations, data processing, quick scripts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to run."}
+            },
+            "required": ["code"],
+        },
+    },
+    # ── Shell & Files ─────────────────────────────────────────────────────────
+    {
+        "name": "request_approval",
+        "description": "Ask Mohammed to approve an action before doing it. Use before any shell command that changes state or any file write.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action_description": {"type": "string", "description": "Clear description of what you are about to do."}
+            },
+            "required": ["action_description"],
+        },
+    },
+    {
+        "name": "run_shell_command",
+        "description": "Run a shell command on the server and return output. Use request_approval first for state-changing commands.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command":     {"type": "string", "description": "Shell command to run."},
+                "working_dir": {"type": "string", "description": "Working directory (optional, defaults to /opt/trading-agent)."},
+            },
+            "required": ["command"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "Read the contents of a file on the server.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to read."}
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": "Write content to a file on the server. Use request_approval first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":    {"type": "string", "description": "File path."},
+                "content": {"type": "string", "description": "Full file content."},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "list_directory",
+        "description": "List files and folders in a directory on the server.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory path (default: /opt/trading-agent)."}
+            },
+            "required": [],
+        },
+    },
     # ── Trading ───────────────────────────────────────────────────────────────
     {
         "name": "get_portfolio",
@@ -77,7 +227,7 @@ _TOOLS = [
     },
     {
         "name": "get_btc",
-        "description": "Get BTC/USD price, RSI, and any open BTC position.",
+        "description": "Get BTC/USD current price, RSI, and open BTC position.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -86,84 +236,17 @@ _TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "Number of trades (default 10)"}
+                "limit": {"type": "integer", "description": "Number of trades (default 10)."}
             },
             "required": [],
         },
     },
     {
         "name": "run_trading_cycle",
-        "description": "Trigger a full trading cycle. Always request_approval first.",
+        "description": "Trigger a full trading cycle. Use request_approval first.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
-    # ── Approval ──────────────────────────────────────────────────────────────
-    {
-        "name": "request_approval",
-        "description": (
-            "Send Mohammed an approval request with Approve/Deny buttons in Discord "
-            "before doing something risky (shell commands that change state, writing files, "
-            "running trades). Returns 'approved' or 'denied'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action_description": {
-                    "type": "string",
-                    "description": "One-line description of the action needing approval."
-                }
-            },
-            "required": ["action_description"],
-        },
-    },
-    # ── System / Files ────────────────────────────────────────────────────────
-    {
-        "name": "run_shell_command",
-        "description": "Run a shell command. request_approval first for state-changing commands.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "command":     {"type": "string", "description": "Shell command to run."},
-                "working_dir": {"type": "string", "description": "Working directory (optional)."},
-            },
-            "required": ["command"],
-        },
-    },
-    {
-        "name": "read_file",
-        "description": "Read the contents of a file.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path to read."}
-            },
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "write_file",
-        "description": "Write content to a file. request_approval first.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path":    {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["path", "content"],
-        },
-    },
-    {
-        "name": "list_directory",
-        "description": "List files and folders in a directory.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Directory path."}
-            },
-            "required": [],
-        },
-    },
 ]
-
 
 # ---------------------------------------------------------------------------
 # Approval UI
@@ -193,16 +276,14 @@ class ApprovalView(discord.ui.View):
         )
 
 
-async def _send_approval(channel: discord.TextChannel, description: str) -> bool:
+async def _send_approval(channel, description: str) -> bool:
     aid = uuid.uuid4().hex[:8]
     event = asyncio.Event()
     _pending[aid] = {"event": event, "approved": False}
-
     await channel.send(
         f"⚠️ **Approval needed**\n```\n{description}\n```",
         view=ApprovalView(aid),
     )
-
     try:
         await asyncio.wait_for(event.wait(), timeout=120.0)
         return _pending[aid]["approved"]
@@ -211,14 +292,79 @@ async def _send_approval(channel: discord.TextChannel, description: str) -> bool
     finally:
         _pending.pop(aid, None)
 
-
 # ---------------------------------------------------------------------------
 # Tool execution
 # ---------------------------------------------------------------------------
 
+_DEFAULT_DIR = "/opt/trading-agent"
+
 async def _exec_tool(name: str, inputs: dict, channel=None) -> str:
     try:
-        if name == "get_portfolio":
+        # ── Web ───────────────────────────────────────────────────────────────
+        if name == "web_search":
+            from duckduckgo_search import DDGS
+            results = []
+            with DDGS() as ddgs:
+                for r in ddgs.text(inputs["query"], max_results=inputs.get("max_results", 5)):
+                    results.append(f"**{r['title']}**\n{r['href']}\n{r['body']}\n")
+            return "\n---\n".join(results) if results else "No results found."
+
+        elif name == "fetch_url":
+            import urllib.request
+            req = urllib.request.Request(inputs["url"], headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+            # Strip HTML tags for readability
+            clean = re.sub(r"<[^>]+>", " ", raw)
+            clean = re.sub(r"\s+", " ", clean).strip()
+            return clean[:4000]
+
+        # ── Code execution ────────────────────────────────────────────────────
+        elif name == "run_python":
+            code = inputs["code"]
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True, text=True, timeout=30,
+                cwd=_DEFAULT_DIR,
+            )
+            out = (result.stdout + result.stderr).strip()
+            return out[:3000] if out else "(no output)"
+
+        # ── Approval ──────────────────────────────────────────────────────────
+        elif name == "request_approval":
+            if channel:
+                approved = await _send_approval(channel, inputs["action_description"])
+                return "approved" if approved else "denied"
+            return "approved"
+
+        # ── Shell & Files ─────────────────────────────────────────────────────
+        elif name == "run_shell_command":
+            cwd = inputs.get("working_dir") or _DEFAULT_DIR
+            result = subprocess.run(
+                inputs.get("command", ""), shell=True,
+                capture_output=True, text=True, timeout=60, cwd=cwd,
+            )
+            out = (result.stdout + result.stderr).strip()
+            return out[:3000] if out else "(no output)"
+
+        elif name == "read_file":
+            with open(inputs["path"], "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            return content[:4000]
+
+        elif name == "write_file":
+            os.makedirs(os.path.dirname(os.path.abspath(inputs["path"])), exist_ok=True)
+            with open(inputs["path"], "w", encoding="utf-8") as f:
+                f.write(inputs["content"])
+            return f"Written: {inputs['path']}"
+
+        elif name == "list_directory":
+            path = inputs.get("path") or _DEFAULT_DIR
+            items = sorted(os.listdir(path))
+            return "\n".join(items)
+
+        # ── Trading ───────────────────────────────────────────────────────────
+        elif name == "get_portfolio":
             from broker import alpaca
             return json.dumps(alpaca.get_portfolio())
 
@@ -241,49 +387,14 @@ async def _exec_tool(name: str, inputs: dict, channel=None) -> str:
             return json.dumps(db.get_recent_trades(inputs.get("limit", 10)), default=str)
 
         elif name == "run_trading_cycle":
-            subprocess.Popen([sys.executable, "main.py"])
+            subprocess.Popen([sys.executable, "main.py"], cwd=_DEFAULT_DIR)
             return "Trading cycle started."
-
-        elif name == "request_approval":
-            if channel:
-                approved = await _send_approval(channel, inputs["action_description"])
-                return "approved" if approved else "denied"
-            return "approved"
-
-        elif name == "run_shell_command":
-            cwd = inputs.get("working_dir") or os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..")
-            )
-            result = subprocess.run(
-                inputs.get("command", ""), shell=True, capture_output=True,
-                text=True, timeout=60, cwd=cwd,
-            )
-            out = (result.stdout + result.stderr).strip()
-            return out[:3000] if out else "(no output)"
-
-        elif name == "read_file":
-            with open(inputs["path"], "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-            return content[:4000]
-
-        elif name == "write_file":
-            os.makedirs(os.path.dirname(os.path.abspath(inputs["path"])), exist_ok=True)
-            with open(inputs["path"], "w", encoding="utf-8") as f:
-                f.write(inputs["content"])
-            return f"Written: {inputs['path']}"
-
-        elif name == "list_directory":
-            path = inputs.get("path") or os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..")
-            )
-            return "\n".join(sorted(os.listdir(path)))
 
         else:
             return f"Unknown tool: {name}"
 
     except Exception as e:
-        return f"Tool error ({name}): {e}"
-
+        return f"Error ({name}): {e}"
 
 # ---------------------------------------------------------------------------
 # Claude conversation
@@ -299,20 +410,17 @@ def _get_system(channel_name: str) -> str:
 
 async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channel=None) -> str:
     import anthropic
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
 
-    history = _history.setdefault(channel_id, [])
-    history.append({"role": "user", "content": user_text})
-    if len(history) > 20:
-        history[:] = history[-20:]
-
-    messages = list(history)
+    # Save user message and load history
+    _mem_save(channel_id, "user", user_text)
+    messages = _mem_load(channel_id, limit=20)
     system = _get_system(channel_name)
 
     while True:
-        response = client.messages.create(
+        response = await client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2048,
+            max_tokens=4096,
             system=system,
             tools=_TOOLS,
             messages=messages,
@@ -330,35 +438,32 @@ async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channe
                         "content": result,
                     })
             messages.append({"role": "user", "content": results})
+
         else:
             reply = "".join(getattr(b, "text", "") for b in response.content).strip()
-            history.append({"role": "assistant", "content": reply})
+            _mem_save(channel_id, "assistant", reply)
             return reply or "..."
 
-
 # ---------------------------------------------------------------------------
-# Send trade alert to Discord (replaces Telegram send)
+# Send trade alert to Discord
 # ---------------------------------------------------------------------------
 
-_bot_instance: "JarvisBot | None" = None
+_bot_instance = None
 
 
 def send(text: str):
-    """Push a trade alert to the Discord alert channel."""
     if not config.DISCORD_TOKEN or not config.DISCORD_ALERT_CHANNEL_ID:
-        print(f"  [Discord] Not configured — alert not sent:\n{text[:80]}")
+        print(f"  [Discord] Not configured — alert dropped:\n{text[:80]}")
         return
 
     async def _send():
         if _bot_instance and not _bot_instance.is_closed():
             ch = _bot_instance.get_channel(config.DISCORD_ALERT_CHANNEL_ID)
             if ch:
-                # Strip HTML tags from Telegram-style messages
-                import re
                 clean = re.sub(r"<[^>]+>", "", text)
-                await ch.send(f"```\n{clean}\n```")
+                await ch.send(f"```\n{clean[:1900]}\n```")
                 return
-        print(f"  [Discord] Bot not ready — alert not sent:\n{text[:80]}")
+        print(f"  [Discord] Bot not ready — alert dropped:\n{text[:80]}")
 
     try:
         loop = asyncio.get_event_loop()
@@ -369,40 +474,35 @@ def send(text: str):
     except Exception as e:
         print(f"  [Discord] Send failed: {e}")
 
-
 # ---------------------------------------------------------------------------
 # Bot
 # ---------------------------------------------------------------------------
 
-class JarvisBot(commands.Bot):
+class KimmyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        await self.tree.sync()
-        print("[Discord] Slash commands synced.")
+        try:
+            await asyncio.wait_for(self.tree.sync(), timeout=15)
+            print("[Discord] Slash commands synced.")
+        except Exception as e:
+            print(f"[Discord] Slash sync skipped: {e}")
 
     async def on_ready(self):
         global _bot_instance
         _bot_instance = self
-        print(f"[Discord] Jarvis online as {self.user} ({self.user.id})")
-        print(f"[Discord] Serving {len(self.guilds)} server(s)")
+        print(f"[Discord] Kimmy online as {self.user}")
+        for g in self.guilds:
+            print(f"[Discord] Server: {g.name}")
+        print("[Discord] Ready.")
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
             return
 
-        # Respond if: mentioned, DM, or bot's name appears in message
-        is_dm = isinstance(message.channel, discord.DMChannel)
-        mentioned = self.user in message.mentions
-        named = self.user.name.lower() in message.content.lower() if self.user else False
-
-        if not (is_dm or mentioned or named):
-            return
-
-        # Strip the mention from the content
         content = message.content
         if self.user:
             content = content.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
@@ -416,59 +516,60 @@ class JarvisBot(commands.Bot):
                 reply = await _ask_claude(
                     message.channel.id, channel_name, content, channel=message.channel
                 )
-                # Discord max message length is 2000 chars
-                for i in range(0, len(reply), 1900):
-                    await message.reply(reply[i:i + 1900])
+                # Split into ≤1900-char chunks (leave room for code block markers)
+                for chunk in textwrap.wrap(reply, 1900, break_long_words=False, replace_whitespace=False):
+                    await message.reply(chunk)
             except Exception as e:
                 await message.reply(f"Error: {e}")
 
         await self.process_commands(message)
 
 
-def _setup_slash_commands(bot: JarvisBot):
+def _setup_slash_commands(bot: KimmyBot):
     tree = bot.tree
 
     @tree.command(name="clear", description="Clear this channel's conversation history")
     async def slash_clear(interaction: discord.Interaction):
-        _history.pop(interaction.channel_id, None)
-        await interaction.response.send_message("Conversation cleared.", ephemeral=True)
+        _mem_clear(interaction.channel_id)
+        await interaction.response.send_message("Memory cleared for this channel.", ephemeral=True)
 
-    @tree.command(name="status", description="Check Jarvis status")
+    @tree.command(name="status", description="Kimmy status")
     async def slash_status(interaction: discord.Interaction):
         await interaction.response.send_message(
-            f"**Jarvis online** | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC\n"
-            f"Channels active: {len(_history)} | Pending approvals: {len(_pending)}",
+            f"**Kimmy online** | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC\n"
+            f"Running on DigitalOcean cloud server.",
             ephemeral=True,
         )
 
-    @tree.command(name="help", description="Show what Jarvis can do")
+    @tree.command(name="help", description="What Kimmy can do")
     async def slash_help(interaction: discord.Interaction):
         await interaction.response.send_message(
-            "**Jarvis — Claude AI Agent**\n\n"
-            "Just mention me or use my name in any message.\n\n"
-            "**What I can do:**\n"
-            "• Answer any question\n"
-            "• Run shell commands on the trading PC\n"
-            "• Read and write files\n"
-            "• Check portfolio, positions, BTC\n"
-            "• Trigger trading cycles\n"
-            "• Approve/deny actions with buttons\n\n"
-            "**Channel personas:**\n"
-            "`#trading-*` → Trading expert\n"
-            "`#code-*` → Senior engineer\n"
-            "`#research-*` → Research analyst\n"
+            "**Kimmy — Your Personal AI Assistant**\n\n"
+            "Just type anything — no need to mention me.\n\n"
+            "**I can:**\n"
+            "• Answer any question on any topic\n"
+            "• Search the web for current info\n"
+            "• Read web pages and URLs\n"
+            "• Write and run code (Python, bash, etc.)\n"
+            "• Read and edit files on the server\n"
+            "• Manage your trading agent\n"
+            "• Remember our conversation history\n\n"
+            "**Channel modes:**\n"
+            "`#trading-*` → Markets & trading expert\n"
+            "`#code-*` → Software engineering\n"
+            "`#research-*` → Research & analysis\n"
             "Anything else → General assistant\n\n"
-            "**Slash commands:** `/clear` `/status` `/help`",
+            "**Commands:** `/clear` `/status` `/help`",
             ephemeral=True,
         )
 
 
 def run_bot():
     if not config.DISCORD_TOKEN:
-        print("[Discord] DISCORD_TOKEN not set — bot not started.")
+        print("[Discord] DISCORD_TOKEN not set.")
         return
 
-    bot = JarvisBot()
+    bot = KimmyBot()
     _setup_slash_commands(bot)
-    print("[Discord] Starting Jarvis...")
+    print("[Discord] Starting Kimmy...")
     bot.run(config.DISCORD_TOKEN)
