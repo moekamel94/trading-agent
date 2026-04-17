@@ -17,7 +17,7 @@ from agent import claude_agent
 from risk import manager
 from summaries import reporter
 from basket import manager as basket_mgr
-from notifications import telegram_bot as tg
+from notifications import discord_bot as tg
 
 # Load S&P 500 list once at startup for options eligibility check
 _SP500 = config.get_sp500_tickers()
@@ -225,10 +225,15 @@ def main():
     parser.add_argument("--close-summary",  action="store_true")
     parser.add_argument("--basket-refresh", action="store_true")
     parser.add_argument("--bot",            action="store_true")
+    parser.add_argument("--discord",        action="store_true")
     args = parser.parse_args()
 
-    if args.bot:
-        tg.run_bot()
+    if args.discord:
+        from notifications import discord_bot
+        discord_bot.run_bot()
+    elif args.bot:
+        from notifications import telegram_bot
+        telegram_bot.run_bot()
     elif args.btc_check:
         run_btc_check()
     elif args.premarket:

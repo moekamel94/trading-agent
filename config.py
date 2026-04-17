@@ -14,6 +14,11 @@ NEWDATA_API_KEY   = os.getenv("NEWDATA_API_KEY", "")
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# --- Discord ---
+DISCORD_TOKEN            = os.getenv("DISCORD_TOKEN", "")
+_discord_ch = os.getenv("DISCORD_ALERT_CHANNEL_ID", "0")
+DISCORD_ALERT_CHANNEL_ID = int(_discord_ch) if _discord_ch.isdigit() else 0
+
 # --- Watchlist ---
 STOCK_WATCHLIST = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
