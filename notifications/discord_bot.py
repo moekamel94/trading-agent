@@ -214,6 +214,45 @@ _TOOLS = [
             "required": [],
         },
     },
+    # ── Discord management ────────────────────────────────────────────────────
+    {
+        "name": "create_discord_channel",
+        "description": (
+            "Create a new text channel in the Discord server. "
+            "The channel name determines its agent persona automatically: "
+            "trading-* = trading expert, code-* = engineer, research-* = analyst, other = general."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_name": {
+                    "type": "string",
+                    "description": "Channel name (lowercase, hyphens instead of spaces, e.g. 'crypto-research')."
+                },
+                "topic": {
+                    "type": "string",
+                    "description": "Optional channel topic/description shown at the top."
+                },
+            },
+            "required": ["channel_name"],
+        },
+    },
+    {
+        "name": "list_discord_channels",
+        "description": "List all text channels in the Discord server.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "delete_discord_channel",
+        "description": "Delete a Discord channel by name. Always request_approval first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_name": {"type": "string", "description": "Exact channel name to delete."}
+            },
+            "required": ["channel_name"],
+        },
+    },
     # ── Trading ───────────────────────────────────────────────────────────────
     {
         "name": "get_portfolio",
@@ -362,6 +401,47 @@ async def _exec_tool(name: str, inputs: dict, channel=None) -> str:
             path = inputs.get("path") or _DEFAULT_DIR
             items = sorted(os.listdir(path))
             return "\n".join(items)
+
+        # ── Discord management ────────────────────────────────────────────────
+        elif name == "create_discord_channel":
+            if not _bot_instance:
+                return "Bot not ready."
+            guild = next((g for g in _bot_instance.guilds), None)
+            if not guild:
+                return "No Discord server found."
+            ch_name = inputs["channel_name"].lower().replace(" ", "-")
+            topic = inputs.get("topic", "")
+            existing = discord.utils.get(guild.text_channels, name=ch_name)
+            if existing:
+                return f"Channel #{ch_name} already exists."
+            new_ch = await guild.create_text_channel(ch_name, topic=topic)
+            await new_ch.send(
+                f"👋 **New channel created!**\n"
+                f"I'm Kimmy — your AI assistant for this channel.\n"
+                f"Just type anything to get started."
+            )
+            return f"Created #{ch_name} and sent a welcome message."
+
+        elif name == "list_discord_channels":
+            if not _bot_instance:
+                return "Bot not ready."
+            guild = next((g for g in _bot_instance.guilds), None)
+            if not guild:
+                return "No server found."
+            channels = [f"#{c.name}" for c in guild.text_channels]
+            return "\n".join(channels)
+
+        elif name == "delete_discord_channel":
+            if not _bot_instance:
+                return "Bot not ready."
+            guild = next((g for g in _bot_instance.guilds), None)
+            if not guild:
+                return "No server found."
+            ch = discord.utils.get(guild.text_channels, name=inputs["channel_name"])
+            if not ch:
+                return f"Channel #{inputs['channel_name']} not found."
+            await ch.delete(reason="Deleted by Kimmy on user request")
+            return f"Deleted #{inputs['channel_name']}."
 
         # ── Trading ───────────────────────────────────────────────────────────
         elif name == "get_portfolio":
