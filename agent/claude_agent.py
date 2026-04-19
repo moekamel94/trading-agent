@@ -7,6 +7,14 @@ _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 _SYSTEM = """You are Kimmy, a disciplined position/swing trading portfolio manager.
 Goal: maximize profit on multi-day to multi-month holds. Never day-trade.
 
+You receive a complete picture — 15+ data sources synthesized into a unified view of
+each stock: technicals, fundamentals, financial data (Finnhub/AV/FMP/Polygon), analyst
+consensus, DCF valuation, social sentiment, web research, congress/insider activity,
+future growth score, and macro context.
+
+Your task: read the holistic synthesis and all raw signals, then make ONE decision.
+No single signal rules. Weigh the full picture — bull signals vs bear signals vs risks.
+
 BASKET CONTEXT:
 Stocks come from S&P 500, Nasdaq-100 (QQQ), and component holdings of:
 • QTUM — Defiance Quantum ETF (quantum computing, semiconductors, photonics)
@@ -15,139 +23,62 @@ Stocks come from S&P 500, Nasdaq-100 (QQQ), and component holdings of:
 Congress-bought tickers are also auto-added and carry extra conviction weight.
 
 ═══════════════════════════════════════════════════════
-STOCK ENTRY — scoring system, not all-or-nothing
-═══════════════════════════════════════════════════════
-
-HARD BLOCKS (these alone stop a BUY — very few):
+HARD BLOCKS — these alone stop a BUY (very few, true extremes only):
 • Market extreme fear: Fear & Greed < 15
-• RSI below 25 (crash/panic) or above 78 (extreme overbought)
+• RSI below 25 or above 78
 • Earnings in ≤ 3 days (binary event risk)
 • Congress selling + negative sentiment simultaneously
+═══════════════════════════════════════════════════════
 
-FUNDAMENTALS — need 3 of 5 to pass:
-• EPS growth YoY > 0%
-• Revenue growth YoY > 0%
-• P/E ratio < 80 (growth stocks may have high P/E — use judgment)
-• Profit margin > 5%
-• Free cash flow positive
+═══════════════════════════════════════════════════════
+HIGH-GROWTH STOCKS (Future Growth Score >= 70):
+• Can have high P/E — they are growing INTO their valuation
+• PEG < 1.5 = buying growth cheaply even if P/E looks high
+• Rule of 40 >= 40 = healthy growth tech company
+• HOLD longer — don't sell on normal pullbacks if thesis is intact
+• Prioritize: revenue acceleration, expanding margins, earnings beats
+• Wider stop-loss justified — growth stocks compound fast
+═══════════════════════════════════════════════════════
 
-MOMENTUM — need 2 of 4 to pass:
-• 1-month return > −5% (not in freefall)
-• 3-month return > 0% (positive trend)
-• Volume ratio > 0.8x 20-day average
-• MACD not in bearish crossover
-
-TECHNICAL — need 2 of 3 to pass:
-• Price above SMA50 (or recent golden cross)
-• Price above SMA200 (or golden cross active)
-• Not at Bollinger Band upper (not short-term overbought)
-
+═══════════════════════════════════════════════════════
 CONVICTION BOOSTERS (raise your confidence score):
-• Congress buying this stock in last 60 days → +2 confidence
-• Net insider buying (Form 4) → +1 confidence
-• Analyst consensus = buy/strong buy → +1 confidence
-• Analyst price target > current price + 15% → +1 confidence
-• DCF value above current price → +1 confidence
-• Social sentiment bullish → +1 confidence
-• Golden cross active → +1 confidence
+• Congress buying last 60 days → strong conviction signal
+• Net insider buying (Form 4) → positive signal
+• Analyst consensus buy/strong buy → +conviction
+• Analyst price target > current + 15% → upside confirmed
+• DCF value above current price → fundamentally undervalued
+• Social sentiment bullish → retail momentum behind it
+• Golden cross active → technical tailwind
+• High growth score in tailwind sector → structural edge
+═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
-STOCK EXIT — sell on real signals, not on arbitrary targets
-═══════════════════════════════════════════════════════
-• Stop loss: −8% from entry (handled by risk manager, you don't need to trigger)
+EXIT SIGNALS — sell on real signals, not arbitrary targets:
+• Stop loss: −8% from entry (handled by risk manager)
 • Dead money: held > 90 days AND profit < +3% → SELL
-• On PROFITABLE positions — need 2 of these bearish signals to SELL:
-  - RSI > 80
-  - MACD bearish crossover
-  - Death cross (SMA50 < SMA200)
-  - Bollinger Band upper breach + MACD bearish
-• Earnings in < 5 days AND position > +10% profit → SELL (lock in before risk)
+• On PROFITABLE positions — need 2 bearish signals to SELL:
+  - RSI > 80 | MACD bearish | Death cross | BB upper + MACD bearish
+• Earnings in < 5 days AND position > +10% profit → SELL (lock in)
 • Analyst target cut below current price → SELL
 • Congress net selling this ticker → SELL
 • 3+ insider sell filings in one week → SELL
 NO fixed take-profit ceiling — let winners run.
-
-═══════════════════════════════════════════════════════
-FUTURE GROWTH STOCKS — beat the market by finding winners early
 ═══════════════════════════════════════════════════════
 
-Every ticker gets a Future Growth Score (0-100). Use it to calibrate your decision:
-
-HIGH GROWTH (score >= 70):
-• These stocks CAN have high P/E — they are growing INTO their valuation
-• PEG < 1.5 means you are buying growth cheaply, even if P/E looks high
-• Wider stop-loss justified — growth stocks are volatile but compound fast
-• Prioritize: revenue acceleration, expanding margins, consistent earnings beats
-• Rule of 40 >= 40 = healthy growth tech company
-• HOLD these longer — don't sell on normal pullbacks if thesis is intact
-
-STEADY COMPOUNDER (score 50-69):
-• Apply standard criteria — these are quality but not exceptional growth
-• Good for stable allocation, lower volatility
-
-VALUE PLAY (score 35-49):
-• Look for catalyst to unlock value — why would this re-rate?
-• Don't hold indefinitely without a thesis
-
-DECLINING (score < 35):
-• Avoid new entries, flag open positions for review
-
-TAILWIND SECTORS — structural growth over next 3-5 years:
-• ai_robotics: AI infrastructure, GPU, robotics automation
-• quantum: quantum computing hardware and software
-• biotech: drug innovation, GLP-1, gene therapy
-• clean_energy: solar, grid storage, electrification
-• cybersecurity: zero-trust, cloud security
-• space_defense: satellite, defense spending cycle
-• fintech: digital payments, embedded finance
-
-Stocks in tailwind sectors with score >= 60 are PRIORITY HOLDS.
-Be willing to size UP (higher allocation) when growth score is strong.
-
 ═══════════════════════════════════════════════════════
-BTC/USD ENTRY — pure momentum + macro, no fundamentals
+BTC/USD — pure momentum + macro, no fundamentals:
+• Hard blocks: VIX > 38, F&G < 20, RSI < 30 or > 75, death cross
+• Must pass: 2 of 3 momentum checks, price above SMA50 OR SMA200
+• Exit: RSI > 82 + MACD bearish, or death cross
 ═══════════════════════════════════════════════════════
 
-HARD BLOCKS:
-• VIX > 38 (equity panic drags crypto down)
-• Fear & Greed < 20
-• RSI below 30 or above 75
-• Death cross active (SMA50 < SMA200)
-• MACD bearish AND sentiment negative simultaneously
-
-MUST PASS — 2 of 3:
-• 1-month return > −10%
-• 3-month return > −15%
-• MACD not bearish
-
-MUST PASS — trend:
-• Price above SMA50 OR above SMA200 (at least one)
-
-BTC CONVICTION BOOSTERS:
-• Golden cross active → +2 confidence
-• Price above both SMA50 and SMA200 → +1
-• Social sentiment bullish → +1
-• Fear & Greed > 50 → +1
-• Volume surge (ratio > 1.5x) → +1
-
 ═══════════════════════════════════════════════════════
-BTC EXIT
-═══════════════════════════════════════════════════════
-• Stop loss: −12% (wider for crypto volatility — handled by risk manager)
-• RSI > 82 AND MACD bearish → SELL
-• Death cross → SELL
-• Fear & Greed > 80 on profitable position → consider SELL (greed peak)
-NO fixed take-profit for BTC either.
-
-═══════════════════════════════════════════════════════
-POSITION SIZING
-═══════════════════════════════════════════════════════
+POSITION SIZING:
 • Confidence 7 → 4% | 8 → 5% | 9 → 6% | 10 → 8%
-• Congress buying bonus: +2% on top
-• Insider buying bonus: +1% on top
-• Hard cap: 8% per position
-• Max 15 open positions
+• Congress buying bonus: +2% | Insider buying bonus: +1%
+• Hard cap: 8% per position | Max 15 open positions
 • Max 20% crypto, 20% options
+═══════════════════════════════════════════════════════
 
 HOLD is ALWAYS the safe default. Only BUY when multiple signals clearly agree.
 Return valid JSON only — no prose, no markdown fences."""
@@ -157,189 +88,358 @@ Return exactly this JSON:
 {
   "action": "BUY" | "SELL" | "HOLD",
   "confidence": <integer 1-10>,
-  "allocation_pct": <float 0.0-5.0>,
+  "allocation_pct": <float 0.0-8.0>,
   "asset_type": "stock" | "crypto" | "option",
   "option_direction": "call" | "put" | null,
-  "rationale": "<one concise sentence stating which criteria drove the decision>"
+  "rationale": "<one concise sentence stating which signals drove the decision>"
 }
 """
 
 
-def _format_financial_data(fin: dict) -> str:
-    if not fin:
-        return ""
-    active = fin.get("sources_active", [])
-    if not active:
-        return ""
-    blocks = []
+def _build_synthesis(symbol: str, signals: dict) -> str:
+    """
+    Pre-process ALL signals into a unified bull/bear/risk view.
+    This is shown to Claude so it synthesizes holistically instead of
+    scanning 15 separate data blocks independently.
+    """
+    tech    = signals.get("technical", {})
+    fund    = signals.get("fundamentals", {})
+    sent    = signals.get("sentiment", {})
+    cong    = signals.get("congressional", {})
+    insd    = signals.get("insider", {})
+    soc     = signals.get("social", {})
+    mkt     = signals.get("market_context", {})
+    earn    = signals.get("earnings", {})
+    fin     = signals.get("financial_data", {}) or {}
+    growth  = signals.get("future_growth", {})
+    research = signals.get("research", {})
+
+    bull = []
+    bear = []
+    risks = []
+
+    # ── Technical ─────────────────────────────────────────────────────────────
+    rsi = tech.get("rsi")
+    if rsi is not None:
+        if rsi < 40:    bear.append(f"RSI={rsi:.0f} (weak/oversold)")
+        elif rsi > 65:  bear.append(f"RSI={rsi:.0f} (elevated, overbought risk)")
+        else:           bull.append(f"RSI={rsi:.0f} (healthy range)")
+
+    if tech.get("golden_cross"):  bull.append("golden cross active (SMA50 > SMA200)")
+    if tech.get("death_cross"):   bear.append("death cross active (SMA50 < SMA200)")
+
+    macd = tech.get("macd_cross")
+    if macd == "bullish":   bull.append("MACD bullish crossover")
+    elif macd == "bearish": bear.append("MACD bearish crossover")
+
+    price  = tech.get("price")
+    sma50  = tech.get("sma50")
+    sma200 = tech.get("sma200")
+    if price and sma50:
+        if price > sma50:   bull.append(f"price above SMA50 (${sma50:.0f})")
+        else:               bear.append(f"price below SMA50 (${sma50:.0f})")
+    if price and sma200:
+        if price > sma200:  bull.append(f"price above SMA200 (${sma200:.0f})")
+        else:               bear.append(f"price below SMA200 (${sma200:.0f})")
+
+    r1m = tech.get("return_1m")
+    r3m = tech.get("return_3m")
+    if r1m is not None:
+        if r1m > 5:     bull.append(f"strong 1-month return +{r1m:.1f}%")
+        elif r1m < -5:  bear.append(f"weak 1-month return {r1m:.1f}%")
+    if r3m is not None:
+        if r3m > 10:    bull.append(f"strong 3-month trend +{r3m:.1f}%")
+        elif r3m < 0:   bear.append(f"negative 3-month trend {r3m:.1f}%")
+
+    vr = tech.get("volume_ratio")
+    if vr and vr > 1.3: bull.append(f"volume surge {vr:.1f}x 20-day avg")
+
+    bb = tech.get("bb_position")
+    if bb == "above_upper": bear.append("at Bollinger upper band (short-term overbought)")
+
+    # ── Fundamentals ──────────────────────────────────────────────────────────
+    eps = fund.get("eps_growth_yoy")
+    if eps is not None:
+        if eps > 20:    bull.append(f"strong EPS growth +{eps:.0f}% YoY")
+        elif eps > 0:   bull.append(f"positive EPS growth +{eps:.0f}%")
+        else:           bear.append(f"EPS declining {eps:.0f}%")
+
+    rev = fund.get("revenue_growth")
+    if rev is not None:
+        if rev > 20:    bull.append(f"strong revenue growth +{rev:.0f}%")
+        elif rev > 0:   bull.append(f"positive revenue growth +{rev:.0f}%")
+        else:           bear.append(f"revenue declining {rev:.0f}%")
+
+    pe = fund.get("pe_ratio")
+    g_score = growth.get("score", 0)
+    if pe is not None:
+        if pe < 20 and pe > 0:          bull.append(f"cheap valuation P/E={pe:.0f}")
+        elif pe > 80 and g_score < 70:  bear.append(f"expensive P/E={pe:.0f} (not justified by growth)")
+
+    margin = fund.get("profit_margin")
+    if margin is not None:
+        if margin > 15:  bull.append(f"strong margin {margin:.0f}%")
+        elif margin < 5: bear.append(f"thin/negative margin {margin:.0f}%")
+
+    # ── Financial data ────────────────────────────────────────────────────────
+    fmp = fin.get("fmp", {})
+    if fmp:
+        dcf = fmp.get("dcf_value")
+        if dcf and price and price > 0:
+            upside = (dcf - price) / price * 100
+            if upside > 15:     bull.append(f"DCF=${dcf:.0f} — stock undervalued by {upside:.0f}%")
+            elif upside < -10:  bear.append(f"DCF=${dcf:.0f} — stock overvalued by {abs(upside):.0f}%")
 
     fh = fin.get("finnhub", {})
-    if fh:
-        q = fh.get("quote", {})
-        recs = fh.get("analyst_recommendations", {})
-        news = fh.get("news_headlines", [])
-        parts = []
-        if q.get("current_price"):
-            parts.append(f"price=${q['current_price']} ({q.get('pct_change_day','?')}% today)")
-        if recs:
-            parts.append(f"analyst: {recs.get('strong_buy',0)} strong buy / {recs.get('buy',0)} buy / {recs.get('hold',0)} hold / {recs.get('sell',0)} sell")
-        if news:
-            parts.append("news: " + " | ".join(news[:3]))
-        if parts:
-            blocks.append("Finnhub (real-time): " + " — ".join(parts))
+    recs = (fh or {}).get("analyst_recommendations", {})
+    if recs:
+        total = sum([recs.get("strong_buy", 0), recs.get("buy", 0),
+                     recs.get("hold", 0), recs.get("sell", 0), recs.get("strong_sell", 0)])
+        buys = recs.get("strong_buy", 0) + recs.get("buy", 0)
+        if total > 0:
+            buy_pct = buys / total
+            if buy_pct > 0.60:  bull.append(f"analysts bullish ({buys}/{total} buy ratings)")
+            elif buy_pct < 0.30: bear.append(f"analysts bearish (only {buys}/{total} buy ratings)")
 
     av = fin.get("alpha_vantage", {})
-    if av:
-        parts = []
-        if av.get("rsi"):
-            parts.append(f"RSI={av['rsi']}")
-        if av.get("macd"):
-            parts.append(f"MACD={av['macd']} sig={av.get('macd_signal','?')}")
-        if av.get("analyst_target"):
-            parts.append(f"analyst target=${av['analyst_target']}")
-        if av.get("52w_high"):
-            parts.append(f"52w {av.get('52w_low')}–{av['52w_high']}")
-        if parts:
-            blocks.append("Alpha Vantage (indicators): " + " | ".join(parts))
+    if av and price and price > 0:
+        at = av.get("analyst_target")
+        if at:
+            try:
+                at_f = float(at)
+                upside = (at_f - price) / price * 100
+                if upside > 15:    bull.append(f"analyst price target ${at} (+{upside:.0f}% upside)")
+                elif upside < -5:  bear.append(f"analyst target ${at} below current price")
+            except (ValueError, TypeError):
+                pass
 
-    td = fin.get("twelve_data", {})
-    if td:
-        parts = []
-        if td.get("price"):
-            parts.append(f"price={td['price']}")
-        if td.get("pct_change"):
-            parts.append(f"chg={td['pct_change']}%")
-        if td.get("is_market_open") is not None:
-            parts.append(f"market={'open' if td['is_market_open'] else 'closed'}")
-        if parts:
-            blocks.append("Twelve Data: " + " | ".join(parts))
+    # ── Future Growth Score ───────────────────────────────────────────────────
+    if g_score >= 70:
+        g_cls = growth.get("classification", "").replace("_", " ")
+        bull.append(f"HIGH GROWTH company — score {g_score}/100 ({g_cls})")
+        winds = growth.get("tailwinds", [])
+        if winds: bull.append(f"structural tailwinds: {', '.join(winds)}")
+        peg = growth.get("peg_ratio")
+        if peg and 0 < peg < 1.5: bull.append(f"PEG={peg:.1f} — buying growth cheaply")
+        r40 = growth.get("rule_of_40")
+        if r40 and r40 >= 40: bull.append(f"Rule of 40 = {r40:.0f} (healthy growth company)")
+        beat = growth.get("beat_rate_pct")
+        trend = growth.get("surprise_trend", "")
+        if beat and beat >= 75: bull.append(f"earnings beat rate {beat:.0f}% ({trend} trend)")
+        upside_g = growth.get("target_upside")
+        if upside_g and upside_g > 20: bull.append(f"analyst consensus target upside {upside_g:.0f}%")
+    elif g_score >= 50:
+        bull.append(f"steady compounder — growth score {g_score}/100")
+        winds = growth.get("tailwinds", [])
+        if winds: bull.append(f"in tailwind sectors: {', '.join(winds)}")
+    elif 0 < g_score < 35:
+        bear.append(f"low/declining growth company — score {g_score}/100")
+
+    # ── Congress & Insider ────────────────────────────────────────────────────
+    cong_sig = cong.get("net_signal")
+    if cong_sig == "bullish":   bull.append("congress members NET BUYING (last 60 days) — strong conviction signal")
+    elif cong_sig == "bearish": bear.append("congress members NET SELLING — insider government signal")
+
+    insd_sig = insd.get("net_signal")
+    if insd_sig == "bullish":   bull.append("corporate insiders net buying (Form 4)")
+    elif insd_sig == "bearish": bear.append("corporate insiders net selling (Form 4)")
+
+    # ── Sentiment & Social ────────────────────────────────────────────────────
+    sent_label = sent.get("label")
+    if sent_label == "positive": bull.append("news/web sentiment positive")
+    elif sent_label == "negative": bear.append("news/web sentiment negative")
+
+    soc_label = (soc or {}).get("combined_label")
+    if soc_label == "bullish":   bull.append("social sentiment bullish (Reddit/StockTwits)")
+    elif soc_label == "bearish": bear.append("social sentiment bearish")
+
+    # ── Market Context ────────────────────────────────────────────────────────
+    fg = (mkt.get("fear_and_greed") or {}).get("score")
+    vix_val = (mkt.get("vix") or {}).get("vix")
+    if fg is not None:
+        if fg > 70:    bear.append(f"extreme market greed (F&G={fg}) — crowded, late-cycle risk")
+        elif fg > 55:  bear.append(f"market elevated greed (F&G={fg})")
+        elif fg < 25:  bear.append(f"market fear (F&G={fg}) — macro headwind for new buys")
+        else:          bull.append(f"market sentiment healthy (F&G={fg})")
+    if vix_val:
+        if vix_val > 25:  bear.append(f"elevated VIX={vix_val:.1f} — volatility risk")
+        elif vix_val < 18: bull.append(f"low VIX={vix_val:.1f} — calm market environment")
+
+    # ── Earnings risk ─────────────────────────────────────────────────────────
+    if (earn or {}).get("earnings_soon"):
+        days_to = earn.get("days_to_earnings", "soon")
+        risks.append(f"EARNINGS IN {days_to} DAYS — binary event, elevated risk")
+        eps_est = earn.get("eps_estimate")
+        rev_est = earn.get("revenue_estimate")
+        if eps_est or rev_est:
+            risks.append(f"  estimates: EPS={eps_est} Rev={rev_est}")
+
+    # ── Research highlights ───────────────────────────────────────────────────
+    snips = (research or {}).get("snippets", [])
+    if snips:
+        bull_keywords = {"surge", "beat", "record", "growth", "launch", "partner",
+                         "upgrade", "buy", "strong", "wins", "raises", "expand"}
+        bear_keywords = {"miss", "decline", "loss", "lawsuit", "downgrade",
+                         "cut", "risk", "fraud", "probe", "recall", "warns"}
+        for s in snips[:8]:
+            sl = s.lower()
+            if any(w in sl for w in bull_keywords): bull.append(f"news: {s[:90]}")
+            elif any(w in sl for w in bear_keywords): bear.append(f"news: {s[:90]}")
+        # Deduplicate (same snippet shouldn't appear twice)
+        bull = list(dict.fromkeys(bull))
+        bear = list(dict.fromkeys(bear))
+
+    # ── Build output ──────────────────────────────────────────────────────────
+    lines = [f"=== HOLISTIC SYNTHESIS: {symbol} ==="]
+
+    if bull:
+        lines.append("\nBULL SIGNALS:")
+        for b in bull: lines.append(f"  + {b}")
+
+    if bear:
+        lines.append("\nBEAR SIGNALS:")
+        for b in bear: lines.append(f"  - {b}")
+
+    if risks:
+        lines.append("\nRISK FLAGS:")
+        for r in risks: lines.append(f"  ! {r}")
+
+    bull_n = len(bull)
+    bear_n = len(bear)
+    if bull_n == 0 and bear_n == 0:
+        balance = "INSUFFICIENT DATA"
+    elif bear_n == 0 or bull_n >= bear_n * 2.5:
+        balance = "STRONGLY BULLISH"
+    elif bull_n >= bear_n * 1.5:
+        balance = "BULLISH"
+    elif bull_n == 0 or bear_n >= bull_n * 2.5:
+        balance = "STRONGLY BEARISH"
+    elif bear_n >= bull_n * 1.5:
+        balance = "BEARISH"
+    else:
+        balance = "MIXED — use judgment"
+
+    lines.append(f"\nSignal balance: {bull_n} bull vs {bear_n} bear -> {balance}")
+    lines.append("=" * 50)
+
+    return "\n".join(lines)
+
+
+def _format_raw_signals(signals: dict) -> str:
+    """Compact view of all raw signal data — for Claude to reference details."""
+    tech   = signals.get("technical", {})
+    fund   = signals.get("fundamentals", {})
+    fin    = signals.get("financial_data", {}) or {}
+    soc    = signals.get("social", {})
+    mkt    = signals.get("market_context", {})
+    earn   = signals.get("earnings", {})
+    growth = signals.get("future_growth", {})
+
+    parts = []
+
+    # Technical snapshot
+    t_items = []
+    for k in ("price", "rsi", "macd_cross", "bb_position", "golden_cross", "death_cross",
+               "sma50", "sma200", "return_1m", "return_3m", "volume_ratio"):
+        v = tech.get(k)
+        if v is not None: t_items.append(f"{k}={v}")
+    if t_items: parts.append("Technical: " + " | ".join(t_items))
+
+    # Fundamentals snapshot
+    f_items = []
+    for k in ("eps_growth_yoy", "revenue_growth", "pe_ratio", "profit_margin"):
+        v = fund.get(k)
+        if v is not None: f_items.append(f"{k}={v}")
+    if f_items: parts.append("Fundamentals: " + " | ".join(f_items))
+
+    # Growth snapshot
+    g_items = []
+    for k in ("score", "classification", "peg_ratio", "forward_pe", "revenue_growth",
+               "earnings_growth", "rule_of_40", "target_upside", "beat_rate_pct",
+               "surprise_trend", "gross_margin"):
+        v = growth.get(k)
+        if v is not None: g_items.append(f"{k}={v}")
+    if growth.get("tailwinds"): g_items.append(f"tailwinds={growth['tailwinds']}")
+    if growth.get("breakdown"):
+        bd = growth["breakdown"]
+        g_items.append(f"breakdown=momentum:{bd.get('growth_momentum',0)}/30 quality:{bd.get('growth_quality',0)}/25 analysts:{bd.get('analyst_conviction',0)}/25 execution:{bd.get('earnings_execution',0)}/20")
+    if g_items: parts.append("Future Growth: " + " | ".join(str(x) for x in g_items))
+
+    # Financial data
+    fh = fin.get("finnhub", {})
+    if fh:
+        q    = fh.get("quote", {})
+        recs = fh.get("analyst_recommendations", {})
+        news = fh.get("news_headlines", [])
+        fh_parts = []
+        if q.get("current_price"): fh_parts.append(f"price=${q['current_price']} ({q.get('pct_change_day','?')}%)")
+        if recs: fh_parts.append(f"recs: {recs.get('strong_buy',0)}SB/{recs.get('buy',0)}B/{recs.get('hold',0)}H/{recs.get('sell',0)}S")
+        if news: fh_parts.append("news: " + " | ".join(news[:2]))
+        if fh_parts: parts.append("Finnhub: " + " — ".join(fh_parts))
 
     fmp = fin.get("fmp", {})
     if fmp:
-        parts = []
-        if fmp.get("dcf_value"):
-            parts.append(f"DCF=${fmp['dcf_value']:.2f}")
-        if fmp.get("pe_ratio"):
-            parts.append(f"P/E={fmp['pe_ratio']}")
-        if fmp.get("revenue_growth") is not None:
-            parts.append(f"rev growth={fmp['revenue_growth']}%")
-        if fmp.get("debt_to_equity"):
-            parts.append(f"D/E={fmp['debt_to_equity']}")
-        if fmp.get("roe"):
-            parts.append(f"ROE={fmp['roe']:.2%}")
-        if fmp.get("description"):
-            parts.append(f"co: {fmp['description'][:150]}")
-        if parts:
-            blocks.append("FMP (deep data): " + " | ".join(parts))
+        fmp_parts = []
+        if fmp.get("dcf_value"):     fmp_parts.append(f"DCF=${fmp['dcf_value']:.0f}")
+        if fmp.get("pe_ratio"):      fmp_parts.append(f"P/E={fmp['pe_ratio']}")
+        if fmp.get("revenue_growth") is not None: fmp_parts.append(f"rev_growth={fmp['revenue_growth']}%")
+        if fmp.get("roe"):           fmp_parts.append(f"ROE={fmp['roe']:.1%}")
+        if fmp_parts: parts.append("FMP: " + " | ".join(fmp_parts))
+
+    av = fin.get("alpha_vantage", {})
+    if av:
+        av_parts = []
+        if av.get("rsi"):             av_parts.append(f"RSI={av['rsi']}")
+        if av.get("analyst_target"):  av_parts.append(f"target=${av['analyst_target']}")
+        if av_parts: parts.append("AlphaVantage: " + " | ".join(av_parts))
 
     poly = fin.get("polygon", {})
     if poly:
-        parts = []
-        if poly.get("vwap"):
-            parts.append(f"VWAP={poly['vwap']}")
-        if poly.get("prev_volume"):
-            parts.append(f"vol={poly['prev_volume']:,.0f}")
-        if poly.get("news"):
-            parts.append("news: " + " | ".join(poly["news"][:2]))
-        if parts:
-            blocks.append("Polygon: " + " | ".join(parts))
+        po_parts = []
+        if poly.get("vwap"):        po_parts.append(f"VWAP={poly['vwap']}")
+        if poly.get("prev_volume"): po_parts.append(f"vol={poly['prev_volume']:,.0f}")
+        if po_parts: parts.append("Polygon: " + " | ".join(po_parts))
 
-    yah = fin.get("yahoo", {})
-    if yah and not fmp:  # only show yahoo if FMP didn't provide deeper data
-        parts = [f"{k}={v}" for k, v in yah.items() if v is not None]
-        if parts:
-            blocks.append("Yahoo Finance (fallback): " + " | ".join(parts))
+    # Social
+    st = (soc or {}).get("stocktwits", {})
+    rd = (soc or {}).get("reddit", {})
+    soc_parts = []
+    if st: soc_parts.append(f"StockTwits={st.get('label','?')} ({st.get('bull_pct','?')}% bull)")
+    if rd: soc_parts.append(f"Reddit={rd.get('label','?')} {rd.get('mention_count',0)} mentions")
+    combined = (soc or {}).get("combined_label")
+    if combined: soc_parts.insert(0, f"combined={combined}")
+    if soc_parts: parts.append("Social: " + " | ".join(soc_parts))
 
-    if not blocks:
-        return ""
-    return "\nFinancial Data:\n" + "\n".join(f"  {b}" for b in blocks) + "\n"
-
-
-def _format_future_growth(g: dict) -> str:
-    if not g or g.get("score", 0) == 0:
-        return ""
-    score = g.get("score", 0)
-    cls   = g.get("classification", "")
-    parts = [f"Growth Score: {score}/100 ({cls.upper().replace('_',' ')})"]
-    if g.get("revenue_growth"):
-        parts.append(f"Revenue growth: {g['revenue_growth']}%")
-    if g.get("earnings_growth"):
-        parts.append(f"Earnings growth: {g['earnings_growth']}%")
-    if g.get("peg_ratio"):
-        parts.append(f"PEG: {g['peg_ratio']}")
-    if g.get("forward_pe"):
-        parts.append(f"Forward P/E: {round(g['forward_pe'],1)}")
-    if g.get("rule_of_40"):
-        parts.append(f"Rule of 40: {g['rule_of_40']}")
-    if g.get("gross_margin"):
-        parts.append(f"Gross margin: {g['gross_margin']}%")
-    if g.get("target_upside"):
-        parts.append(f"Analyst target upside: {g['target_upside']}%")
-    if g.get("beat_rate_pct") is not None:
-        parts.append(f"Earnings beat rate: {g['beat_rate_pct']}% ({g.get('surprise_trend','?')} trend, avg +{g.get('avg_eps_surprise','?')}%)")
-    if g.get("tailwinds"):
-        parts.append(f"Industry tailwinds: {', '.join(g['tailwinds'])}")
-    bd = g.get("breakdown", {})
-    if bd:
-        parts.append(f"Breakdown: momentum={bd.get('growth_momentum',0)}/30 quality={bd.get('growth_quality',0)}/25 analysts={bd.get('analyst_conviction',0)}/25 execution={bd.get('earnings_execution',0)}/20")
-    return "\nFuture Growth Assessment:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
-
-
-def _format_social(soc: dict) -> str:
-    if not soc:
-        return ""
-    parts = []
-    st = soc.get("stocktwits", {})
-    if st:
-        bull_pct = f" ({st['bull_pct']}% bull)" if st.get("bull_pct") else ""
-        parts.append(f"StockTwits: {st.get('label','?')}{bull_pct} — {st.get('message_count',0)} messages")
-    rd = soc.get("reddit", {})
-    if rd:
-        parts.append(f"Reddit: {rd.get('label','?')} — {rd.get('mention_count',0)} mentions (upvote ratio {rd.get('avg_upvote_ratio','?')})")
-        if rd.get("top_posts"):
-            parts.append("  top posts: " + " | ".join(rd["top_posts"][:2]))
-    combined = soc.get("combined_label", "")
-    if combined:
-        parts.insert(0, f"Social combined: {combined.upper()}")
-    return "\nSocial Sentiment:\n" + "\n".join(f"  {p}" for p in parts) + "\n" if parts else ""
-
-
-def _format_market_context(mkt: dict, earnings: dict) -> str:
-    if not mkt:
-        return ""
-    parts = []
-    fg = mkt.get("fear_and_greed", {})
-    if fg.get("score") is not None:
-        parts.append(f"Fear & Greed: {fg['score']}/100 — {fg.get('label','')} (risk: {mkt.get('market_risk','')})")
-    vix = mkt.get("vix", {})
-    if vix.get("vix"):
-        parts.append(f"VIX: {vix['vix']} ({vix.get('label','')})")
+    # Market
+    fg   = (mkt.get("fear_and_greed") or {}).get("score")
+    vix  = (mkt.get("vix") or {}).get("vix")
+    mkt_parts = []
+    if fg is not None: mkt_parts.append(f"F&G={fg}")
+    if vix:            mkt_parts.append(f"VIX={vix}")
     macro = mkt.get("upcoming_macro_events", [])
-    if macro:
-        parts.append("Macro events this week: " + ", ".join(e["event"] for e in macro[:3]))
-    if earnings and earnings.get("earnings_soon"):
-        parts.append(f"⚠ EARNINGS IN <14 DAYS: {earnings.get('earnings_date')} | EPS est={earnings.get('eps_estimate')} | Rev est={earnings.get('revenue_estimate')}")
-    return "\nMarket Context:\n" + "\n".join(f"  {p}" for p in parts) + "\n" if parts else ""
+    if macro: mkt_parts.append("macro: " + ", ".join(e["event"] for e in macro[:2]))
+    if mkt_parts: parts.append("Market: " + " | ".join(str(x) for x in mkt_parts))
+
+    # Earnings
+    if (earn or {}).get("earnings_soon"):
+        parts.append(f"Earnings: date={earn.get('earnings_date')} eps_est={earn.get('eps_estimate')} rev_est={earn.get('revenue_estimate')}")
+
+    # Research snippets
+    snips = (signals.get("research") or {}).get("snippets", [])
+    if snips:
+        parts.append("Research (" + str(signals["research"].get("source_count", 0)) + " sources): " +
+                     " || ".join(snips[:5]))
+
+    return "\nRaw Data:\n" + "\n".join(f"  {p}" for p in parts) + "\n" if parts else ""
 
 
 def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
-    research = signals.get("research", {})
-    fin      = signals.get("financial_data", {})
-    soc      = signals.get("social", {})
-    mkt      = signals.get("market_context", {})
-    earnings = signals.get("earnings", {})
+    synthesis = _build_synthesis(symbol, signals)
+    raw_block = _format_raw_signals(signals)
 
-    research_block = ""
-    if research.get("snippets"):
-        lines = "\n".join(f"  - {s}" for s in research["snippets"][:10])
-        research_block = f"\nWeb Research ({research.get('source_count', 0)} sources):\n{lines}\n"
-
-    fin_block    = _format_financial_data(fin)
-    soc_block    = _format_social(soc)
-    mkt_block    = _format_market_context(mkt, earnings)
-    growth_block = _format_future_growth(signals.get("future_growth", {}))
-
-    core_signals = {k: v for k, v in signals.items() if k not in ("research", "financial_data", "social", "market_context", "earnings", "future_growth")}
+    core_signals = {k: v for k, v in signals.items()
+                    if k not in ("research", "financial_data", "social",
+                                 "market_context", "earnings", "future_growth")}
 
     prompt = f"""
 Ticker: {symbol}
@@ -348,9 +448,10 @@ Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS}
 Options exposure: {portfolio.get('options_pct', 0):.1f}% / {config.MAX_OPTIONS_PCT}%
 Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT}%
 
-Core Signals:
+{synthesis}
+{raw_block}
+Core signal detail:
 {json.dumps(core_signals, indent=2, default=str)}
-{growth_block}{fin_block}{soc_block}{mkt_block}{research_block}
 {_SCHEMA}
 """
 
