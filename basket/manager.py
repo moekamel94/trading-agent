@@ -74,17 +74,21 @@ def _fetch_congress_buys() -> list[str]:
         return []
 
 
+# Permanently pinned tickers — always included regardless of index membership
+_PINNED = ["QTUM"]
+
+
 def refresh() -> list[str]:
-    print("  [Basket] Refreshing watchlist from S&P 500 + QQQ + Congress buys...")
+    print("  [Basket] Refreshing watchlist from S&P 500 + QQQ + Congress buys + pinned...")
 
     sp500   = _fetch_sp500()
     qqq     = _fetch_qqq()
     cong    = _fetch_congress_buys()
 
-    # Merge all three, deduplicate, keep order: S&P500 first, then QQQ-only, then congress-only
+    # Merge all sources + pinned, deduplicate
     seen   = set()
     merged = []
-    for sym in sp500 + qqq + cong:
+    for sym in _PINNED + sp500 + qqq + cong:
         s = sym.strip().upper()
         if s and s not in seen:
             seen.add(s)
@@ -114,7 +118,12 @@ def load() -> list[str]:
     if os.path.exists(BASKET_FILE):
         with open(BASKET_FILE) as f:
             data = json.load(f)
-        return data.get("tickers", [])
+        tickers = data.get("tickers", [])
+        # Always ensure pinned tickers are present even in cached basket
+        for sym in _PINNED:
+            if sym not in tickers:
+                tickers.insert(0, sym)
+        return tickers
     return refresh()
 
 
