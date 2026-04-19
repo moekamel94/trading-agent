@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import config
 import database.db as db
 from broker import alpaca
-from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context, future_growth
+from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context, future_growth, momentum_news
 from agent import claude_agent
 from risk import manager
 from summaries import reporter
@@ -64,6 +64,12 @@ def run_cycle(dry_run: bool = False):
 
     # --- Market-wide context (once per cycle) ---
     mkt_ctx = market_context.compute()
+
+    # --- Global macro/geopolitical momentum (once per cycle) ---
+    print("  [MACRO] Fetching global macro/geopolitical momentum news...")
+    macro_momentum = momentum_news.global_macro_momentum()
+    mkt_ctx["macro_momentum"] = macro_momentum
+    print(f"  [MACRO] label={macro_momentum.get('label', '?')} score={macro_momentum.get('score', '?')} themes={macro_momentum.get('themes', [])}")
     print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | VIX={mkt_ctx['vix'].get('vix','?')}")
     if mkt_ctx.get("upcoming_macro_events"):
         print(f"  Macro events this week: {[e['event'] for e in mkt_ctx['upcoming_macro_events']]}")
@@ -121,18 +127,22 @@ def run_cycle(dry_run: bool = False):
         research_data  = research.compute(symbol)
         fin_data       = financial_data.compute(symbol)
         social_data    = social.compute(symbol)
-        earnings_data  = market_context.earnings_soon(symbol)
-        growth_data    = future_growth.compute(symbol)
-        signals["research"]        = research_data
-        signals["financial_data"]  = fin_data
-        signals["social"]          = social_data
-        signals["earnings"]        = earnings_data
-        signals["market_context"]  = mkt_ctx
-        signals["future_growth"]   = growth_data
+        earnings_data    = market_context.earnings_soon(symbol)
+        growth_data      = future_growth.compute(symbol)
+        earn_momentum    = momentum_news.earnings_momentum(symbol)
+        signals["research"]          = research_data
+        signals["financial_data"]    = fin_data
+        signals["social"]            = social_data
+        signals["earnings"]          = earnings_data
+        signals["earnings_momentum"] = earn_momentum
+        signals["market_context"]    = mkt_ctx
+        signals["future_growth"]     = growth_data
         g_score = growth_data.get("score", 0)
         g_class = growth_data.get("classification", "unknown")
         g_winds = growth_data.get("tailwinds", [])
-        print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')}")
+        em_label = earn_momentum.get("label", "n/a")
+        em_score = earn_momentum.get("combined_score", "n/a")
+        print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')} | earn_momentum={em_label}({em_score})")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = manager.apply_conviction_bonuses(decision, signals)

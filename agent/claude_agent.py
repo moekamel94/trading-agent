@@ -73,6 +73,55 @@ BTC/USD — pure momentum + macro, no fundamentals:
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
+EARNINGS MOMENTUM SIGNAL (earnings_momentum):
+You now receive the actual most-recent quarterly earnings result for every stock.
+Use this as a strong directional signal:
+
+• strong_beat (surprise ≥ +5%)  → STRONG BUY signal — momentum is real
+  - Combined with bullish tech/analyst → raise confidence +1
+  - Company is executing; institutions will re-rate upward
+• beat (surprise 0 to +5%)      → mild positive boost to conviction
+• in_line                        → neutral, no adjustment
+• miss (surprise 0 to -5%)      → bearish flag — reduce confidence, consider HOLD over BUY
+• strong_miss (surprise ≤ -5%)  → STRONG SELL signal if holding
+  - If you do not hold it → DO NOT BUY regardless of other signals
+  - Earnings misses trigger institutional selling for weeks
+
+Trend matters too:
+• consistent_beats (3+ quarters) → structural earnings quality, very bullish
+• consistent_misses              → avoid the stock, thesis is broken
+
+If earnings_momentum label is bearish or strong_bearish AND you hold the position → SELL.
+If earnings_momentum label is strong_bullish → treat like a conviction booster (+1 confidence).
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+GLOBAL MACRO / GEOPOLITICAL SIGNAL (market_context.macro_momentum):
+You now receive a real-time scan of global macro and geopolitical news.
+This is a market-wide signal — it affects ALL positions and ALL buy decisions.
+
+• risk_off (score ≤ -0.15) — DANGER MODE:
+  Themes like: war/conflict, sanctions, tariffs, oil shock, rate hikes, recession risk
+  → Do NOT open new positions unless conviction is 9+
+  → Consider reducing or exiting positions with weak fundamentals
+  → Raise cash. Capital preservation > returns during geopolitical shocks
+  → Example: US-Iran war escalation → oil spike → tech sell-off → HOLD or SELL
+
+• neutral — Normal operations. Proceed with regular signals.
+
+• risk_on (score ≥ +0.15) — TAILWIND MODE:
+  Themes like: ceasefire, trade deal, rate cut, stimulus
+  → Normal or slightly more aggressive positioning
+  → Conviction boosters apply normally
+
+Specific scenario rules:
+- Active war/conflict headlines + energy/oil themes → energy stocks may be BUY, tech = HOLD/SELL
+- Fed rate cut confirmed → growth/tech stocks strong BUY signal
+- Trade war / tariff escalation → domestic US stocks less affected, global ADRs (SPWO) = risky
+- Sanctions on major economy → evaluate sector exposure (semiconductors = risk if China tensions)
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
 POSITION SIZING:
 • Confidence 7 → 4% | 8 → 5% | 9 → 6% | 10 → 8%
 • Congress buying bonus: +2% | Insider buying bonus: +1%
@@ -420,9 +469,33 @@ def _format_raw_signals(signals: dict) -> str:
     if macro: mkt_parts.append("macro: " + ", ".join(e["event"] for e in macro[:2]))
     if mkt_parts: parts.append("Market: " + " | ".join(str(x) for x in mkt_parts))
 
+    # Macro momentum (geopolitical/global)
+    macro_mom = mkt.get("macro_momentum") or {}
+    if macro_mom.get("available"):
+        mm_parts = [f"label={macro_mom.get('label','?')}", f"score={macro_mom.get('score','?')}"]
+        if macro_mom.get("themes"):
+            mm_parts.append("themes: " + ", ".join(macro_mom["themes"][:3]))
+        if macro_mom.get("top_headlines"):
+            mm_parts.append("headline: " + macro_mom["top_headlines"][0][:100])
+        parts.append("GlobalMacro: " + " | ".join(mm_parts))
+
     # Earnings
     if (earn or {}).get("earnings_soon"):
         parts.append(f"Earnings: date={earn.get('earnings_date')} eps_est={earn.get('eps_estimate')} rev_est={earn.get('revenue_estimate')}")
+
+    # Earnings momentum (actual results + news)
+    em = signals.get("earnings_momentum") or {}
+    if em.get("available"):
+        em_parts = [f"label={em.get('label','?')}", f"score={em.get('combined_score','?')}"]
+        eps = em.get("eps_surprise") or {}
+        if eps.get("label") and eps["label"] != "no_data":
+            em_parts.append(f"EPS_surprise={eps.get('label')}({eps.get('surprise_pct','?')}%)")
+        if eps.get("trend"):
+            em_parts.append(f"trend={eps['trend']}")
+        news = em.get("news_sentiment") or {}
+        if news.get("top_headlines"):
+            em_parts.append("headline: " + news["top_headlines"][0][:100])
+        parts.append("EarningsMomentum: " + " | ".join(em_parts))
 
     # Research snippets
     snips = (signals.get("research") or {}).get("snippets", [])
@@ -439,7 +512,8 @@ def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
 
     core_signals = {k: v for k, v in signals.items()
                     if k not in ("research", "financial_data", "social",
-                                 "market_context", "earnings", "future_growth")}
+                                 "market_context", "earnings", "earnings_momentum",
+                                 "future_growth")}
 
     prompt = f"""
 Ticker: {symbol}
