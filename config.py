@@ -14,6 +14,11 @@ TAVILY_API_KEY    = os.getenv("TAVILY_API_KEY", "")
 EXA_API_KEY       = os.getenv("EXA_API_KEY", "")
 SERPER_API_KEY    = os.getenv("SERPER_API_KEY", "")
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY", "")
+FINNHUB_API_KEY   = os.getenv("FINNHUB_API_KEY", "")
+ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY", "")
+TWELVE_DATA_KEY   = os.getenv("TWELVE_DATA_KEY", "")
+FMP_API_KEY       = os.getenv("FMP_API_KEY", "")
+POLYGON_API_KEY   = os.getenv("POLYGON_API_KEY", "")
 
 # --- Telegram ---
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")

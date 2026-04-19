@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import config
 import database.db as db
 from broker import alpaca
-from signals import technical, sentiment, congress, insider, fundamentals, research
+from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data
 from agent import claude_agent
 from risk import manager
 from summaries import reporter
@@ -109,11 +109,13 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
-        # --- Deep research (only for tickers that pass criteria) ---
-        print(f"  [{symbol}] running deep research...")
+        # --- Deep research + financial data (only for tickers passing criteria) ---
+        print(f"  [{symbol}] running deep research + financial data...")
         research_data = research.compute(symbol)
-        signals["research"] = research_data
-        print(f"  [{symbol}] research: {research_data['snippet_count']} snippets from {research_data['sources']}")
+        fin_data      = financial_data.compute(symbol)
+        signals["research"]       = research_data
+        signals["financial_data"] = fin_data
+        print(f"  [{symbol}] research: {research_data['snippet_count']} snippets | fin_data layers: {fin_data.get('sources_active', [])}")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = manager.validate(decision, port_ctx)

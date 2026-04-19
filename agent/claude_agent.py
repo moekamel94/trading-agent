@@ -43,14 +43,108 @@ Return exactly this JSON:
 """
 
 
+def _format_financial_data(fin: dict) -> str:
+    if not fin:
+        return ""
+    active = fin.get("sources_active", [])
+    if not active:
+        return ""
+    blocks = []
+
+    fh = fin.get("finnhub", {})
+    if fh:
+        q = fh.get("quote", {})
+        recs = fh.get("analyst_recommendations", {})
+        news = fh.get("news_headlines", [])
+        parts = []
+        if q.get("current_price"):
+            parts.append(f"price=${q['current_price']} ({q.get('pct_change_day','?')}% today)")
+        if recs:
+            parts.append(f"analyst: {recs.get('strong_buy',0)} strong buy / {recs.get('buy',0)} buy / {recs.get('hold',0)} hold / {recs.get('sell',0)} sell")
+        if news:
+            parts.append("news: " + " | ".join(news[:3]))
+        if parts:
+            blocks.append("Finnhub (real-time): " + " — ".join(parts))
+
+    av = fin.get("alpha_vantage", {})
+    if av:
+        parts = []
+        if av.get("rsi"):
+            parts.append(f"RSI={av['rsi']}")
+        if av.get("macd"):
+            parts.append(f"MACD={av['macd']} sig={av.get('macd_signal','?')}")
+        if av.get("analyst_target"):
+            parts.append(f"analyst target=${av['analyst_target']}")
+        if av.get("52w_high"):
+            parts.append(f"52w {av.get('52w_low')}–{av['52w_high']}")
+        if parts:
+            blocks.append("Alpha Vantage (indicators): " + " | ".join(parts))
+
+    td = fin.get("twelve_data", {})
+    if td:
+        parts = []
+        if td.get("price"):
+            parts.append(f"price={td['price']}")
+        if td.get("pct_change"):
+            parts.append(f"chg={td['pct_change']}%")
+        if td.get("is_market_open") is not None:
+            parts.append(f"market={'open' if td['is_market_open'] else 'closed'}")
+        if parts:
+            blocks.append("Twelve Data: " + " | ".join(parts))
+
+    fmp = fin.get("fmp", {})
+    if fmp:
+        parts = []
+        if fmp.get("dcf_value"):
+            parts.append(f"DCF=${fmp['dcf_value']:.2f}")
+        if fmp.get("pe_ratio"):
+            parts.append(f"P/E={fmp['pe_ratio']}")
+        if fmp.get("revenue_growth") is not None:
+            parts.append(f"rev growth={fmp['revenue_growth']}%")
+        if fmp.get("debt_to_equity"):
+            parts.append(f"D/E={fmp['debt_to_equity']}")
+        if fmp.get("roe"):
+            parts.append(f"ROE={fmp['roe']:.2%}")
+        if fmp.get("description"):
+            parts.append(f"co: {fmp['description'][:150]}")
+        if parts:
+            blocks.append("FMP (deep data): " + " | ".join(parts))
+
+    poly = fin.get("polygon", {})
+    if poly:
+        parts = []
+        if poly.get("vwap"):
+            parts.append(f"VWAP={poly['vwap']}")
+        if poly.get("prev_volume"):
+            parts.append(f"vol={poly['prev_volume']:,.0f}")
+        if poly.get("news"):
+            parts.append("news: " + " | ".join(poly["news"][:2]))
+        if parts:
+            blocks.append("Polygon: " + " | ".join(parts))
+
+    yah = fin.get("yahoo", {})
+    if yah and not fmp:  # only show yahoo if FMP didn't provide deeper data
+        parts = [f"{k}={v}" for k, v in yah.items() if v is not None]
+        if parts:
+            blocks.append("Yahoo Finance (fallback): " + " | ".join(parts))
+
+    if not blocks:
+        return ""
+    return "\nFinancial Data:\n" + "\n".join(f"  {b}" for b in blocks) + "\n"
+
+
 def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
     research = signals.get("research", {})
+    fin      = signals.get("financial_data", {})
+
     research_block = ""
     if research.get("snippets"):
-        lines = "\n".join(f"  - {s}" for s in research["snippets"][:15])
-        research_block = f"\nWeb Research ({research.get('source_count', 0)} sources — {', '.join(research.get('sources', []))}):\n{lines}\n"
+        lines = "\n".join(f"  - {s}" for s in research["snippets"][:12])
+        research_block = f"\nWeb Research ({research.get('source_count', 0)} sources):\n{lines}\n"
 
-    signals_without_research = {k: v for k, v in signals.items() if k != "research"}
+    fin_block = _format_financial_data(fin)
+
+    core_signals = {k: v for k, v in signals.items() if k not in ("research", "financial_data")}
 
     prompt = f"""
 Ticker: {symbol}
@@ -59,9 +153,9 @@ Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS}
 Options exposure: {portfolio.get('options_pct', 0):.1f}% / {config.MAX_OPTIONS_PCT}%
 Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT}%
 
-Signals:
-{json.dumps(signals_without_research, indent=2, default=str)}
-{research_block}
+Core Signals:
+{json.dumps(core_signals, indent=2, default=str)}
+{fin_block}{research_block}
 {_SCHEMA}
 """
 
