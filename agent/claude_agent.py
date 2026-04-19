@@ -133,18 +133,60 @@ def _format_financial_data(fin: dict) -> str:
     return "\nFinancial Data:\n" + "\n".join(f"  {b}" for b in blocks) + "\n"
 
 
+def _format_social(soc: dict) -> str:
+    if not soc:
+        return ""
+    parts = []
+    st = soc.get("stocktwits", {})
+    if st:
+        bull_pct = f" ({st['bull_pct']}% bull)" if st.get("bull_pct") else ""
+        parts.append(f"StockTwits: {st.get('label','?')}{bull_pct} — {st.get('message_count',0)} messages")
+    rd = soc.get("reddit", {})
+    if rd:
+        parts.append(f"Reddit: {rd.get('label','?')} — {rd.get('mention_count',0)} mentions (upvote ratio {rd.get('avg_upvote_ratio','?')})")
+        if rd.get("top_posts"):
+            parts.append("  top posts: " + " | ".join(rd["top_posts"][:2]))
+    combined = soc.get("combined_label", "")
+    if combined:
+        parts.insert(0, f"Social combined: {combined.upper()}")
+    return "\nSocial Sentiment:\n" + "\n".join(f"  {p}" for p in parts) + "\n" if parts else ""
+
+
+def _format_market_context(mkt: dict, earnings: dict) -> str:
+    if not mkt:
+        return ""
+    parts = []
+    fg = mkt.get("fear_and_greed", {})
+    if fg.get("score") is not None:
+        parts.append(f"Fear & Greed: {fg['score']}/100 — {fg.get('label','')} (risk: {mkt.get('market_risk','')})")
+    vix = mkt.get("vix", {})
+    if vix.get("vix"):
+        parts.append(f"VIX: {vix['vix']} ({vix.get('label','')})")
+    macro = mkt.get("upcoming_macro_events", [])
+    if macro:
+        parts.append("Macro events this week: " + ", ".join(e["event"] for e in macro[:3]))
+    if earnings and earnings.get("earnings_soon"):
+        parts.append(f"⚠ EARNINGS IN <14 DAYS: {earnings.get('earnings_date')} | EPS est={earnings.get('eps_estimate')} | Rev est={earnings.get('revenue_estimate')}")
+    return "\nMarket Context:\n" + "\n".join(f"  {p}" for p in parts) + "\n" if parts else ""
+
+
 def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
     research = signals.get("research", {})
     fin      = signals.get("financial_data", {})
+    soc      = signals.get("social", {})
+    mkt      = signals.get("market_context", {})
+    earnings = signals.get("earnings", {})
 
     research_block = ""
     if research.get("snippets"):
-        lines = "\n".join(f"  - {s}" for s in research["snippets"][:12])
+        lines = "\n".join(f"  - {s}" for s in research["snippets"][:10])
         research_block = f"\nWeb Research ({research.get('source_count', 0)} sources):\n{lines}\n"
 
     fin_block = _format_financial_data(fin)
+    soc_block = _format_social(soc)
+    mkt_block = _format_market_context(mkt, earnings)
 
-    core_signals = {k: v for k, v in signals.items() if k not in ("research", "financial_data")}
+    core_signals = {k: v for k, v in signals.items() if k not in ("research", "financial_data", "social", "market_context", "earnings")}
 
     prompt = f"""
 Ticker: {symbol}
@@ -155,7 +197,7 @@ Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT
 
 Core Signals:
 {json.dumps(core_signals, indent=2, default=str)}
-{fin_block}{research_block}
+{fin_block}{soc_block}{mkt_block}{research_block}
 {_SCHEMA}
 """
 

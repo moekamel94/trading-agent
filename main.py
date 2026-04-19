@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import config
 import database.db as db
 from broker import alpaca
-from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data
+from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context
 from agent import claude_agent
 from risk import manager
 from summaries import reporter
@@ -62,6 +62,12 @@ def run_cycle(dry_run: bool = False):
     positions = alpaca.get_positions()
     port_ctx  = _portfolio_context(portfolio, positions)
 
+    # --- Market-wide context (once per cycle) ---
+    mkt_ctx = market_context.compute()
+    print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | P/C ratio={mkt_ctx['put_call_ratio'].get('ratio','?')}")
+    if mkt_ctx.get("upcoming_macro_events"):
+        print(f"  Macro events this week: {[e['event'] for e in mkt_ctx['upcoming_macro_events']]}")
+
     print(f"Portfolio: equity=${portfolio['equity']:,.2f}  cash=${portfolio['cash']:,.2f}  positions={port_ctx['position_count']}")
 
     # --- Check stop-loss / take-profit ---
@@ -109,13 +115,18 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
-        # --- Deep research + financial data (only for tickers passing criteria) ---
-        print(f"  [{symbol}] running deep research + financial data...")
-        research_data = research.compute(symbol)
-        fin_data      = financial_data.compute(symbol)
-        signals["research"]       = research_data
-        signals["financial_data"] = fin_data
-        print(f"  [{symbol}] research: {research_data['snippet_count']} snippets | fin_data layers: {fin_data.get('sources_active', [])}")
+        # --- Deep research + financial data + social (only for tickers passing criteria) ---
+        print(f"  [{symbol}] running deep research + financial data + social...")
+        research_data  = research.compute(symbol)
+        fin_data       = financial_data.compute(symbol)
+        social_data    = social.compute(symbol)
+        earnings_data  = market_context.earnings_soon(symbol)
+        signals["research"]        = research_data
+        signals["financial_data"]  = fin_data
+        signals["social"]          = social_data
+        signals["earnings"]        = earnings_data
+        signals["market_context"]  = mkt_ctx
+        print(f"  [{symbol}] social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')} | market={mkt_ctx['market_risk']}")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = manager.validate(decision, port_ctx)
