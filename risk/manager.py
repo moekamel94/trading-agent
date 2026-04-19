@@ -1,97 +1,261 @@
+"""
+Entry/exit criteria and position sizing for Kimmy.
+
+Entry uses a 3-layer scoring system — stocks don't need to be perfect everywhere,
+they need to be strong overall. Hard blocks are reserved for true extremes.
+
+BTC has its own separate criteria block at the bottom.
+"""
+from datetime import date
 import config
 
 
-# ---------------------------------------------------------------------------
-# Hard entry gate — ALL criteria must pass or BUY is blocked before Claude
-# ---------------------------------------------------------------------------
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _is_btc(symbol: str) -> bool:
+    return "BTC" in symbol.upper()
+
+
+def _days_to_earnings(earnings: dict) -> int | None:
+    ed = (earnings or {}).get("earnings_date")
+    if not ed:
+        return None
+    try:
+        return (date.fromisoformat(ed) - date.today()).days
+    except Exception:
+        return None
+
+
+# ── Stock entry criteria ───────────────────────────────────────────────────────
 
 def check_entry_criteria(signals: dict) -> tuple[bool, str]:
     """
     Returns (passes: bool, reason: str).
-    Every condition must be True for a BUY to proceed.
-    """
-    tech  = signals.get("technical", {})
-    sent  = signals.get("sentiment", {})
-    fund  = signals.get("fundamentals", {})
 
+    Hard blocks: only true extremes stop a trade.
+    Scoring: fundamentals 3/5, momentum 2/4, technical 2/3 must pass.
+    """
+    if _is_btc(signals.get("_symbol", "")):
+        return check_btc_entry(signals)
+
+    tech = signals.get("technical", {})
+    fund = signals.get("fundamentals", {})
+    sent = signals.get("sentiment", {})
+    cong = signals.get("congressional", {})
+    mkt  = signals.get("market_context", {})
+    earn = signals.get("earnings", {})
+    fin  = signals.get("financial_data", {})
+
+    # ── Hard Block 1: Market panic ─────────────────────────────────────────
+    fg_score = (mkt.get("fear_and_greed") or {}).get("score")
+    if fg_score is not None and fg_score < config.CRITERIA_FG_PANIC:
+        return False, f"Market extreme fear (F&G={fg_score:.0f}) — pausing new buys"
+
+    # ── Hard Block 2: RSI extremes ─────────────────────────────────────────
     rsi = tech.get("rsi")
     if rsi is not None:
         if rsi < config.CRITERIA_RSI_MIN:
-            return False, f"RSI {rsi:.1f} below floor {config.CRITERIA_RSI_MIN} (panic/crash territory)"
+            return False, f"RSI {rsi:.1f} — extreme panic/crash territory"
         if rsi > config.CRITERIA_RSI_MAX:
-            return False, f"RSI {rsi:.1f} above ceiling {config.CRITERIA_RSI_MAX} (overbought)"
+            return False, f"RSI {rsi:.1f} — extreme overbought"
 
-    if config.CRITERIA_PRICE_ABOVE_SMA50:
-        price  = tech.get("price")
-        sma50  = tech.get("sma50")
-        if price is not None and sma50 is not None and price < sma50:
-            return False, f"Price {price:.2f} below SMA50 {sma50:.2f} (downtrend)"
+    # ── Hard Block 3: Earnings imminent ───────────────────────────────────
+    dte = _days_to_earnings(earn)
+    if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
+        return False, f"Earnings in {dte} day(s) — avoiding binary event"
 
-    if config.CRITERIA_MACD_NOT_BEARISH:
-        if tech.get("macd_cross") == "bearish":
-            return False, "MACD bearish crossover — momentum turning down"
+    # ── Hard Block 4: Congress actively selling ────────────────────────────
+    # Only block if congress is selling AND sentiment is negative (double confirm)
+    if cong.get("net_signal") == "bearish" and sent.get("label") == "negative":
+        return False, "Congress selling + negative sentiment — double bearish signal"
 
-    eps_growth = fund.get("eps_growth_yoy")
-    if eps_growth is not None and eps_growth < config.CRITERIA_EPS_GROWTH_MIN:
-        return False, f"EPS growth {eps_growth*100:.1f}% below minimum {config.CRITERIA_EPS_GROWTH_MIN*100:.0f}%"
+    # ── Fundamental scoring (need 3 of 5) ─────────────────────────────────
+    fund_score = 0
+    fund_hits  = []
 
-    rev_growth = fund.get("revenue_growth")
-    if rev_growth is not None and rev_growth < config.CRITERIA_REVENUE_GROWTH_MIN:
-        return False, f"Revenue growth {rev_growth*100:.1f}% below minimum {config.CRITERIA_REVENUE_GROWTH_MIN*100:.0f}%"
+    eps = fund.get("eps_growth_yoy")
+    if eps is None or eps > config.CRITERIA_EPS_GROWTH_MIN:
+        fund_score += 1; fund_hits.append("eps")
 
-    margin = fund.get("profit_margin")
-    if margin is not None and margin < config.CRITERIA_PROFIT_MARGIN_MIN:
-        return False, f"Profit margin {margin*100:.1f}% below minimum {config.CRITERIA_PROFIT_MARGIN_MIN*100:.0f}%"
+    rev = fund.get("revenue_growth")
+    if rev is None or rev > config.CRITERIA_REVENUE_GROWTH_MIN:
+        fund_score += 1; fund_hits.append("rev")
 
     pe = fund.get("pe_ratio")
-    if pe is not None and pe > config.CRITERIA_PE_MAX:
-        return False, f"P/E {pe:.1f} above maximum {config.CRITERIA_PE_MAX} (overvalued)"
+    if pe is None or pe < config.CRITERIA_PE_MAX:
+        fund_score += 1; fund_hits.append("pe")
 
-    if config.CRITERIA_SENTIMENT_NOT_NEG:
-        if sent.get("label") == "negative":
-            return False, "Negative news sentiment — headwind risk"
+    margin = fund.get("profit_margin")
+    if margin is None or margin > config.CRITERIA_PROFIT_MARGIN_MIN:
+        fund_score += 1; fund_hits.append("margin")
 
-    return True, "all criteria passed"
+    fcf = (fin.get("fmp") or {}).get("free_cash_flow")
+    if fcf is None or (isinstance(fcf, (int, float)) and fcf > 0):
+        fund_score += 1; fund_hits.append("fcf")
+
+    if fund_score < config.CRITERIA_FUNDAMENTALS_NEEDED:
+        return False, f"Fundamentals: {fund_score}/5 passed (need {config.CRITERIA_FUNDAMENTALS_NEEDED}) — weak on {set(['eps','rev','pe','margin','fcf'])-set(fund_hits)}"
+
+    # ── Momentum scoring (need 2 of 4) ────────────────────────────────────
+    mom_score = 0
+    mom_hits  = []
+
+    r1m = tech.get("return_1m")
+    if r1m is None or r1m > -5:
+        mom_score += 1; mom_hits.append("1m")
+
+    r3m = tech.get("return_3m")
+    if r3m is None or r3m > 0:
+        mom_score += 1; mom_hits.append("3m")
+
+    vr = tech.get("volume_ratio")
+    if vr is None or vr > 0.8:
+        mom_score += 1; mom_hits.append("vol")
+
+    if tech.get("macd_cross") != "bearish":
+        mom_score += 1; mom_hits.append("macd")
+
+    if mom_score < config.CRITERIA_MOMENTUM_NEEDED:
+        return False, f"Momentum: {mom_score}/4 passed (need {config.CRITERIA_MOMENTUM_NEEDED})"
+
+    # ── Technical scoring (need 2 of 3) ───────────────────────────────────
+    tech_score = 0
+
+    price = tech.get("price")
+    sma50 = tech.get("sma50")
+    if (price and sma50 and price > sma50) or tech.get("golden_cross"):
+        tech_score += 1
+
+    sma200 = tech.get("sma200")
+    if (price and sma200 and price > sma200) or tech.get("golden_cross"):
+        tech_score += 1
+
+    if tech.get("bb_position") != "above_upper":
+        tech_score += 1
+
+    if tech_score < config.CRITERIA_TECHNICAL_NEEDED:
+        return False, f"Technical: {tech_score}/3 passed (need {config.CRITERIA_TECHNICAL_NEEDED})"
+
+    return True, f"passed (fund={fund_score}/5, mom={mom_score}/4, tech={tech_score}/3)"
 
 
-# ---------------------------------------------------------------------------
-# Hard exit gate — checked against open positions each cycle
-# ---------------------------------------------------------------------------
+# ── BTC entry criteria ─────────────────────────────────────────────────────────
 
-def check_stops(positions: list, signals_map: dict = None) -> list[dict]:
-    """Return list of {symbol, action, reason} for positions that must be exited."""
-    exits = []
+def check_btc_entry(signals: dict) -> tuple[bool, str]:
+    """BTC-specific entry criteria — crypto has no fundamentals, pure momentum/sentiment."""
+    tech = signals.get("technical", {})
+    mkt  = signals.get("market_context", {})
+    sent = signals.get("sentiment", {})
+    soc  = signals.get("social", {})
+
+    # Hard Block 1: Macro panic — equity panic drags BTC down
+    vix_val = (mkt.get("vix") or {}).get("vix")
+    if vix_val and vix_val > config.BTC_VIX_MAX:
+        return False, f"VIX={vix_val:.1f} — equity panic, BTC likely to drop"
+
+    # Hard Block 2: Market Fear & Greed extreme
+    fg = (mkt.get("fear_and_greed") or {}).get("score")
+    if fg is not None and fg < config.BTC_FG_PANIC:
+        return False, f"Extreme fear (F&G={fg:.0f}) — no BTC buys in panic"
+
+    # Hard Block 3: RSI extremes (crypto-specific range)
+    rsi = tech.get("rsi")
+    if rsi is not None:
+        if rsi < config.BTC_RSI_MIN:
+            return False, f"BTC RSI {rsi:.1f} — capitulation territory, wait for base"
+        if rsi > config.BTC_RSI_MAX:
+            return False, f"BTC RSI {rsi:.1f} — overbought, wait for pullback"
+
+    # Hard Block 4: Downtrend confirmed
+    if tech.get("death_cross"):
+        return False, "BTC death cross (SMA50 < SMA200) — macro downtrend active"
+
+    # Hard Block 5: MACD bearish crossover AND negative sentiment (double confirm)
+    if tech.get("macd_cross") == "bearish" and (sent.get("label") == "negative" or soc.get("combined_label") == "bearish"):
+        return False, "BTC MACD bearish + negative sentiment — momentum turning down"
+
+    # Momentum check (need 2 of 3)
+    mom_score = 0
+    r1m = tech.get("return_1m")
+    if r1m is None or r1m > -10:
+        mom_score += 1
+    r3m = tech.get("return_3m")
+    if r3m is None or r3m > -15:
+        mom_score += 1
+    if tech.get("macd_cross") != "bearish":
+        mom_score += 1
+
+    if mom_score < 2:
+        return False, f"BTC momentum weak: {mom_score}/3"
+
+    # Trend check
+    price  = tech.get("price")
+    sma50  = tech.get("sma50")
+    sma200 = tech.get("sma200")
+    above_sma50  = price and sma50  and price > sma50
+    above_sma200 = price and sma200 and price > sma200
+
+    if not above_sma50 and not above_sma200:
+        return False, "BTC below both SMA50 and SMA200 — no uptrend"
+
+    return True, f"BTC criteria passed (RSI={rsi:.1f}, mom={mom_score}/3)"
+
+
+# ── Exit monitoring ────────────────────────────────────────────────────────────
+
+def check_stops(positions: list, signals_map: dict = None, days_held_map: dict = None) -> list[dict]:
+    """Check open positions for exit signals. Returns list of {symbol, action, reason}."""
+    exits       = []
     signals_map = signals_map or {}
+    days_held_map = days_held_map or {}
 
     for p in positions:
-        sym = p["symbol"]
-        pct = p.get("unrealized_plpc", 0)
-
-        if pct <= -config.STOP_LOSS_PCT:
-            exits.append({"symbol": sym, "action": "SELL", "reason": "stop_loss"})
-            continue
-
-        if pct >= config.TAKE_PROFIT_PCT:
-            exits.append({"symbol": sym, "action": "SELL", "reason": "take_profit"})
-            continue
-
-        # Technical exit signals (only if we have fresh signal data)
+        sym  = p["symbol"]
+        pct  = p.get("unrealized_plpc", 0)
         tech = signals_map.get(sym, {}).get("technical", {})
+        rsi  = tech.get("rsi")
 
-        if config.EXIT_MACD_BEARISH_CROSS and tech.get("macd_cross") == "bearish" and pct > 0:
-            exits.append({"symbol": sym, "action": "SELL", "reason": "MACD bearish crossover on profitable position"})
+        stop = config.BTC_STOP_LOSS_PCT if _is_btc(sym) else config.STOP_LOSS_PCT
+
+        # Stop loss
+        if pct <= -stop:
+            exits.append({"symbol": sym, "action": "SELL", "reason": f"stop_loss ({pct:.1f}%)"})
             continue
 
-        rsi = tech.get("rsi")
-        if rsi and rsi > config.EXIT_RSI_OVERBOUGHT and pct > 0:
-            exits.append({"symbol": sym, "action": "SELL", "reason": f"RSI {rsi:.0f} overbought — trimming profit"})
+        # Dead money: held too long with minimal gain
+        days = days_held_map.get(sym, 0)
+        if days >= config.DEAD_MONEY_DAYS and pct < config.DEAD_MONEY_MIN_PCT:
+            exits.append({"symbol": sym, "action": "SELL", "reason": f"dead_money ({days}d, {pct:.1f}% gain)"})
+            continue
+
+        # Technical exits on profitable positions (need 2 signals for stocks)
+        if pct > 0 and not _is_btc(sym):
+            bearish_signals = 0
+            if tech.get("macd_cross") == "bearish":
+                bearish_signals += 1
+            if rsi and rsi > config.EXIT_RSI_OVERBOUGHT:
+                bearish_signals += 1
+            if tech.get("death_cross"):
+                bearish_signals += 1
+            if tech.get("bb_position") == "above_upper" and tech.get("macd_cross") == "bearish":
+                bearish_signals += 1
+            if bearish_signals >= 2:
+                exits.append({"symbol": sym, "action": "SELL", "reason": f"technical_exit ({bearish_signals} bearish signals: RSI={rsi:.0f if rsi else '?'}, MACD={tech.get('macd_cross')})"})
+                continue
+
+        # BTC: single strong signal is enough
+        if pct > 0 and _is_btc(sym):
+            if rsi and rsi > 82 and tech.get("macd_cross") == "bearish":
+                exits.append({"symbol": sym, "action": "SELL", "reason": f"BTC RSI={rsi:.0f} + MACD bearish — trimming profit"})
+                continue
+            if tech.get("death_cross"):
+                exits.append({"symbol": sym, "action": "SELL", "reason": "BTC death cross — exiting"})
+                continue
 
     return exits
 
 
-# ---------------------------------------------------------------------------
-# Post-Claude validation — enforce position limits and exposure caps
-# ---------------------------------------------------------------------------
+# ── Post-Claude validation ─────────────────────────────────────────────────────
 
 def validate(decision: dict, portfolio: dict) -> dict:
     action     = decision.get("action", "HOLD")
@@ -102,23 +266,35 @@ def validate(decision: dict, portfolio: dict) -> dict:
     if confidence < config.MIN_CONFIDENCE:
         return _hold(decision, f"confidence {confidence}/10 below minimum {config.MIN_CONFIDENCE}/10")
 
-    if portfolio.get("position_count", 0) >= config.MAX_POSITIONS and action == "BUY":
-        return _hold(decision, "max open positions reached")
-
-    if asset_type == "option" and portfolio.get("options_pct", 0) >= config.MAX_OPTIONS_PCT:
-        return _hold(decision, "max options exposure reached")
-
-    if asset_type == "crypto" and portfolio.get("crypto_pct", 0) >= config.MAX_CRYPTO_PCT:
-        return _hold(decision, "max crypto exposure reached")
-
-    # Scale allocation by confidence: 7->3%, 8->4%, 9-10->5%
     if action == "BUY":
-        conf_alloc = {7: 3.0, 8: 4.0, 9: 5.0, 10: 5.0}
-        max_alloc = conf_alloc.get(min(confidence, 10), 3.0)
-        allocation = min(allocation, max_alloc, config.MAX_POSITION_PCT)
-        decision = {**decision, "allocation_pct": allocation}
+        if portfolio.get("position_count", 0) >= config.MAX_POSITIONS:
+            return _hold(decision, "max open positions reached")
+        if asset_type == "option" and portfolio.get("options_pct", 0) >= config.MAX_OPTIONS_PCT:
+            return _hold(decision, "max options exposure reached")
+        if asset_type == "crypto" and portfolio.get("crypto_pct", 0) >= config.MAX_CRYPTO_PCT:
+            return _hold(decision, "max crypto exposure reached")
+
+        # Confidence-based allocation
+        base = config.CONF_ALLOC.get(min(confidence, 10), 4.0)
+
+        # Conviction bonuses (from signals passed through decision extras)
+        congress_bonus = decision.get("_congress_bonus", 0)
+        insider_bonus  = decision.get("_insider_bonus", 0)
+        alloc = min(base + congress_bonus + insider_bonus, config.MAX_POSITION_PCT)
+        decision = {**decision, "allocation_pct": alloc}
 
     return decision
+
+
+def apply_conviction_bonuses(decision: dict, signals: dict) -> dict:
+    """Add congress/insider bonuses to allocation before validate()."""
+    if decision.get("action") != "BUY":
+        return decision
+    cong = signals.get("congressional", {})
+    insd = signals.get("insider", {})
+    congress_bonus = config.CONGRESS_BONUS_PCT if cong.get("net_signal") == "bullish" else 0
+    insider_bonus  = config.INSIDER_BONUS_PCT  if insd.get("net_signal") == "bullish"  else 0
+    return {**decision, "_congress_bonus": congress_bonus, "_insider_bonus": insider_bonus}
 
 
 def compute_qty(symbol: str, allocation_pct: float, price: float, portfolio: dict) -> float:

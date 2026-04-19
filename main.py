@@ -101,6 +101,7 @@ def run_cycle(dry_run: bool = False):
         db.log_signals(symbol, tech, sent, cong, insd, fund)
 
         signals = {
+            "_symbol":      symbol,
             "technical":    tech,
             "sentiment":    sent,
             "congressional": cong,
@@ -129,6 +130,7 @@ def run_cycle(dry_run: bool = False):
         print(f"  [{symbol}] social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')} | market={mkt_ctx['market_risk']}")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
+        decision = manager.apply_conviction_bonuses(decision, signals)
         decision = manager.validate(decision, port_ctx)
 
         action     = decision["action"]

@@ -40,12 +40,11 @@ CRYPTO_WATCHLIST = [
 ]
 
 # --- Risk Parameters ---
-MAX_POSITION_PCT     = 5.0   # max % of portfolio per position
-MAX_POSITIONS        = 20    # max open positions
-STOP_LOSS_PCT        = 7.0   # auto-sell if down this %
-TAKE_PROFIT_PCT      = 20.0  # auto-sell if up this %
-MAX_OPTIONS_PCT      = 25.0  # max % of portfolio in options
-MAX_CRYPTO_PCT       = 30.0  # max % of portfolio in crypto
+MAX_POSITION_PCT     = 8.0   # max % of portfolio per position (was 5%)
+MAX_POSITIONS        = 15    # max open positions (was 20, fewer/higher quality)
+TAKE_PROFIT_PCT      = 0     # no fixed take-profit — let winners run
+MAX_OPTIONS_PCT      = 20.0  # max % of portfolio in options
+MAX_CRYPTO_PCT       = 20.0  # max % of portfolio in crypto
 MIN_CONFIDENCE       = 7     # minimum Claude confidence (1-10) to trade
 TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
@@ -60,20 +59,39 @@ PREMARKET_SUMMARY_MINUTE = 0   # 9:00 AM — 30 min before open
 CLOSE_SUMMARY_HOUR       = 16
 CLOSE_SUMMARY_MINUTE     = 5   # 4:05 PM — just after close
 
-# --- Hard Entry Criteria (ALL must pass or trade is blocked) ---
-CRITERIA_RSI_MIN        = 40    # RSI floor — not in panic/crash
-CRITERIA_RSI_MAX        = 68    # RSI ceiling — not overbought
-CRITERIA_PRICE_ABOVE_SMA50 = True   # price must be above 50-day SMA
-CRITERIA_MACD_NOT_BEARISH  = True   # MACD must not be in bearish crossover
-CRITERIA_EPS_GROWTH_MIN    = 0.05   # EPS growth YoY >= 5%
-CRITERIA_REVENUE_GROWTH_MIN= 0.03   # Revenue growth YoY >= 3%
-CRITERIA_PROFIT_MARGIN_MIN = 0.08   # Net profit margin >= 8%
-CRITERIA_PE_MAX            = 55     # P/E ratio <= 55 (not wildly overvalued)
-CRITERIA_SENTIMENT_NOT_NEG = True   # sentiment must not be negative
+# --- Entry Criteria: Hard Blocks (absolute stops, very few) ---
+CRITERIA_RSI_MIN         = 25   # true panic extreme only
+CRITERIA_RSI_MAX         = 78   # true overbought extreme only
+CRITERIA_FG_PANIC        = 15   # Fear & Greed below this = no new buys
+CRITERIA_EARNINGS_DAYS   = 3    # skip if earnings within this many days
 
-# --- Hard Exit Criteria (any ONE triggers sell) ---
-EXIT_RSI_OVERBOUGHT     = 75    # RSI above this -> trim position
-EXIT_MACD_BEARISH_CROSS = True  # MACD bearish crossover on open position -> sell
+# --- Entry Criteria: Scoring Thresholds ---
+CRITERIA_FUNDAMENTALS_NEEDED  = 3    # need 3 of 5 fundamental checks
+CRITERIA_MOMENTUM_NEEDED      = 2    # need 2 of 4 momentum checks
+CRITERIA_TECHNICAL_NEEDED     = 2    # need 2 of 3 technical checks
+CRITERIA_EPS_GROWTH_MIN       = 0.0  # any positive EPS growth
+CRITERIA_REVENUE_GROWTH_MIN   = 0.0  # any positive revenue growth
+CRITERIA_PROFIT_MARGIN_MIN    = 0.05 # 5% margin
+CRITERIA_PE_MAX               = 80   # covers growth stocks
+
+# --- Position Sizing (updated) ---
+CONF_ALLOC = {7: 4.0, 8: 5.0, 9: 6.0, 10: 8.0}
+CONGRESS_BONUS_PCT   = 2.0
+INSIDER_BONUS_PCT    = 1.0
+
+# --- Exit Criteria ---
+STOP_LOSS_PCT        = 8.0    # wider for position trading (was 7%)
+EXIT_RSI_OVERBOUGHT  = 80     # true overbought (was 75)
+EXIT_MACD_BEARISH_CROSS = True
+DEAD_MONEY_DAYS      = 90     # exit if held this long with < profit below
+DEAD_MONEY_MIN_PCT   = 3.0    # minimum profit after DEAD_MONEY_DAYS
+
+# --- BTC-Specific Criteria ---
+BTC_RSI_MIN          = 30
+BTC_RSI_MAX          = 75
+BTC_STOP_LOSS_PCT    = 12.0   # crypto needs wider stop
+BTC_FG_PANIC         = 20     # crypto Fear & Greed (use main F&G as proxy)
+BTC_VIX_MAX          = 38     # don't buy BTC during equity market panic
 
 # --- Basket ---
 BASKET_REFRESH_HOUR   = 8

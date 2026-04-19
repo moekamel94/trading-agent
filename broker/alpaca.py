@@ -41,7 +41,7 @@ def get_positions():
     ]
 
 
-def get_stock_bars(symbol: str, days: int = 60):
+def get_stock_bars(symbol: str, days: int = 300):
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
     req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start, end=end, feed=DataFeed.IEX)
@@ -51,7 +51,7 @@ def get_stock_bars(symbol: str, days: int = 60):
     return pd.DataFrame([b.model_dump() for b in bars.data[symbol]])
 
 
-def get_crypto_bars(symbol: str, days: int = 60):
+def get_crypto_bars(symbol: str, days: int = 300):
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
     req = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, start=start, end=end)
