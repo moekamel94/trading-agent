@@ -44,6 +44,14 @@ Return exactly this JSON:
 
 
 def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
+    research = signals.get("research", {})
+    research_block = ""
+    if research.get("snippets"):
+        lines = "\n".join(f"  - {s}" for s in research["snippets"][:15])
+        research_block = f"\nWeb Research ({research.get('source_count', 0)} sources — {', '.join(research.get('sources', []))}):\n{lines}\n"
+
+    signals_without_research = {k: v for k, v in signals.items() if k != "research"}
+
     prompt = f"""
 Ticker: {symbol}
 Portfolio: equity=${portfolio.get('equity', 0):,.2f}  cash=${portfolio.get('cash', 0):,.2f}
@@ -52,8 +60,8 @@ Options exposure: {portfolio.get('options_pct', 0):.1f}% / {config.MAX_OPTIONS_P
 Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT}%
 
 Signals:
-{json.dumps(signals, indent=2, default=str)}
-
+{json.dumps(signals_without_research, indent=2, default=str)}
+{research_block}
 {_SCHEMA}
 """
 

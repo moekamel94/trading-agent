@@ -9,6 +9,11 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NEWDATA_API_KEY   = os.getenv("NEWDATA_API_KEY", "")
+SERPAPI_KEY       = os.getenv("SERPAPI_KEY", "")
+TAVILY_API_KEY    = os.getenv("TAVILY_API_KEY", "")
+EXA_API_KEY       = os.getenv("EXA_API_KEY", "")
+SERPER_API_KEY    = os.getenv("SERPER_API_KEY", "")
+FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY", "")
 
 # --- Telegram ---
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
