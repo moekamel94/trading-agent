@@ -64,7 +64,7 @@ def run_cycle(dry_run: bool = False):
 
     # --- Market-wide context (once per cycle) ---
     mkt_ctx = market_context.compute()
-    print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | P/C ratio={mkt_ctx['put_call_ratio'].get('ratio','?')}")
+    print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | VIX={mkt_ctx['vix'].get('vix','?')}")
     if mkt_ctx.get("upcoming_macro_events"):
         print(f"  Macro events this week: {[e['event'] for e in mkt_ctx['upcoming_macro_events']]}")
 
