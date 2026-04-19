@@ -20,9 +20,6 @@ TWELVE_DATA_KEY   = os.getenv("TWELVE_DATA_KEY", "")
 FMP_API_KEY       = os.getenv("FMP_API_KEY", "")
 POLYGON_API_KEY   = os.getenv("POLYGON_API_KEY", "")
 
-# --- Telegram ---
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # --- Discord ---
 DISCORD_TOKEN            = os.getenv("DISCORD_TOKEN", "")

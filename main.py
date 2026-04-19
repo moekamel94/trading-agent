@@ -168,13 +168,7 @@ def run_cycle(dry_run: bool = False):
                     else:
                         alpaca.place_market_order(symbol, qty, action)
                         db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
-                        tg.send(
-                            f"<b>TRADE EXECUTED</b>\n"
-                            f"{'BUY' if action=='BUY' else 'SELL'} {symbol}\n"
-                            f"Type: {asset_type} | Qty: {qty:.4f} @ ${price:,.2f}\n"
-                            f"Allocation: {alloc:.1f}% | Confidence: {confidence}/10\n"
-                            f"Why: {rationale}"
-                        )
+                        print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")
 
@@ -257,9 +251,6 @@ def main():
     if args.discord:
         from notifications import discord_bot
         discord_bot.run_bot()
-    elif args.bot:
-        from notifications import telegram_bot
-        telegram_bot.run_bot()
     elif args.btc_check:
         run_btc_check()
     elif args.premarket:

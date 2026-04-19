@@ -9,7 +9,7 @@ from broker import alpaca
 from signals import technical, sentiment
 from risk import manager as risk_mgr
 from basket import manager as basket_mgr
-from notifications import telegram_bot as tg
+# Telegram removed
 
 
 def _fmt_usd(v):
@@ -95,7 +95,7 @@ def run_premarket(dry_run: bool = False):
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("premarket", body)
-    tg.send(f"<b>Pre-Market Summary</b> {datetime.now(timezone.utc).strftime('%Y-%m-%d')}\n\n<pre>{body}</pre>")
+    pass  # Telegram removed
 
 
 def run_close():
@@ -169,4 +169,4 @@ def run_close():
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("close", body)
-    tg.send(f"<b>Close-of-Day Summary</b> {datetime.now(timezone.utc).strftime('%Y-%m-%d')}\n\n<pre>{body}</pre>")
+    pass  # Telegram removed

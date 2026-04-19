@@ -1,0 +1,288 @@
+"""
+Kimmy Trading Agent — Auto-Execute Edition
+Usage:
+  python main.py              # run one full cycle now
+  python main.py --schedule   # start scheduler (7 scans/day, auto-execute)
+  python main.py --discord    # start Discord bot + scheduler together
+  python main.py --dry-run    # simulate without placing trades
+"""
+import sys
+import argparse
+from datetime import datetime, timezone
+
+import config
+import database.db as db
+from broker import alpaca
+from signals import technical, sentiment, congress, insider, fundamentals
+from agent import claude_agent
+from risk import manager
+from summaries import reporter
+from basket import manager as basket_mgr
+from notifications import discord_bot as notify
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _portfolio_context(portfolio, positions):
+    equity = portfolio["equity"]
+    options_value = sum(
+        abs(p["qty"] * p["current_price"])
+        for p in positions if p.get("asset_class") == "us_option"
+    )
+    crypto_value = sum(
+        abs(p["qty"] * p["current_price"])
+        for p in positions if p.get("asset_class") == "crypto"
+    )
+    return {
+        **portfolio,
+        "position_count": len(positions),
+        "options_pct": (options_value / equity * 100) if equity else 0,
+        "crypto_pct":  (crypto_value  / equity * 100) if equity else 0,
+    }
+
+
+def _is_crypto(symbol: str) -> bool:
+    return "/" in symbol
+
+
+def _get_bars(symbol: str):
+    if _is_crypto(symbol):
+        return alpaca.get_crypto_bars(symbol)
+    return alpaca.get_stock_bars(symbol)
+
+
+def _notify_trade(symbol, action, asset_type, shares, entry, stop, tp, confidence, rationale, option_direction=None, dry_run=False):
+    """Send Discord alert ONLY when a trade fires."""
+    mode = "🔵 DRY RUN" if dry_run else "✅ EXECUTED"
+    direction = ""
+    if asset_type == "option":
+        d = (option_direction or "").upper()
+        direction = f" {d}"
+
+    msg = (
+        f"**{mode} — {action}{direction} {symbol}**\n"
+        f"```\n"
+        f"Type       : {asset_type.upper()}\n"
+        f"Entry      : ${entry:.2f}\n"
+        f"Stop       : ${stop:.2f}\n"
+        f"TP         : ${tp:.2f}\n"
+        f"Size       : {shares} {'contracts' if asset_type == 'option' else 'shares'}\n"
+        f"Confidence : {confidence}/10\n"
+        f"Reason     : {rationale}\n"
+        f"Time (UTC) : {datetime.now(timezone.utc).strftime('%H:%M:%S')}\n"
+        f"```"
+    )
+    try:
+        notify.send(msg)
+    except Exception as e:
+        print(f"  [Discord] notify failed: {e}")
+
+
+# ── Core cycle ────────────────────────────────────────────────────────────────
+
+def run_cycle(dry_run: bool = False):
+    now = datetime.now(timezone.utc)
+    print(f"\n{'='*60}")
+    print(f"Cycle @ {now.isoformat()}  {'[DRY RUN]' if dry_run else '[LIVE]'}")
+    print('='*60)
+
+    db.init()
+    portfolio  = alpaca.get_portfolio()
+    positions  = alpaca.get_positions()
+    port_ctx   = _portfolio_context(portfolio, positions)
+
+    print(f"Equity=${portfolio['equity']:,.2f}  Cash=${portfolio['cash']:,.2f}  Positions={port_ctx['position_count']}")
+
+    # ── Exit check (stop-loss / take-profit) ─────────────────────────────────
+    exits = manager.check_stops(positions, signals_map={})
+    for exit_order in exits:
+        sym    = exit_order["symbol"]
+        reason = exit_order["reason"]
+        print(f"  [EXIT] {sym} — {reason}")
+        if not dry_run:
+            try:
+                alpaca.place_market_order(sym, 0, "SELL")
+                db.log_trade(sym, "SELL", "auto", 0, 0, 0, 10, reason)
+                _notify_trade(sym, "SELL/CLOSE", "stock", 0, 0, 0, 0, 10, reason)
+            except Exception as e:
+                print(f"    ERROR closing {sym}: {e}")
+
+    # ── Market bias ───────────────────────────────────────────────────────────
+    try:
+        spy_bars = alpaca.get_stock_bars("SPY")
+        spy_tech = technical.compute(spy_bars)
+        market_bias = spy_tech.get("bias", "LONG")
+    except Exception:
+        market_bias = "LONG"
+
+    print(f"  Market Bias: {market_bias}")
+    if market_bias == "NO_TRADE":
+        print("  No-trade condition — skipping entries.")
+        return
+
+    # ── Signal + decision loop ────────────────────────────────────────────────
+    stock_basket = basket_mgr.load()
+    watchlist    = stock_basket + config.CRYPTO_WATCHLIST
+
+    for symbol in watchlist:
+        print(f"\n  [{symbol}] scanning...")
+
+        bars      = _get_bars(symbol)
+        tech      = technical.compute(bars)
+        intraday  = {}
+        try:
+            intra_bars = alpaca.get_intraday_bars(symbol)
+            if intra_bars is not None:
+                intraday = technical.compute_intraday(intra_bars)
+        except Exception:
+            pass
+
+        sent = sentiment.compute(symbol)
+        cong = congress.compute(symbol)
+        insd = insider.compute(symbol)
+        fund = fundamentals.compute(symbol)
+
+        db.log_signals(symbol, tech, sent, cong, insd, fund)
+
+        signals = {
+            "technical":     tech,
+            "intraday":      intraday,
+            "sentiment":     sent,
+            "congressional": cong,
+            "insider":       insd,
+            "fundamentals":  fund,
+        }
+
+        # Hard gate — skip weak setups before calling Claude
+        passes, criteria_reason = manager.check_entry_criteria(signals)
+        if not passes:
+            print(f"  [{symbol}] SKIP — {criteria_reason}")
+            continue
+
+        # ── Claude decides ────────────────────────────────────────────────────
+        decision   = claude_agent.decide(symbol, signals, port_ctx, market_bias)
+        decision   = manager.validate(decision, port_ctx)
+
+        action     = decision["action"]
+        confidence = decision["confidence"]
+        alloc      = decision["allocation_pct"]
+        rationale  = decision.get("rationale", "")
+        asset_type = decision.get("asset_type", "stock")
+        opt_dir    = decision.get("option_direction")
+        entry      = decision.get("entry", 0)
+        stop       = decision.get("stop", 0)
+        tp         = decision.get("tp", 0)
+        shares     = decision.get("shares", 0)
+
+        print(f"  [{symbol}] {action} | conf={confidence} | type={asset_type} | alloc={alloc:.1f}%")
+
+        if action == "HOLD":
+            continue
+
+        # ── Options preferred when confidence ≥ 7 ────────────────────────────
+        use_options = (
+            confidence >= 7
+            and not _is_crypto(symbol)
+            and symbol in (config.get_sp500_tickers() or [])
+        )
+        if use_options and asset_type != "option":
+            asset_type = "option"
+            opt_dir    = "call" if action == "BUY" else "put"
+
+        # ── Execute ───────────────────────────────────────────────────────────
+        if not dry_run:
+            try:
+                if asset_type == "option":
+                    alpaca.place_option_order_smart(
+                        symbol      = symbol,
+                        direction   = opt_dir,
+                        qty         = max(1, shares // 10),   # 1 contract = 100 shares
+                        expiry_weeks=3,
+                    )
+                else:
+                    alpaca.place_market_order(symbol, shares, action)
+
+                db.log_trade(symbol, action, "claude", entry, stop, tp, confidence, rationale)
+                _notify_trade(symbol, action, asset_type, shares, entry, stop, tp, confidence, rationale, opt_dir)
+                print(f"  [{symbol}] ✅ ORDER SENT")
+
+            except Exception as e:
+                print(f"  [{symbol}] ❌ ORDER FAILED: {e}")
+        else:
+            # Dry-run still sends a Discord alert so you can review
+            _notify_trade(symbol, action, asset_type, shares, entry, stop, tp, confidence, rationale, opt_dir, dry_run=True)
+            print(f"  [{symbol}] 🔵 DRY RUN — would {action} {shares} {asset_type}")
+
+
+# ── Scheduler (7 scans/day, ET) ───────────────────────────────────────────────
+
+def start_scheduler(dry_run: bool = False):
+    from apscheduler.schedulers.blocking import BlockingScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    import pytz
+
+    ET = pytz.timezone("America/New_York")
+    scheduler = BlockingScheduler(timezone=ET)
+
+    # 7 daily scan times (ET)
+    scan_times = [
+        ("9",  "00"),   # Pre-open pulse
+        ("9",  "35"),   # 5 min after open
+        ("10", "00"),   # First hour
+        ("11", "30"),   # Mid-morning
+        ("13", "00"),   # Lunch dip
+        ("14", "30"),   # Power hour build-up
+        ("15", "45"),   # End-of-day close
+    ]
+
+    for hour, minute in scan_times:
+        scheduler.add_job(
+            lambda dr=dry_run: run_cycle(dry_run=dr),
+            CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=ET),
+            id=f"scan_{hour}_{minute}",
+            name=f"Scan {hour}:{minute} ET",
+            misfire_grace_time=120,
+        )
+
+    print(f"\n🚀 Scheduler started — 7 scans/day (Mon–Fri ET)")
+    print("   Times: 9:00 9:35 10:00 11:30 13:00 14:30 15:45")
+    print("   Mode :", "DRY RUN" if dry_run else "LIVE AUTO-EXECUTE")
+    print("   Press Ctrl+C to stop\n")
+
+    scheduler.start()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--schedule", action="store_true", help="Run scheduler (7×/day)")
+    parser.add_argument("--discord",  action="store_true", help="Run Discord bot + scheduler")
+    parser.add_argument("--dry-run",  action="store_true", help="No real orders")
+    args = parser.parse_args()
+
+    if args.discord:
+        import threading
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        import pytz
+
+        ET = pytz.timezone("America/New_York")
+        bg = BackgroundScheduler(timezone=ET)
+        scan_times = [
+            ("9",  "00"), ("9",  "35"), ("10", "00"),
+            ("11", "30"), ("13", "00"), ("14", "30"), ("15", "45"),
+        ]
+        for hour, minute in scan_times:
+            bg.add_job(
+                lambda dr=args.dry_run: run_cycle(dry_run=dr),
+                CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=ET),
+                id=f"scan_{hour}_{minute}",
+                misfire_grace_time=120,
+            )
+        bg.start()
+        print("🚀 Background scheduler started — 7 scans/day (Mon–Fri ET)")
+        notify.run_bot()  # blocks in main thread
+    elif args.schedule:
+        start_scheduler(dry_run=args.dry_run)
+    else:
+        run_cycle(dry_run=args.dry_run)

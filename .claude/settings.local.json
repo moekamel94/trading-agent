@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull *)",
+      "Bash(systemctl status *)",
+      "Bash(systemctl daemon-reload *)",
+      "Bash(systemctl restart *)",
+      "Bash(systemctl is-enabled *)",
+      "Bash(journalctl -u kimmy.service --no-pager -n 20)",
+      "Bash(journalctl -u kimmy.service --no-pager -n 15)",
+      "Bash(journalctl -u kimmy.service --no-pager -n 8)"
+    ]
+  }
+}
