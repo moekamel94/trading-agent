@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import config
 import database.db as db
 from broker import alpaca
-from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context
+from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context, future_growth
 from agent import claude_agent
 from risk import manager
 from summaries import reporter
@@ -116,18 +116,23 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
-        # --- Deep research + financial data + social (only for tickers passing criteria) ---
-        print(f"  [{symbol}] running deep research + financial data + social...")
+        # --- Deep research + financial data + social + future growth ---
+        print(f"  [{symbol}] running deep research + financial data + social + growth eval...")
         research_data  = research.compute(symbol)
         fin_data       = financial_data.compute(symbol)
         social_data    = social.compute(symbol)
         earnings_data  = market_context.earnings_soon(symbol)
+        growth_data    = future_growth.compute(symbol)
         signals["research"]        = research_data
         signals["financial_data"]  = fin_data
         signals["social"]          = social_data
         signals["earnings"]        = earnings_data
         signals["market_context"]  = mkt_ctx
-        print(f"  [{symbol}] social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')} | market={mkt_ctx['market_risk']}")
+        signals["future_growth"]   = growth_data
+        g_score = growth_data.get("score", 0)
+        g_class = growth_data.get("classification", "unknown")
+        g_winds = growth_data.get("tailwinds", [])
+        print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')}")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = manager.apply_conviction_bonuses(decision, signals)

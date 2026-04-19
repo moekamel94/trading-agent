@@ -68,6 +68,43 @@ STOCK EXIT — sell on real signals, not on arbitrary targets
 NO fixed take-profit ceiling — let winners run.
 
 ═══════════════════════════════════════════════════════
+FUTURE GROWTH STOCKS — beat the market by finding winners early
+═══════════════════════════════════════════════════════
+
+Every ticker gets a Future Growth Score (0-100). Use it to calibrate your decision:
+
+HIGH GROWTH (score >= 70):
+• These stocks CAN have high P/E — they are growing INTO their valuation
+• PEG < 1.5 means you are buying growth cheaply, even if P/E looks high
+• Wider stop-loss justified — growth stocks are volatile but compound fast
+• Prioritize: revenue acceleration, expanding margins, consistent earnings beats
+• Rule of 40 >= 40 = healthy growth tech company
+• HOLD these longer — don't sell on normal pullbacks if thesis is intact
+
+STEADY COMPOUNDER (score 50-69):
+• Apply standard criteria — these are quality but not exceptional growth
+• Good for stable allocation, lower volatility
+
+VALUE PLAY (score 35-49):
+• Look for catalyst to unlock value — why would this re-rate?
+• Don't hold indefinitely without a thesis
+
+DECLINING (score < 35):
+• Avoid new entries, flag open positions for review
+
+TAILWIND SECTORS — structural growth over next 3-5 years:
+• ai_robotics: AI infrastructure, GPU, robotics automation
+• quantum: quantum computing hardware and software
+• biotech: drug innovation, GLP-1, gene therapy
+• clean_energy: solar, grid storage, electrification
+• cybersecurity: zero-trust, cloud security
+• space_defense: satellite, defense spending cycle
+• fintech: digital payments, embedded finance
+
+Stocks in tailwind sectors with score >= 60 are PRIORITY HOLDS.
+Be willing to size UP (higher allocation) when growth score is strong.
+
+═══════════════════════════════════════════════════════
 BTC/USD ENTRY — pure momentum + macro, no fundamentals
 ═══════════════════════════════════════════════════════
 
@@ -218,6 +255,36 @@ def _format_financial_data(fin: dict) -> str:
     return "\nFinancial Data:\n" + "\n".join(f"  {b}" for b in blocks) + "\n"
 
 
+def _format_future_growth(g: dict) -> str:
+    if not g or g.get("score", 0) == 0:
+        return ""
+    score = g.get("score", 0)
+    cls   = g.get("classification", "")
+    parts = [f"Growth Score: {score}/100 ({cls.upper().replace('_',' ')})"]
+    if g.get("revenue_growth"):
+        parts.append(f"Revenue growth: {g['revenue_growth']}%")
+    if g.get("earnings_growth"):
+        parts.append(f"Earnings growth: {g['earnings_growth']}%")
+    if g.get("peg_ratio"):
+        parts.append(f"PEG: {g['peg_ratio']}")
+    if g.get("forward_pe"):
+        parts.append(f"Forward P/E: {round(g['forward_pe'],1)}")
+    if g.get("rule_of_40"):
+        parts.append(f"Rule of 40: {g['rule_of_40']}")
+    if g.get("gross_margin"):
+        parts.append(f"Gross margin: {g['gross_margin']}%")
+    if g.get("target_upside"):
+        parts.append(f"Analyst target upside: {g['target_upside']}%")
+    if g.get("beat_rate_pct") is not None:
+        parts.append(f"Earnings beat rate: {g['beat_rate_pct']}% ({g.get('surprise_trend','?')} trend, avg +{g.get('avg_eps_surprise','?')}%)")
+    if g.get("tailwinds"):
+        parts.append(f"Industry tailwinds: {', '.join(g['tailwinds'])}")
+    bd = g.get("breakdown", {})
+    if bd:
+        parts.append(f"Breakdown: momentum={bd.get('growth_momentum',0)}/30 quality={bd.get('growth_quality',0)}/25 analysts={bd.get('analyst_conviction',0)}/25 execution={bd.get('earnings_execution',0)}/20")
+    return "\nFuture Growth Assessment:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
+
+
 def _format_social(soc: dict) -> str:
     if not soc:
         return ""
@@ -267,11 +334,12 @@ def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
         lines = "\n".join(f"  - {s}" for s in research["snippets"][:10])
         research_block = f"\nWeb Research ({research.get('source_count', 0)} sources):\n{lines}\n"
 
-    fin_block = _format_financial_data(fin)
-    soc_block = _format_social(soc)
-    mkt_block = _format_market_context(mkt, earnings)
+    fin_block    = _format_financial_data(fin)
+    soc_block    = _format_social(soc)
+    mkt_block    = _format_market_context(mkt, earnings)
+    growth_block = _format_future_growth(signals.get("future_growth", {}))
 
-    core_signals = {k: v for k, v in signals.items() if k not in ("research", "financial_data", "social", "market_context", "earnings")}
+    core_signals = {k: v for k, v in signals.items() if k not in ("research", "financial_data", "social", "market_context", "earnings", "future_growth")}
 
     prompt = f"""
 Ticker: {symbol}
@@ -282,7 +350,7 @@ Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT
 
 Core Signals:
 {json.dumps(core_signals, indent=2, default=str)}
-{fin_block}{soc_block}{mkt_block}{research_block}
+{growth_block}{fin_block}{soc_block}{mkt_block}{research_block}
 {_SCHEMA}
 """
 

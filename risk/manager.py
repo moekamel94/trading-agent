@@ -82,7 +82,12 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
         fund_score += 1; fund_hits.append("rev")
 
     pe = fund.get("pe_ratio")
-    if pe is None or pe < config.CRITERIA_PE_MAX:
+    growth = signals.get("future_growth", {})
+    # High-growth stocks (score >= 70 or PEG < 1.5) get a wider P/E ceiling
+    pe_max = config.CRITERIA_PE_MAX
+    if growth.get("score", 0) >= 70 or (growth.get("peg_ratio") or 99) < 1.5:
+        pe_max = 200
+    if pe is None or pe < pe_max:
         fund_score += 1; fund_hits.append("pe")
 
     margin = fund.get("profit_margin")
