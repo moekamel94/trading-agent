@@ -188,47 +188,46 @@ def _fmp_layer(symbol: str) -> dict:
         return {}
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     result = {}
-    base = "https://financialmodelingprep.com/api/v3"
+    base = "https://financialmodelingprep.com/stable"
+    params = {"symbol": clean, "apikey": config.FMP_API_KEY}
 
     try:
-        r = requests.get(f"{base}/profile/{clean}", params={"apikey": config.FMP_API_KEY}, timeout=_TIMEOUT)
+        r = requests.get(f"{base}/profile", params=params, timeout=_TIMEOUT)
         if r.status_code == 200 and r.json():
             p = r.json()[0]
-            result["company_name"]  = p.get("companyName")
-            result["sector"]        = p.get("sector")
-            result["industry"]      = p.get("industry")
-            result["market_cap"]    = p.get("mktCap")
-            result["beta"]          = p.get("beta")
-            result["dcf_value"]     = p.get("dcf")
-            result["price"]         = p.get("price")
-            result["description"]   = (p.get("description") or "")[:300]
+            result["company_name"] = p.get("companyName")
+            result["sector"]       = p.get("sector")
+            result["industry"]     = p.get("industry")
+            result["market_cap"]   = p.get("mktCap")
+            result["beta"]         = p.get("beta")
+            result["price"]        = p.get("price")
+            result["description"]  = (p.get("description") or "")[:300]
     except Exception:
         pass
 
     try:
-        r = requests.get(f"{base}/key-metrics/{clean}", params={"apikey": config.FMP_API_KEY, "limit": 1}, timeout=_TIMEOUT)
+        r = requests.get(f"{base}/key-metrics", params={**params, "limit": 1}, timeout=_TIMEOUT)
         if r.status_code == 200 and r.json():
             m = r.json()[0]
-            result["pe_ratio"]          = m.get("peRatio")
-            result["debt_to_equity"]    = m.get("debtToEquity")
-            result["current_ratio"]     = m.get("currentRatio")
-            result["roe"]               = m.get("roe")
-            result["revenue_per_share"] = m.get("revenuePerShare")
-            result["free_cash_flow"]    = m.get("freeCashFlowPerShare")
+            result["pe_ratio"]       = m.get("peRatio")
+            result["debt_to_equity"] = m.get("debtToEquity")
+            result["current_ratio"]  = m.get("currentRatio")
+            result["roe"]            = m.get("roe")
+            result["free_cash_flow"] = m.get("freeCashFlowPerShare")
     except Exception:
         pass
 
     try:
-        r = requests.get(f"{base}/income-statement/{clean}", params={"apikey": config.FMP_API_KEY, "limit": 2}, timeout=_TIMEOUT)
+        r = requests.get(f"{base}/income-statement", params={**params, "limit": 2}, timeout=_TIMEOUT)
         if r.status_code == 200 and len(r.json()) >= 2:
             latest, prior = r.json()[0], r.json()[1]
             rev_latest = latest.get("revenue", 0) or 0
             rev_prior  = prior.get("revenue", 1) or 1
-            result["revenue_latest"]  = rev_latest
-            result["revenue_growth"]  = round((rev_latest - rev_prior) / rev_prior * 100, 2) if rev_prior else None
-            result["net_income"]      = latest.get("netIncome")
-            result["gross_profit"]    = latest.get("grossProfit")
-            result["ebitda"]          = latest.get("ebitda")
+            result["revenue_latest"] = rev_latest
+            result["revenue_growth"] = round((rev_latest - rev_prior) / rev_prior * 100, 2) if rev_prior else None
+            result["net_income"]     = latest.get("netIncome")
+            result["gross_profit"]   = latest.get("grossProfit")
+            result["ebitda"]         = latest.get("ebitda")
     except Exception:
         pass
 
