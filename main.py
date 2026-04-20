@@ -313,13 +313,21 @@ def main():
                         minute=config.PREMARKET_SUMMARY_MINUTE),
             id="premarket_summary",
         )
-        # Run every hour during market hours: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30 ET
+        # Morning cycle: catch overnight news and gaps
         scheduler.add_job(
             run_cycle,
             CronTrigger(day_of_week="mon-fri",
-                        hour="9-14",
+                        hour=config.RUN_HOUR,
                         minute=config.RUN_MINUTE),
-            id="trading_cycle",
+            id="trading_cycle_open",
+        )
+        # Afternoon cycle: daily bars ~97% complete — best signal quality
+        scheduler.add_job(
+            run_cycle,
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.AFTERNOON_HOUR,
+                        minute=config.AFTERNOON_MINUTE),
+            id="trading_cycle_close",
         )
         scheduler.add_job(
             reporter.run_close,
@@ -333,7 +341,8 @@ def main():
             f"[Scheduler] Started inside Kimmy:\n"
             f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
-            f"  Trading cycle      : Mon-Fri every hour :{config.RUN_MINUTE:02d} ET (9:30–14:30)\n"
+            f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
+            f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
             f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
         )
 
@@ -368,13 +377,19 @@ def main():
                         minute=config.PREMARKET_SUMMARY_MINUTE),
             id="premarket_summary",
         )
-        # Run every hour during market hours: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30 ET
         scheduler.add_job(
             lambda: run_cycle(dry_run=args.dry_run),
             CronTrigger(day_of_week="mon-fri",
-                        hour="9-14",
+                        hour=config.RUN_HOUR,
                         minute=config.RUN_MINUTE),
-            id="trading_cycle",
+            id="trading_cycle_open",
+        )
+        scheduler.add_job(
+            lambda: run_cycle(dry_run=args.dry_run),
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.AFTERNOON_HOUR,
+                        minute=config.AFTERNOON_MINUTE),
+            id="trading_cycle_close",
         )
         scheduler.add_job(
             reporter.run_close,
@@ -387,7 +402,8 @@ def main():
             f"Scheduler started:\n"
             f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
-            f"  Trading cycle      : Mon-Fri every hour :{config.RUN_MINUTE:02d} ET (9:30–14:30)\n"
+            f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
+            f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
             f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
         )
         try:

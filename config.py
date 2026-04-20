@@ -47,8 +47,11 @@ TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
 
 # --- Scheduler ---
-RUN_HOUR   = 9
-RUN_MINUTE = 30  # 9:30 AM ET, at market open
+# Two cycles per day: open (catch overnight news/gaps) + near-close (daily bars nearly complete)
+RUN_HOUR        = 9
+RUN_MINUTE      = 35   # 9:35 AM ET — market open
+AFTERNOON_HOUR  = 15
+AFTERNOON_MINUTE = 30  # 3:30 PM ET — daily bars ~97% complete, best signal quality
 
 # Summary schedule (ET)
 PREMARKET_SUMMARY_HOUR   = 9
