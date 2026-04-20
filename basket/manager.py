@@ -37,8 +37,8 @@ SECTOR_LIST = [
     "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT",
     # Clean Energy (removed NEE, RUN, SEDG — won't hit 40% target)
     "ENPH", "FSLR",
-    # Robotics / Automation (removed ROK, EMR — traditional industrials)
-    "ABB", "ETN", "ISRG",
+    # Robotics / Automation (removed ROK, EMR — traditional industrials; ABB — no Yahoo data)
+    "ETN", "ISRG",
     # AI Networking / Infrastructure
     "ANET", "VRT",
     # High-growth compounders — fintech & consumer tech
