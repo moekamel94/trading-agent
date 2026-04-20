@@ -74,6 +74,21 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
     if cong.get("net_signal") == "bearish" and sent.get("label") == "negative":
         return False, "Congress selling + negative sentiment — double bearish signal"
 
+    # ── Future outlook gate (Chief Research): prefer companies in growth industries
+    # A future growth score below 30 means declining/commodity business — skip unless
+    # fundamentals are exceptionally strong (4+/5). This enforces the product quality thesis.
+    growth = signals.get("future_growth", {})
+    g_score = growth.get("score", None)
+    if g_score is not None and g_score < 30:
+        # Allow through only if fundamentals are very strong — otherwise skip
+        fund_quick = 0
+        fund_quick += 1 if (signals.get("fundamentals", {}).get("eps_growth_yoy") or 0) > 0 else 0
+        fund_quick += 1 if (signals.get("fundamentals", {}).get("revenue_growth") or 0) > 0 else 0
+        fund_quick += 1 if (signals.get("fundamentals", {}).get("profit_margin") or 0) > 10 else 0
+        fund_quick += 1 if (signals.get("fundamentals", {}).get("pe_ratio") or 999) < 15 else 0
+        if fund_quick < 4:
+            return False, f"Future outlook weak (growth score {g_score}/100) — not aligned with product quality thesis"
+
     # ── Fundamental scoring (need 3 of 5) ─────────────────────────────────
     fund_score = 0
     fund_hits  = []
@@ -87,10 +102,9 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
         fund_score += 1; fund_hits.append("rev")
 
     pe = fund.get("pe_ratio")
-    growth = signals.get("future_growth", {})
     # High-growth stocks (score >= 70 or PEG < 1.5) get a wider P/E ceiling
     pe_max = config.CRITERIA_PE_MAX
-    if growth.get("score", 0) >= 70 or (growth.get("peg_ratio") or 99) < 1.5:
+    if (g_score or 0) >= 70 or (growth.get("peg_ratio") or 99) < 1.5:
         pe_max = 200
     if pe is None or pe < pe_max:
         fund_score += 1; fund_hits.append("pe")
