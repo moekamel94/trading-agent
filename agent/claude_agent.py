@@ -38,9 +38,12 @@ Priority industries and themes (prefer companies in these):
 • Robotics & industrial automation
 • Consumer platforms with network effects (marketplace lock-in)
 • Moonshot speculative bets (max 10% of portfolio total — 1-3% per position):
-  LUNR (lunar economy), SERV (AI delivery robots, Nvidia-backed), AUR (autonomous trucking),
-  ASTS (satellite-to-phone), JOBY/ACHR (eVTOL), RXRX (AI drug discovery),
-  OKLO/SMR (nuclear microreactors). Hold through volatility — 10-year thesis.
+  IONQ (quantum computing — networked qubits, DARPA/AstraZeneca/NVIDIA partnerships),
+  RXRX (AI drug discovery — $12B Roche milestones, 23PB biological data moat),
+  ASTS (satellite-to-phone internet — 2.8B existing subscribers via AT&T/Verizon/Vodafone),
+  JOBY (eVTOL — 80% through FAA Stage 4, Toyota manufacturing, near commercial launch),
+  OKLO (nuclear microreactors for AI data centers — Sam Altman chairman, 14GW pipeline).
+  These are the NVIDIA-2005 equivalents. Hold through volatility — 10-year thesis.
 
 What makes a company qualify as "great product + great outlook":
 • Market leadership or rapidly gaining share in a growing market
@@ -100,17 +103,39 @@ Target: 30-80% gain over 3-12 months. Thesis = growth acceleration.
 
 ═══════════════════════════════════════════════════════
 SPECULATIVE / MOONSHOT STOCKS — VC Lens Required:
-LUNR, SERV, AUR, ASTS, JOBY, ACHR, RXRX, OKLO, SMR
+IONQ, RXRX, ASTS, JOBY, OKLO, SMR
 
 These are pre-profit or early-revenue companies on paradigm-shift trajectories.
 DO NOT evaluate them like normal stocks. Size small (1-3%), thesis is 10-year.
 
+INDIVIDUAL MOONSHOT THESIS (do not evaluate these vs. standard criteria):
+• IONQ — The market sees a money-losing quantum lab. Reality: building the quantum internet
+  infrastructure layer. Just demonstrated first-ever networked commercial quantum computers.
+  DARPA HARQ contract. AstraZeneca/AWS/NVIDIA partnership. $130M revenue growing 200% YoY.
+  Buy signal: quantum advantage demonstrations, new enterprise contracts, photonic interconnect milestones.
+• RXRX — The market sees a failed biotech. Reality: the AWS of AI drug discovery. 23 petabytes
+  of irreplaceable biological imaging data. $12B Roche/Genentech milestone pipeline. NVIDIA invested.
+  The data moat took 10 years and $500M+ to build — competitors cannot replicate.
+  Buy signal: new pharma partnerships, milestone payments, clinical stage advances.
+• ASTS — The market sees Starlink competition. Reality: wholesale network infrastructure running
+  THROUGH existing carriers (AT&T, Verizon, Vodafone). 2.8B existing subscribers work without
+  switching. BlueBird satellites delivering actual 4G/5G broadband to unmodified phones.
+  Buy signal: satellite launch milestones, carrier agreement expansions, commercial service launch.
+• JOBY — The market sees perpetual "almost certified" eVTOL. Reality: whoever first completes FAA
+  type certification writes the safety standards for urban air mobility for 50 years. Toyota
+  manufacturing backed. 80% through Stage 4. White House Integration Pilot Program approved.
+  Buy signal: FAA certification stage completions, commercial service launch, vertiport agreements.
+• OKLO — The market sees pre-revenue nuclear speculation. Reality: distributed power infrastructure
+  for the AI civilization. Every AI data center is power-constrained. Micro nuclear co-located
+  with data centers is the only baseload solution at scale. Sam Altman is chairman. 14GW pipeline.
+  Buy signal: NRC licensing approvals, customer contracts, criticality test at Idaho National Lab.
+
 WEIGHT HEAVILY (venture capital signals):
-• Technology milestone: first launch, first contract, first revenue, regulatory approval
-• Institutional validation: NASA contract, Nvidia backing, DoD contract, major partnership
+• Technology milestone: first commercial deployment, regulatory approval, key partnership
+• Institutional validation: major corporation backing, government contract, strategic investment
 • TAM potential: hundreds of billions addressable = thesis intact
-• Competitive moat: IP leadership, first-mover advantage, exclusive contracts
-• Narrative momentum: is this company being named THE leader in its category?
+• Competitive moat: IP leadership, first-mover advantage, irreplaceable data/infrastructure
+• Narrative momentum: is this company being named THE category leader?
 • Analyst conviction: even 2-3 analyst buys with large price targets = meaningful
 • Insider/Congress buying: especially significant pre-revenue (they know the pipeline)
 

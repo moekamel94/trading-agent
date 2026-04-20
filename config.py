@@ -117,7 +117,7 @@ TICKER_TIERS = {
     # ── Mid growth (high-conviction, earlier in curve) ───────────────────
     "AMAT": "mid_growth", "LRCX": "mid_growth", "KLAC": "mid_growth",
     "MU": "mid_growth", "IBM": "mid_growth",
-    "IONQ": "mid_growth", "RGTI": "mid_growth",
+    "RGTI": "mid_growth",
     "CCJ": "mid_growth", "CEG": "mid_growth",
     "BWXT": "mid_growth", "KTOS": "mid_growth",
     "ENPH": "mid_growth", "FSLR": "mid_growth",
@@ -127,15 +127,12 @@ TICKER_TIERS = {
     "SYM": "mid_growth", "CELH": "mid_growth", "CAVA": "mid_growth",
     "RKLB": "mid_growth", "RDDT": "mid_growth",
     # ── Speculative / Moonshots (asymmetric 10-year bets) ────────────────
-    "ASTS": "speculative",            # satellite-to-phone internet
-    "OKLO": "speculative",            # nuclear microreactors
+    "ASTS": "speculative",            # satellite-to-phone internet (2.8B existing subscribers)
+    "OKLO": "speculative",            # nuclear microreactors for AI data centers (Sam Altman)
     "SMR": "speculative",             # small modular reactors
-    "JOBY": "speculative",            # eVTOL air taxi
-    "ACHR": "speculative",            # eVTOL air taxi
-    "RXRX": "speculative",            # AI drug discovery
-    "LUNR": "speculative",            # lunar economy (NASA Artemis)
-    "SERV": "speculative",            # AI delivery robots (Nvidia backed)
-    "AUR": "speculative",             # autonomous trucking
+    "JOBY": "speculative",            # eVTOL air taxi — 80% through FAA Stage 4, Toyota backed
+    "RXRX": "speculative",            # AI drug discovery — $12B Roche milestones, NVIDIA platform
+    "IONQ": "speculative",            # quantum computing — networked qubits, $130M revenue +200% YoY
 }
 
 # Allocation by tier × confidence (risk manager enforces, not Claude)
@@ -165,17 +162,16 @@ SECTOR_MAP = {
     "MRVL": "semis", "TSM": "semis",
     "IONQ": "quantum", "RGTI": "quantum", "IBM": "quantum",
     "CRWD": "cyber", "PANW": "cyber", "ZS": "cyber", "FTNT": "cyber", "S": "cyber",
-    "RKLB": "space", "ASTS": "space", "LUNR": "space",
+    "RKLB": "space", "ASTS": "space",
     "CCJ": "nuclear", "OKLO": "nuclear", "SMR": "nuclear", "CEG": "nuclear",
     "LMT": "defense", "RTX": "defense", "NOC": "defense", "GD": "defense",
     "KTOS": "defense", "AXON": "defense", "BWXT": "defense",
     "ENPH": "clean_energy", "FSLR": "clean_energy",
-    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics",
-    "SYM": "robotics", "SERV": "robotics",
+    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics", "SYM": "robotics",
     "ANET": "ai_infra", "VRT": "ai_infra",
     "HOOD": "fintech", "COIN": "fintech", "MELI": "fintech", "NU": "fintech",
     "DUOL": "consumer_tech", "APP": "consumer_tech", "RDDT": "consumer_tech",
-    "JOBY": "evtol", "ACHR": "evtol", "AUR": "evtol",
+    "JOBY": "evtol",
     "RXRX": "biotech",
     "CELH": "consumer_goods", "CAVA": "consumer_goods",
     "AAPL": "mega_tech", "TSLA": "mega_tech",

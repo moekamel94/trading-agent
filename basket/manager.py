@@ -49,11 +49,7 @@ SECTOR_LIST = [
     # AI drug discovery & robotics
     "RXRX", "SYM",
     # eVTOL / air mobility
-    "JOBY", "ACHR",
-    # ── Moonshots (speculative tier — 10-year asymmetric bets) ──────────
-    "LUNR",    # lunar economy — NASA Artemis contractor
-    "SERV",    # AI delivery robots — Nvidia-backed
-    "AUR",     # autonomous trucking — massive freight TAM
+    "JOBY",
     # Anchor mega-caps
     "AAPL", "TSLA",
 ]
