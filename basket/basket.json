@@ -1,5 +1,5 @@
 {
-  "updated": "2026-04-20T15:18:55.457669",
+  "updated": "2026-04-20T15:35:11.204734",
   "tickers": [
     "MSFT",
     "GOOGL",
@@ -33,11 +33,8 @@
     "FTNT",
     "S",
     "OKTA",
-    "CYBR",
     "RKLB",
     "ASTS",
-    "LUNR",
-    "RDW",
     "CCJ",
     "OKLO",
     "SMR",
@@ -67,9 +64,9 @@
     "BRK-B"
   ],
   "sources": {
-    "sector_list": 64,
+    "sector_list": 61,
     "congress": 0,
     "pinned": [],
-    "total": 64
+    "total": 61
   }
 }

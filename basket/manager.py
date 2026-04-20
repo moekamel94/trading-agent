@@ -28,9 +28,9 @@ SECTOR_LIST = [
     # Quantum Computing
     "IONQ", "RGTI", "QUBT", "IBM",
     # Cybersecurity
-    "CRWD", "PANW", "ZS", "FTNT", "S", "OKTA", "CYBR",
+    "CRWD", "PANW", "ZS", "FTNT", "S", "OKTA",
     # Space Tech (early-innings, massive 10-year TAM)
-    "RKLB", "ASTS", "LUNR", "RDW",
+    "RKLB", "ASTS",
     # Nuclear Energy (AI power demand + SMR deployment this decade)
     "CCJ", "OKLO", "SMR", "CEG",
     # Defense Tech

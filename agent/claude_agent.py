@@ -593,9 +593,23 @@ Core signal detail:
     )
 
     raw = response.content[0].text.strip()
+    # Strip markdown fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    # Extract first {...} block in case Claude adds prose
+    try:
+        start = raw.index("{")
+        end   = raw.rindex("}") + 1
+        raw   = raw[start:end]
+    except ValueError:
+        pass
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
+        print(f"    [Claude] JSON parse error. Raw response: {raw[:200]}")
         return {
             "action": "HOLD", "confidence": 0, "allocation_pct": 0,
             "asset_type": "stock", "option_direction": None,
