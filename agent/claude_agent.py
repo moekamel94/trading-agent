@@ -50,11 +50,33 @@ CONVICTION BOOSTERS (raise your confidence score):
 • Social sentiment bullish → retail momentum behind it
 • Golden cross active → technical tailwind
 • High growth score in tailwind sector → structural edge
+• 3+ consecutive earnings beats → structural earnings quality, very bullish
+• Revenue growth accelerating quarter-over-quarter → compounding thesis intact
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+MARKET REGIME AWARENESS (Risk Officer):
+• Check SPY/market price vs SMA200. If the broad market is in a downtrend
+  (SPY below SMA200 AND death cross), raise your bar: require confidence ≥ 9
+  to open new positions. Cash is a valid position in a bear market.
+• If VIX > 30, treat all BUY signals as one confidence point lower.
+• If macro_momentum is risk_off AND VIX > 25 → no new positions below confidence 9.
+  Capital preservation beats chasing returns in a risk-off environment.
+• Never fight a confirmed downtrend with new buys. Wait for the regime to flip.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+QUALITY FILTERS (enforced by risk manager — do not override):
+• Minimum stock price: $3.00 — penny stocks have wide spreads and low liquidity
+• Volume ratio must be ≥ 1.0 (at least average daily volume) for momentum score
+  A stock moving on below-average volume is a weak signal — institutions aren't in
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
 EXIT SIGNALS — sell on real signals, not arbitrary targets:
-• Stop loss: −8% from entry (handled by risk manager)
+• Hard stop loss: −8% from entry (handled by risk manager)
+• Trailing stop: if position is up ≥20% and 1-month return ≤ −8% → SELL
+  (the stock has reversed — protect the gain, don't give it back)
 • Dead money: held > 90 days AND profit < +3% → SELL
 • On PROFITABLE positions — need 2 bearish signals to SELL:
   - RSI > 80 | MACD bearish | Death cross | BB upper + MACD bearish
@@ -62,7 +84,7 @@ EXIT SIGNALS — sell on real signals, not arbitrary targets:
 • Analyst target cut below current price → SELL
 • Congress net selling this ticker → SELL
 • 3+ insider sell filings in one week → SELL
-NO fixed take-profit ceiling — let winners run.
+NO fixed take-profit ceiling — let winners run until a real exit fires.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════

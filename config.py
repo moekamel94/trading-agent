@@ -83,6 +83,16 @@ EXIT_MACD_BEARISH_CROSS = True
 DEAD_MONEY_DAYS      = 90     # exit if held this long with < profit below
 DEAD_MONEY_MIN_PCT   = 3.0    # minimum profit after DEAD_MONEY_DAYS
 
+# Trailing stop: if a position is up TRAILING_STOP_MIN_GAIN% or more and the
+# 1-month return drops below TRAILING_STOP_1M_DROP%, it means the stock has
+# reversed — protect the gain.
+TRAILING_STOP_MIN_GAIN = 20.0  # only activate trailing stop above this profit
+TRAILING_STOP_1M_DROP  = -8.0  # sell if 1M return goes this negative while winning
+
+# --- Quality Filters (Risk Officer) ---
+MIN_STOCK_PRICE    = 3.0   # skip stocks below $3 — penny stock / liquidity risk
+MIN_VOLUME_RATIO   = 1.0   # require at least average daily volume (was 0.8)
+
 # --- BTC-Specific Criteria ---
 BTC_RSI_MIN          = 30
 BTC_RSI_MAX          = 75

@@ -59,6 +59,11 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
         if rsi > config.CRITERIA_RSI_MAX:
             return False, f"RSI {rsi:.1f} — extreme overbought"
 
+    # ── Hard Block 5: Penny stock / liquidity filter (Risk Officer) ────────
+    price = tech.get("price")
+    if price is not None and price < config.MIN_STOCK_PRICE:
+        return False, f"Price ${price:.2f} below minimum ${config.MIN_STOCK_PRICE} — liquidity risk"
+
     # ── Hard Block 3: Earnings imminent ───────────────────────────────────
     dte = _days_to_earnings(earn)
     if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
@@ -114,7 +119,7 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
         mom_score += 1; mom_hits.append("3m")
 
     vr = tech.get("volume_ratio")
-    if vr is None or vr > 0.8:
+    if vr is None or vr > config.MIN_VOLUME_RATIO:
         mom_score += 1; mom_hits.append("vol")
 
     if tech.get("macd_cross") != "bearish":
@@ -232,6 +237,16 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
         if days >= config.DEAD_MONEY_DAYS and pct < config.DEAD_MONEY_MIN_PCT:
             exits.append({"symbol": sym, "action": "SELL", "reason": f"dead_money ({days}d, {pct:.1f}% gain)"})
             continue
+
+        # Trailing stop: protect large gains that have started to reverse.
+        # If up 20%+ but 1-month return has turned -8% or worse, the stock
+        # has peaked — lock in the profit rather than give it all back.
+        if pct >= config.TRAILING_STOP_MIN_GAIN:
+            r1m = tech.get("return_1m")
+            if r1m is not None and r1m <= config.TRAILING_STOP_1M_DROP:
+                exits.append({"symbol": sym, "action": "SELL",
+                               "reason": f"trailing_stop: up {pct:.1f}% overall but 1M return {r1m:.1f}% — protecting gains"})
+                continue
 
         # Technical exits on profitable positions (need 2 signals for stocks)
         if pct > 0 and not _is_btc(sym):
