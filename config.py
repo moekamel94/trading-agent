@@ -42,7 +42,7 @@ MAX_POSITIONS        = 15    # max open positions (was 20, fewer/higher quality)
 TAKE_PROFIT_PCT      = 0     # no fixed take-profit — let winners run
 MAX_OPTIONS_PCT      = 20.0  # max % of portfolio in options
 MAX_CRYPTO_PCT       = 20.0  # max % of portfolio in crypto
-MIN_CONFIDENCE       = 7     # minimum Claude confidence (1-10) to trade
+MIN_CONFIDENCE       = 6     # minimum Claude confidence (1-10) to trade
 TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
 

@@ -114,6 +114,24 @@ def run_cycle(dry_run: bool = False):
 
         bars = _get_bars(symbol)
         tech = technical.compute(bars)
+
+        # Quick technical pre-filter: skip immediately if price is below SMA50
+        # AND a death cross is confirmed (both signals bearish = clear downtrend).
+        # This avoids 4 expensive API calls per ticker that would fail the gate anyway.
+        if not _is_crypto(symbol):
+            price  = tech.get("price") or 0
+            sma50  = tech.get("sma50") or 0
+            below_sma50   = sma50 > 0 and price < sma50
+            death_cross   = bool(tech.get("death_cross"))
+            golden_cross  = bool(tech.get("golden_cross"))
+            at_bb_upper   = tech.get("bb_position") == "above_upper"
+            if below_sma50 and death_cross and not golden_cross:
+                print(f"  [{symbol}] -> SKIP | Quick filter: below SMA50 + death cross")
+                continue
+            if at_bb_upper and below_sma50:
+                print(f"  [{symbol}] -> SKIP | Quick filter: overextended + below SMA50")
+                continue
+
         sent = sentiment.compute(symbol)
         cong = congress.compute(symbol)
         insd = insider.compute(symbol)

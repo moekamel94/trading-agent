@@ -143,6 +143,9 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
         return False, f"Momentum: {mom_score}/4 passed (need {config.CRITERIA_MOMENTUM_NEEDED})"
 
     # ── Technical scoring (need 2 of 3) ───────────────────────────────────
+    # Check 1: above SMA50 (short-term uptrend)
+    # Check 2: no death cross (no confirmed macro downtrend — SMA200 lags too much in recovery)
+    # Check 3: not at BB upper (not overextended)
     tech_score = 0
 
     price = tech.get("price")
@@ -150,8 +153,7 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
     if (price and sma50 and price > sma50) or tech.get("golden_cross"):
         tech_score += 1
 
-    sma200 = tech.get("sma200")
-    if (price and sma200 and price > sma200) or tech.get("golden_cross"):
+    if not tech.get("death_cross"):
         tech_score += 1
 
     if tech.get("bb_position") != "above_upper":
