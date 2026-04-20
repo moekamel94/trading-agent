@@ -157,9 +157,9 @@ def run_cycle(dry_run: bool = False):
 
         # --- Earnings check before expensive research (binary event guard) ---
         earnings_data = market_context.earnings_soon(symbol)
-        if earnings_data.get("earnings_soon"):
-            dte = earnings_data.get("days_to_earnings", "?")
-            print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — skipping before research")
+        dte = earnings_data.get("days_to_earnings")
+        if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
+            print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk")
             continue
 
         # --- Deep research + financial data + social + future growth ---

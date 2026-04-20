@@ -94,10 +94,17 @@ def earnings_soon(symbol: str) -> dict:
         if not items:
             return {"earnings_soon": False}
         e = items[0]
+        earnings_date = e.get("date")
+        try:
+            from datetime import date as _date
+            days_to = (_date.fromisoformat(earnings_date) - _date.today()).days
+        except Exception:
+            days_to = None
         return {
-            "earnings_soon": True,
-            "earnings_date": e.get("date"),
-            "eps_estimate":  e.get("epsEstimate"),
+            "earnings_soon":    True,
+            "earnings_date":    earnings_date,
+            "days_to_earnings": days_to,
+            "eps_estimate":     e.get("epsEstimate"),
             "revenue_estimate": e.get("revenueEstimate"),
         }
     except Exception:
