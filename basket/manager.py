@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 BASKET_FILE = os.path.join(os.path.dirname(__file__), "basket.json")
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-# Always scanned regardless of anything else
-_PINNED = ["QTUM", "BOTT", "SPWO"]
+# Always scanned regardless of anything else (empty — no legacy ETF pins needed)
+_PINNED = []
 
 # Focused sector watchlist — ~80 high-conviction tickers aligned with the thesis
 SECTOR_LIST = [
