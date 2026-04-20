@@ -42,7 +42,7 @@ SECTOR_LIST = [
     # AI Networking / Infrastructure
     "ANET", "VRT",
     # High-growth compounders — fintech & consumer tech
-    "HOOD", "COIN", "DUOL", "APP",
+    "HOOD", "COIN", "DUOL",
     "MELI", "NU",                              # LatAm digital / neobank
     "RDDT",                                    # social data moat / AI training
     "CELH", "CAVA",                            # consumer high-growth
