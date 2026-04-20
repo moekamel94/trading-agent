@@ -268,10 +268,34 @@ def run_cycle(dry_run: bool = False):
                         alpaca.place_market_order(symbol, qty, action)
                         db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
                         print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
+
+                        # Build rich notification with key signals
+                        tier   = config.TICKER_TIERS.get(symbol, "mid_growth")
+                        g_data = signals.get("future_growth", {})
+                        g_score = g_data.get("score", "?")
+                        r1m    = tech.get("return_1m")
+                        rsi    = tech.get("rsi")
+                        pe     = signals.get("fundamentals", {}).get("pe_ratio")
+                        peg    = g_data.get("peg_ratio")
+                        r40    = g_data.get("rule_of_40")
+                        em     = (signals.get("earnings_momentum") or {}).get("label", "")
+                        dollar_amt = round(portfolio["equity"] * alloc / 100, 0)
+
+                        snap = []
+                        if g_score != "?":    snap.append(f"growth={g_score}/100")
+                        if peg:               snap.append(f"PEG={peg:.2f}")
+                        if r40:               snap.append(f"R40={r40:.0f}")
+                        if rsi:               snap.append(f"RSI={rsi:.0f}")
+                        if r1m is not None:   snap.append(f"1M={r1m:+.1f}%")
+                        if pe:                snap.append(f"PE={pe:.0f}")
+                        if em:                snap.append(f"earnings={em}")
+
+                        emoji = "🟢" if action == "BUY" else "🔴"
                         tg.send(
-                            f"{'🟢 BUY' if action == 'BUY' else '🔴 SELL'} **{symbol}** | "
-                            f"conf={confidence}/10 | alloc={alloc}% | ${price:.2f}\n"
-                            f"{rationale}"
+                            f"{emoji} {action} {symbol} [{tier}]\n"
+                            f"conf={confidence}/10 | {alloc}% (${dollar_amt:,.0f}) @ ${price:.2f}\n"
+                            f"{' | '.join(snap)}\n"
+                            f"WHY: {rationale}"
                         )
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")

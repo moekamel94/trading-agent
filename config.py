@@ -25,6 +25,7 @@ POLYGON_API_KEY   = os.getenv("POLYGON_API_KEY", "")
 DISCORD_TOKEN            = os.getenv("DISCORD_TOKEN", "")
 _discord_ch = os.getenv("DISCORD_ALERT_CHANNEL_ID", "0")
 DISCORD_ALERT_CHANNEL_ID = int(_discord_ch) if _discord_ch.isdigit() else 0
+DISCORD_WEBHOOK_URL      = os.getenv("DISCORD_WEBHOOK_URL", "")  # for standalone cycles
 
 # --- Watchlist ---
 STOCK_WATCHLIST = [

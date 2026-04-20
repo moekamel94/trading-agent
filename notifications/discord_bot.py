@@ -633,11 +633,33 @@ async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channe
 _bot_instance = None
 
 
+def _send_webhook(text: str):
+    """Send via Discord webhook — works without a running event loop."""
+    import requests
+    clean = re.sub(r"<[^>]+>", "", text)
+    try:
+        r = requests.post(
+            config.DISCORD_WEBHOOK_URL,
+            json={"content": f"```\n{clean[:1900]}\n```"},
+            timeout=10,
+        )
+        if r.status_code not in (200, 204):
+            print(f"  [Discord] Webhook error {r.status_code}: {r.text[:100]}")
+    except Exception as e:
+        print(f"  [Discord] Webhook failed: {e}")
+
+
 def send(text: str):
+    # Webhook path: works from any thread, no event loop needed (used for standalone cycles)
+    if config.DISCORD_WEBHOOK_URL:
+        _send_webhook(text)
+        return
+
     if not config.DISCORD_TOKEN or not config.DISCORD_ALERT_CHANNEL_ID:
         print(f"  [Discord] Not configured — alert dropped:\n{text[:80]}")
         return
 
+    # Bot path: requires --discord mode with a running event loop
     async def _send():
         if _bot_instance and not _bot_instance.is_closed():
             ch = _bot_instance.get_channel(config.DISCORD_ALERT_CHANNEL_ID)
@@ -648,13 +670,13 @@ def send(text: str):
         print(f"  [Discord] Bot not ready — alert dropped:\n{text[:80]}")
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_send())
-        else:
-            loop.run_until_complete(_send())
-    except Exception as e:
-        print(f"  [Discord] Send failed: {e}")
+        loop = asyncio.get_running_loop()
+        asyncio.ensure_future(_send())
+    except RuntimeError:
+        try:
+            asyncio.run(_send())
+        except Exception as e:
+            print(f"  [Discord] Send failed: {e}")
 
 # ---------------------------------------------------------------------------
 # Bot
