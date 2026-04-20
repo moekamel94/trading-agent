@@ -29,14 +29,16 @@ SECTOR_LIST = [
     "IONQ", "RGTI", "QUBT", "IBM",
     # Cybersecurity
     "CRWD", "PANW", "ZS", "FTNT", "S", "OKTA", "CYBR",
-    # Biotech / Healthcare Innovation
-    "LLY", "MRNA", "REGN", "BIIB", "GILD", "AMGN", "VRTX", "ISRG", "DXCM", "ILMN",
+    # Space Tech (early-innings, massive 10-year TAM)
+    "RKLB", "ASTS", "LUNR", "RDW",
+    # Nuclear Energy (AI power demand + SMR deployment this decade)
+    "CCJ", "OKLO", "SMR", "CEG",
     # Defense Tech
     "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT",
     # Clean Energy
-    "ENPH", "FSLR", "NEE", "RUN", "SEDG", "CEG",
-    # Robotics / Automation
-    "ROK", "EMR", "ABB", "ETN",
+    "ENPH", "FSLR", "NEE", "RUN", "SEDG",
+    # Robotics / Automation (includes surgical robotics)
+    "ROK", "EMR", "ABB", "ETN", "ISRG",
     # Mega-caps / always relevant
     "AAPL", "TSLA", "JPM", "V", "MA", "BRK-B",
 ]

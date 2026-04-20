@@ -1,5 +1,5 @@
 {
-  "updated": "2026-04-20T15:06:05.341614",
+  "updated": "2026-04-20T15:09:58.407166",
   "tickers": [
     "QTUM",
     "BOTT",
@@ -37,16 +37,14 @@
     "S",
     "OKTA",
     "CYBR",
-    "LLY",
-    "MRNA",
-    "REGN",
-    "BIIB",
-    "GILD",
-    "AMGN",
-    "VRTX",
-    "ISRG",
-    "DXCM",
-    "ILMN",
+    "RKLB",
+    "ASTS",
+    "LUNR",
+    "RDW",
+    "CCJ",
+    "OKLO",
+    "SMR",
+    "CEG",
     "LMT",
     "RTX",
     "NOC",
@@ -59,11 +57,11 @@
     "NEE",
     "RUN",
     "SEDG",
-    "CEG",
     "ROK",
     "EMR",
     "ABB",
     "ETN",
+    "ISRG",
     "AAPL",
     "TSLA",
     "JPM",
@@ -72,13 +70,13 @@
     "BRK-B"
   ],
   "sources": {
-    "sector_list": 66,
+    "sector_list": 64,
     "congress": 0,
     "pinned": [
       "QTUM",
       "BOTT",
       "SPWO"
     ],
-    "total": 69
+    "total": 67
   }
 }
