@@ -35,7 +35,7 @@ SECTOR_LIST = [
     "CCJ", "OKLO", "SMR", "CEG",
     # Defense Tech
     "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT",
-    # Clean Energy (removed NEE, RUN, SEDG — won't hit 40% target)
+    # Clean Energy (removed NEE, RUN, SEDG — low growth, don't fit the thesis)
     "ENPH", "FSLR",
     # Robotics / Automation (removed ROK, EMR — traditional industrials; ABB — no Yahoo data)
     "ETN", "ISRG",
