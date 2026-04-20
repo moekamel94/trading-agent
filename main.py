@@ -51,7 +51,22 @@ def _get_bars(symbol: str):
     return alpaca.get_stock_bars(symbol)
 
 
+def is_market_hours() -> bool:
+    """Return True if current ET time is within regular market hours (Mon-Fri 9:30–16:00)."""
+    import zoneinfo
+    now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    if now_et.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False
+    open_time  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
+    close_time = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
+    return open_time <= now_et < close_time
+
+
 def run_cycle(dry_run: bool = False):
+    if not dry_run and not is_market_hours():
+        print(f"[SKIP] run_cycle called outside market hours — no trades placed.")
+        return
+
     print(f"\n{'='*60}")
     print(f"Trading cycle started at {datetime.now(timezone.utc).isoformat()}")
     print(f"Mode: {'DRY RUN' if dry_run else 'LIVE PAPER TRADING'}")
@@ -280,10 +295,11 @@ def main():
                         minute=config.PREMARKET_SUMMARY_MINUTE),
             id="premarket_summary",
         )
+        # Run every hour during market hours: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30 ET
         scheduler.add_job(
             run_cycle,
             CronTrigger(day_of_week="mon-fri",
-                        hour=config.RUN_HOUR,
+                        hour="9-14",
                         minute=config.RUN_MINUTE),
             id="trading_cycle",
         )
@@ -299,7 +315,7 @@ def main():
             f"[Scheduler] Started inside Kimmy:\n"
             f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
-            f"  Trading cycle      : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
+            f"  Trading cycle      : Mon-Fri every hour :{config.RUN_MINUTE:02d} ET (9:30–14:30)\n"
             f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
         )
 
@@ -334,10 +350,11 @@ def main():
                         minute=config.PREMARKET_SUMMARY_MINUTE),
             id="premarket_summary",
         )
+        # Run every hour during market hours: 9:30, 10:30, 11:30, 12:30, 13:30, 14:30 ET
         scheduler.add_job(
             lambda: run_cycle(dry_run=args.dry_run),
             CronTrigger(day_of_week="mon-fri",
-                        hour=config.RUN_HOUR,
+                        hour="9-14",
                         minute=config.RUN_MINUTE),
             id="trading_cycle",
         )
@@ -352,7 +369,7 @@ def main():
             f"Scheduler started:\n"
             f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
-            f"  Trading cycle      : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
+            f"  Trading cycle      : Mon-Fri every hour :{config.RUN_MINUTE:02d} ET (9:30–14:30)\n"
             f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
         )
         try:
