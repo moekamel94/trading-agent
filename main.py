@@ -33,11 +33,27 @@ def _portfolio_context(portfolio, positions):
         abs(p["qty"] * p["current_price"])
         for p in positions if p.get("asset_class") == "crypto"
     )
+    # Sector concentration
+    sector_pcts: dict = {}
+    for p in positions:
+        sector = config.SECTOR_MAP.get(p["symbol"])
+        if sector and equity:
+            val = abs(p["qty"] * p["current_price"])
+            sector_pcts[sector] = sector_pcts.get(sector, 0) + val / equity * 100
+
+    # Speculative tier tracking
+    spec_positions = [p for p in positions
+                      if config.TICKER_TIERS.get(p["symbol"]) == "speculative"]
+    spec_val = sum(abs(p["qty"] * p["current_price"]) for p in spec_positions)
+
     return {
         **portfolio,
-        "position_count": len(positions),
-        "options_pct": (options_value / equity * 100) if equity else 0,
-        "crypto_pct":  (crypto_value  / equity * 100) if equity else 0,
+        "position_count":    len(positions),
+        "options_pct":       (options_value / equity * 100) if equity else 0,
+        "crypto_pct":        (crypto_value  / equity * 100) if equity else 0,
+        "sector_pcts":       sector_pcts,
+        "speculative_count": len(spec_positions),
+        "speculative_pct":   (spec_val / equity * 100) if equity else 0,
     }
 
 
@@ -140,12 +156,13 @@ def run_cycle(dry_run: bool = False):
         db.log_signals(symbol, tech, sent, cong, insd, fund)
 
         signals = {
-            "_symbol":      symbol,
-            "technical":    tech,
-            "sentiment":    sent,
+            "_symbol":       symbol,
+            "technical":     tech,
+            "sentiment":     sent,
             "congressional": cong,
-            "insider":      insd,
-            "fundamentals": fund,
+            "insider":       insd,
+            "fundamentals":  fund,
+            "market_context": mkt_ctx,  # needed for bear market override
         }
         signals_map[symbol] = signals
 
@@ -208,6 +225,7 @@ def run_cycle(dry_run: bool = False):
         print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')} | earn_momentum={em_label}({em_score})")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
+        decision = {**decision, "_symbol": symbol}
         decision = manager.apply_conviction_bonuses(decision, signals)
         decision = manager.validate(decision, port_ctx)
 
@@ -292,7 +310,8 @@ def run_btc_check():
     tech = technical.compute(bars)
     from signals import sentiment as sent_mod
     sent = sent_mod.compute("BTC/USD")
-    signals = {"technical": tech, "sentiment": sent, "congressional": {}, "insider": {}, "fundamentals": {}}
+    signals = {"_symbol": "BTC/USD", "technical": tech, "sentiment": sent,
+               "congressional": {}, "insider": {}, "fundamentals": {}}
 
     passes, reason = manager.check_entry_criteria(signals)
     if not passes:
@@ -302,6 +321,7 @@ def run_btc_check():
     portfolio = alpaca.get_portfolio()
     port_ctx  = _portfolio_context(portfolio, positions)
     decision  = claude_agent.decide("BTC/USD", signals, port_ctx)
+    decision  = {**decision, "_symbol": "BTC/USD"}
     decision  = manager.validate(decision, port_ctx)
 
     if decision["action"] == "BUY":

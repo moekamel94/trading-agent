@@ -51,6 +51,14 @@ def check_entry_criteria(signals: dict) -> tuple[bool, str]:
     if fg_score is not None and fg_score < config.CRITERIA_FG_PANIC:
         return False, f"Market extreme fear (F&G={fg_score:.0f}) — pausing new buys"
 
+    # ── Bear market override: VIX > 30 in fear regime → only mega allowed ─
+    vix_val     = (mkt.get("vix") or {}).get("vix", 0)
+    market_risk = mkt.get("market_risk", "unknown")
+    if vix_val and vix_val > 30 and market_risk in ("extreme_fear", "fear"):
+        tier = config.TICKER_TIERS.get(signals.get("_symbol", ""), "mid_growth")
+        if tier != "mega":
+            return False, f"Bear market mode (VIX={vix_val:.0f}, {market_risk}) — only mega-caps in confirmed fear regime"
+
     # ── Hard Block 2: RSI extremes ─────────────────────────────────────────
     rsi = tech.get("rsi")
     if rsi is not None:
@@ -241,18 +249,24 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
         tech = signals_map.get(sym, {}).get("technical", {})
         rsi  = tech.get("rsi")
 
-        stop = config.BTC_STOP_LOSS_PCT if _is_btc(sym) else config.STOP_LOSS_PCT
+        if _is_btc(sym):
+            stop = config.BTC_STOP_LOSS_PCT
+            tier = "crypto"
+        else:
+            tier = config.TICKER_TIERS.get(sym, "mid_growth")
+            stop = config.STOP_LOSS_BY_TIER.get(tier, config.STOP_LOSS_PCT)
 
         # Stop loss
         if pct <= -stop:
             exits.append({"symbol": sym, "action": "SELL", "reason": f"stop_loss ({pct:.1f}%)"})
             continue
 
-        # Dead money: held too long with minimal gain
-        days = days_held_map.get(sym, 0)
-        if days >= config.DEAD_MONEY_DAYS and pct < config.DEAD_MONEY_MIN_PCT:
-            exits.append({"symbol": sym, "action": "SELL", "reason": f"dead_money ({days}d, {pct:.1f}% gain)"})
-            continue
+        # Dead money: skip for speculative tier — moonshots need time
+        if tier != "speculative":
+            days = days_held_map.get(sym, 0)
+            if days >= config.DEAD_MONEY_DAYS and pct < config.DEAD_MONEY_MIN_PCT:
+                exits.append({"symbol": sym, "action": "SELL", "reason": f"dead_money ({days}d, {pct:.1f}% gain)"})
+                continue
 
         # Trailing stop: protect large gains that have started to reverse.
         # If up 20%+ but 1-month return has turned -8% or worse, the stock
@@ -296,8 +310,8 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
 def validate(decision: dict, portfolio: dict) -> dict:
     action     = decision.get("action", "HOLD")
     confidence = decision.get("confidence", 0)
-    allocation = decision.get("allocation_pct", 0)
     asset_type = decision.get("asset_type", "stock")
+    symbol     = decision.get("_symbol", "")
 
     if confidence < config.MIN_CONFIDENCE:
         return _hold(decision, f"confidence {confidence}/10 below minimum {config.MIN_CONFIDENCE}/10")
@@ -310,10 +324,37 @@ def validate(decision: dict, portfolio: dict) -> dict:
         if asset_type == "crypto" and portfolio.get("crypto_pct", 0) >= config.MAX_CRYPTO_PCT:
             return _hold(decision, "max crypto exposure reached")
 
-        # Confidence-based allocation
-        base = config.CONF_ALLOC.get(min(confidence, 10), 4.0)
+        # Tier lookup
+        tier = config.TICKER_TIERS.get(symbol, "mid_growth")
 
-        # Conviction bonuses (from signals passed through decision extras)
+        # Speculative tier portfolio limits
+        if tier == "speculative":
+            if portfolio.get("speculative_count", 0) >= config.MAX_SPECULATIVE_POSITIONS:
+                return _hold(decision, f"max speculative positions ({config.MAX_SPECULATIVE_POSITIONS}) reached")
+            if portfolio.get("speculative_pct", 0) >= config.MAX_SPECULATIVE_PCT:
+                return _hold(decision, f"max speculative exposure ({config.MAX_SPECULATIVE_PCT}%) reached")
+
+        # Sector concentration check
+        sector = config.SECTOR_MAP.get(symbol)
+        if sector:
+            sector_pct = portfolio.get("sector_pcts", {}).get(sector, 0)
+            if sector_pct >= config.MAX_SECTOR_PCT:
+                return _hold(decision, f"sector '{sector}' at {sector_pct:.1f}% — max {config.MAX_SECTOR_PCT}%")
+
+        # Tier-based allocation
+        tier_table = config.TIER_ALLOC.get(tier, config.TIER_ALLOC["mid_growth"])
+        conf_key   = min(confidence, 10)
+        base       = tier_table.get(conf_key)
+        if base is None:
+            # Find nearest lower key
+            for k in sorted(tier_table.keys(), reverse=True):
+                if k <= conf_key:
+                    base = tier_table[k]
+                    break
+            if base is None:
+                base = tier_table[min(tier_table.keys())]
+
+        # Conviction bonuses
         congress_bonus = decision.get("_congress_bonus", 0)
         insider_bonus  = decision.get("_insider_bonus", 0)
         alloc = min(base + congress_bonus + insider_bonus, config.MAX_POSITION_PCT)

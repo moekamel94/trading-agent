@@ -22,29 +22,39 @@ _PINNED = []
 # Focused sector watchlist — ~80 high-conviction tickers aligned with the thesis
 SECTOR_LIST = [
     # AI / Software / Cloud
-    "MSFT", "GOOGL", "META", "AMZN", "ORCL", "PLTR", "SNOW", "CRM", "NOW", "AI",
-    # Semiconductors
-    "NVDA", "AMD", "AVGO", "QCOM", "AMAT", "LRCX", "KLAC", "MU", "ARM", "MRVL", "TSM", "INTC",
-    # Quantum Computing
-    "IONQ", "RGTI", "QUBT", "IBM",
-    # Cybersecurity
-    "CRWD", "PANW", "ZS", "FTNT", "S", "OKTA",
-    # Space Tech (early-innings, massive 10-year TAM)
+    "MSFT", "GOOGL", "META", "AMZN", "ORCL", "PLTR", "CRM", "NOW", "AI",
+    # Semiconductors (removed INTC, QCOM — declining thesis alignment)
+    "NVDA", "AMD", "AVGO", "AMAT", "LRCX", "KLAC", "MU", "ARM", "MRVL", "TSM",
+    # Quantum Computing (removed QUBT — too early, no revenue path)
+    "IONQ", "RGTI", "IBM",
+    # Cybersecurity (removed OKTA — growth concerns, CRWD/PANW dominate)
+    "CRWD", "PANW", "ZS", "FTNT", "S",
+    # Space Tech
     "RKLB", "ASTS",
-    # Nuclear Energy (AI power demand + SMR deployment this decade)
+    # Nuclear Energy
     "CCJ", "OKLO", "SMR", "CEG",
     # Defense Tech
     "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT",
-    # Clean Energy
-    "ENPH", "FSLR", "NEE", "RUN", "SEDG",
-    # Robotics / Automation (includes surgical robotics)
-    "ROK", "EMR", "ABB", "ETN", "ISRG",
-    # High-growth mid-caps with 40%+ potential — earlier in their curve
-    "PLTR", "HOOD", "COIN", "DUOL", "APP",   # AI/fintech mid-caps
-    "SMCI", "VRT", "DELL",                    # AI infrastructure mid-caps
-    "JOBY", "ACHR",                           # eVTOL / air mobility
-    "RXRX", "SOUN",                           # AI drug discovery, voice AI
-    # Anchor mega-caps (kept for stability + high conviction)
+    # Clean Energy (removed NEE, RUN, SEDG — won't hit 40% target)
+    "ENPH", "FSLR",
+    # Robotics / Automation (removed ROK, EMR — traditional industrials)
+    "ABB", "ETN", "ISRG",
+    # AI Networking / Infrastructure
+    "ANET", "VRT",
+    # High-growth compounders — fintech & consumer tech
+    "HOOD", "COIN", "DUOL", "APP",
+    "MELI", "NU",                              # LatAm digital / neobank
+    "RDDT",                                    # social data moat / AI training
+    "CELH", "CAVA",                            # consumer high-growth
+    # AI drug discovery & robotics
+    "RXRX", "SYM",
+    # eVTOL / air mobility
+    "JOBY", "ACHR",
+    # ── Moonshots (speculative tier — 10-year asymmetric bets) ──────────
+    "LUNR",    # lunar economy — NASA Artemis contractor
+    "SERV",    # AI delivery robots — Nvidia-backed
+    "AUR",     # autonomous trucking — massive freight TAM
+    # Anchor mega-caps
     "AAPL", "TSLA",
 ]
 

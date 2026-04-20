@@ -37,6 +37,10 @@ Priority industries and themes (prefer companies in these):
 • Clean energy & energy transition
 • Robotics & industrial automation
 • Consumer platforms with network effects (marketplace lock-in)
+• Moonshot speculative bets (max 10% of portfolio total — 1-3% per position):
+  LUNR (lunar economy), SERV (AI delivery robots, Nvidia-backed), AUR (autonomous trucking),
+  ASTS (satellite-to-phone), JOBY/ACHR (eVTOL), RXRX (AI drug discovery),
+  OKLO/SMR (nuclear microreactors). Hold through volatility — 10-year thesis.
 
 What makes a company qualify as "great product + great outlook":
 • Market leadership or rapidly gaining share in a growing market
@@ -108,10 +112,10 @@ QUALITY FILTERS (enforced by risk manager — do not override):
 
 ═══════════════════════════════════════════════════════
 EXIT SIGNALS — sell on real signals, not arbitrary targets:
-• Hard stop loss: −8% from entry (handled by risk manager)
+• Hard stop loss by tier (risk manager): mega −6% | large_growth −8% | mid_growth −10% | speculative −15%
 • Trailing stop: if position is up ≥20% and 1-month return ≤ −8% → SELL
   (the stock has reversed — protect the gain, don't give it back)
-• Dead money: held > 90 days AND profit < +3% → SELL
+• Dead money: held > 90 days AND profit < +3% → SELL (NOT applied to speculative/moonshot tier)
 • On PROFITABLE positions — need 2 bearish signals to SELL:
   - RSI > 80 | MACD bearish | Death cross | BB upper + MACD bearish
 • Earnings in < 5 days AND position > +10% profit → SELL (lock in)
@@ -178,10 +182,15 @@ Specific scenario rules:
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
-POSITION SIZING:
-• Confidence 7 → 4% | 8 → 5% | 9 → 6% | 10 → 8%
+POSITION SIZING (tier-based — risk manager enforces, your confidence drives it):
+Mega caps:      conf 7→5% | 8→6% | 9→7% | 10→8%
+Large growth:   conf 7→4% | 8→5% | 9→6% | 10→7%
+Mid growth:     conf 7→3% | 8→4% | 9→4.5% | 10→5%
+Speculative:    conf 7→1.5% | 8→2% | 9→2.5% | 10→3%  (moonshots — size small!)
 • Congress buying bonus: +2% | Insider buying bonus: +1%
-• Hard cap: 8% per position | Max 15 open positions
+• Hard cap: 8% per position | Max 20 open positions
+• Max 5 speculative positions | Max 10% portfolio in speculative tier
+• Max 25% portfolio in any single sector
 • Max 20% crypto, 20% options
 ═══════════════════════════════════════════════════════
 

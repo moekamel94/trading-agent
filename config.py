@@ -37,14 +37,17 @@ CRYPTO_WATCHLIST = [
 ]
 
 # --- Risk Parameters ---
-MAX_POSITION_PCT     = 8.0   # max % of portfolio per position (was 5%)
-MAX_POSITIONS        = 15    # max open positions (was 20, fewer/higher quality)
+MAX_POSITION_PCT     = 8.0   # hard cap per position
+MAX_POSITIONS        = 20    # max open positions
 TAKE_PROFIT_PCT      = 0     # no fixed take-profit — let winners run
 MAX_OPTIONS_PCT      = 20.0  # max % of portfolio in options
 MAX_CRYPTO_PCT       = 20.0  # max % of portfolio in crypto
 MIN_CONFIDENCE       = 6     # minimum Claude confidence (1-10) to trade
 TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
+MAX_SECTOR_PCT       = 25.0  # max % of portfolio in any single sector
+MAX_SPECULATIVE_POSITIONS = 5
+MAX_SPECULATIVE_PCT  = 10.0  # max % in speculative/moonshot tier
 
 # --- Scheduler ---
 # Two cycles per day: open (catch overnight news/gaps) + near-close (daily bars nearly complete)
@@ -74,8 +77,90 @@ CRITERIA_REVENUE_GROWTH_MIN   = 0.0  # any positive revenue growth
 CRITERIA_PROFIT_MARGIN_MIN    = 0.05 # 5% margin
 CRITERIA_PE_MAX               = 80   # covers growth stocks
 
-# --- Position Sizing (updated) ---
-CONF_ALLOC = {7: 4.0, 8: 5.0, 9: 6.0, 10: 8.0}
+# --- Tier Classification (all basket tickers) ---
+TICKER_TIERS = {
+    # ── Mega caps ───────────────────────────────────────────────────────────
+    "AAPL": "mega", "MSFT": "mega", "GOOGL": "mega", "META": "mega",
+    "AMZN": "mega", "NVDA": "mega", "TSLA": "mega",
+    # ── Large growth (established thesis leaders) ────────────────────────
+    "AMD": "large_growth", "AVGO": "large_growth", "ARM": "large_growth",
+    "MRVL": "large_growth", "TSM": "large_growth",
+    "PLTR": "large_growth", "CRM": "large_growth", "NOW": "large_growth",
+    "ORCL": "large_growth", "AI": "large_growth",
+    "CRWD": "large_growth", "PANW": "large_growth", "ZS": "large_growth",
+    "FTNT": "large_growth", "S": "large_growth",
+    "LMT": "large_growth", "RTX": "large_growth", "NOC": "large_growth",
+    "GD": "large_growth", "AXON": "large_growth",
+    "ISRG": "large_growth", "ETN": "large_growth",
+    "COIN": "large_growth", "ANET": "large_growth",
+    # ── Mid growth (high-conviction, earlier in curve) ───────────────────
+    "AMAT": "mid_growth", "LRCX": "mid_growth", "KLAC": "mid_growth",
+    "MU": "mid_growth", "IBM": "mid_growth",
+    "IONQ": "mid_growth", "RGTI": "mid_growth",
+    "CCJ": "mid_growth", "CEG": "mid_growth",
+    "BWXT": "mid_growth", "KTOS": "mid_growth",
+    "ENPH": "mid_growth", "FSLR": "mid_growth",
+    "ABB": "mid_growth", "VRT": "mid_growth",
+    "HOOD": "mid_growth", "DUOL": "mid_growth", "APP": "mid_growth",
+    "MELI": "mid_growth", "NU": "mid_growth",
+    "SYM": "mid_growth", "CELH": "mid_growth", "CAVA": "mid_growth",
+    "RKLB": "mid_growth", "RDDT": "mid_growth",
+    # ── Speculative / Moonshots (asymmetric 10-year bets) ────────────────
+    "ASTS": "speculative",            # satellite-to-phone internet
+    "OKLO": "speculative",            # nuclear microreactors
+    "SMR": "speculative",             # small modular reactors
+    "JOBY": "speculative",            # eVTOL air taxi
+    "ACHR": "speculative",            # eVTOL air taxi
+    "RXRX": "speculative",            # AI drug discovery
+    "LUNR": "speculative",            # lunar economy (NASA Artemis)
+    "SERV": "speculative",            # AI delivery robots (Nvidia backed)
+    "AUR": "speculative",             # autonomous trucking
+}
+
+# Allocation by tier × confidence (risk manager enforces, not Claude)
+TIER_ALLOC = {
+    "mega":         {6: 4.0, 7: 5.0, 8: 6.0,  9: 7.0,  10: 8.0},
+    "large_growth": {6: 3.0, 7: 4.0, 8: 5.0,  9: 6.0,  10: 7.0},
+    "mid_growth":   {6: 2.0, 7: 3.0, 8: 4.0,  9: 4.5,  10: 5.0},
+    "speculative":  {6: 1.0, 7: 1.5, 8: 2.0,  9: 2.5,  10: 3.0},
+}
+
+# Stop-loss by tier (speculative needs wider stop — don't shake out on vol)
+STOP_LOSS_BY_TIER = {
+    "mega":         6.0,
+    "large_growth": 8.0,
+    "mid_growth":   10.0,
+    "speculative":  15.0,
+}
+STOP_LOSS_PCT = 8.0  # fallback for tickers not in TICKER_TIERS
+
+# Sector map — used for concentration limits (MAX_SECTOR_PCT)
+SECTOR_MAP = {
+    "MSFT": "ai_software", "GOOGL": "ai_software", "META": "ai_software",
+    "AMZN": "ai_software", "ORCL": "ai_software", "PLTR": "ai_software",
+    "CRM": "ai_software",  "NOW": "ai_software",  "AI": "ai_software",
+    "NVDA": "semis", "AMD": "semis",  "AVGO": "semis", "AMAT": "semis",
+    "LRCX": "semis", "KLAC": "semis", "MU": "semis",   "ARM": "semis",
+    "MRVL": "semis", "TSM": "semis",
+    "IONQ": "quantum", "RGTI": "quantum", "IBM": "quantum",
+    "CRWD": "cyber", "PANW": "cyber", "ZS": "cyber", "FTNT": "cyber", "S": "cyber",
+    "RKLB": "space", "ASTS": "space", "LUNR": "space",
+    "CCJ": "nuclear", "OKLO": "nuclear", "SMR": "nuclear", "CEG": "nuclear",
+    "LMT": "defense", "RTX": "defense", "NOC": "defense", "GD": "defense",
+    "KTOS": "defense", "AXON": "defense", "BWXT": "defense",
+    "ENPH": "clean_energy", "FSLR": "clean_energy",
+    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics",
+    "SYM": "robotics", "SERV": "robotics",
+    "ANET": "ai_infra", "VRT": "ai_infra",
+    "HOOD": "fintech", "COIN": "fintech", "MELI": "fintech", "NU": "fintech",
+    "DUOL": "consumer_tech", "APP": "consumer_tech", "RDDT": "consumer_tech",
+    "JOBY": "evtol", "ACHR": "evtol", "AUR": "evtol",
+    "RXRX": "biotech",
+    "CELH": "consumer_goods", "CAVA": "consumer_goods",
+    "AAPL": "mega_tech", "TSLA": "mega_tech",
+}
+
+# --- Position Sizing (legacy bonus modifiers) ---
 CONGRESS_BONUS_PCT   = 2.0
 INSIDER_BONUS_PCT    = 1.0
 
