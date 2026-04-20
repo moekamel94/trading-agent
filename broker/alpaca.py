@@ -62,14 +62,17 @@ def get_crypto_bars(symbol: str, days: int = 300):
 
 
 
+def _is_crypto_symbol(symbol: str) -> bool:
+    return "/" in symbol or symbol.upper().endswith("USD") and len(symbol) >= 6
+
+
 def place_market_order(symbol: str, qty: float, side: str):
     order_side = OrderSide.BUY if side.upper() == "BUY" else OrderSide.SELL
-    is_crypto = "/" in symbol
     req = MarketOrderRequest(
         symbol=symbol,
         qty=qty,
         side=order_side,
-        time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
+        time_in_force=TimeInForce.GTC if _is_crypto_symbol(symbol) else TimeInForce.DAY,
     )
     return _trading.submit_order(req)
 

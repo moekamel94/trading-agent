@@ -10,3 +10,5 @@ venv/
 dist/
 .DS_Store
 Thumbs.db
+*.log
+research_cache.json
