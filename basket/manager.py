@@ -40,7 +40,7 @@ SECTOR_LIST = [
     # Robotics / Automation (includes surgical robotics)
     "ROK", "EMR", "ABB", "ETN", "ISRG",
     # Mega-caps / always relevant
-    "AAPL", "TSLA", "JPM", "V", "MA", "BRK-B",
+    "AAPL", "TSLA", "JPM", "V", "MA",
 ]
 
 

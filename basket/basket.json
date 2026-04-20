@@ -1,5 +1,5 @@
 {
-  "updated": "2026-04-20T15:35:11.204734",
+  "updated": "2026-04-20T15:42:43.324327",
   "tickers": [
     "MSFT",
     "GOOGL",
@@ -60,13 +60,12 @@
     "TSLA",
     "JPM",
     "V",
-    "MA",
-    "BRK-B"
+    "MA"
   ],
   "sources": {
-    "sector_list": 61,
+    "sector_list": 60,
     "congress": 0,
     "pinned": [],
-    "total": 61
+    "total": 60
   }
 }
