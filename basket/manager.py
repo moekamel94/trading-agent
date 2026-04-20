@@ -39,8 +39,13 @@ SECTOR_LIST = [
     "ENPH", "FSLR", "NEE", "RUN", "SEDG",
     # Robotics / Automation (includes surgical robotics)
     "ROK", "EMR", "ABB", "ETN", "ISRG",
-    # Mega-caps / always relevant
-    "AAPL", "TSLA", "JPM", "V", "MA",
+    # High-growth mid-caps with 40%+ potential — earlier in their curve
+    "PLTR", "HOOD", "COIN", "DUOL", "APP",   # AI/fintech mid-caps
+    "SMCI", "VRT", "DELL",                    # AI infrastructure mid-caps
+    "JOBY", "ACHR",                           # eVTOL / air mobility
+    "RXRX", "SOUN",                           # AI drug discovery, voice AI
+    # Anchor mega-caps (kept for stability + high conviction)
+    "AAPL", "TSLA",
 ]
 
 

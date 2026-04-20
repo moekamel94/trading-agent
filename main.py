@@ -162,6 +162,30 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk")
             continue
 
+        # --- Cheap preliminary gate: only run expensive research if worth it ---
+        # Uses only yfinance fundamentals (already fetched) + technicals.
+        # Saves 6 web searches + 6 financial API calls for stocks with weak prelim signal.
+        if not _is_crypto(symbol):
+            prelim_score = 0
+            eps  = fund.get("eps_growth_yoy")
+            rev  = fund.get("revenue_growth")
+            pe   = fund.get("pe_ratio")
+            r1m  = tech.get("return_1m")
+            r3m  = tech.get("return_3m")
+            rsi  = tech.get("rsi")
+            gc   = tech.get("golden_cross")
+            dc   = tech.get("death_cross")
+            if eps is None or eps > 0:          prelim_score += 1
+            if rev is None or rev > 0:          prelim_score += 1
+            if r1m is None or r1m > -5:         prelim_score += 1
+            if r3m is None or r3m > 0:          prelim_score += 1
+            if gc:                               prelim_score += 2
+            if dc:                               prelim_score -= 2
+            if rsi and rsi > 70:                prelim_score -= 1
+            if prelim_score < 2:
+                print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} — not worth deep research")
+                continue
+
         # --- Deep research + financial data + social + future growth ---
         print(f"  [{symbol}] running deep research + financial data + social + growth eval...")
         research_data  = research.compute(symbol)
@@ -218,6 +242,11 @@ def run_cycle(dry_run: bool = False):
                         alpaca.place_market_order(symbol, qty, action)
                         db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
                         print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
+                        tg.send(
+                            f"{'🟢 BUY' if action == 'BUY' else '🔴 SELL'} **{symbol}** | "
+                            f"conf={confidence}/10 | alloc={alloc}% | ${price:.2f}\n"
+                            f"{rationale}"
+                        )
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")
 
@@ -226,7 +255,12 @@ def run_cycle(dry_run: bool = False):
     positions_final = alpaca.get_positions()
     db.log_snapshot(portfolio_final["equity"], portfolio_final["cash"], positions_final)
 
+    buys_this_cycle = [e for e in exits] if exits else []
     print(f"\nCycle complete. Equity: ${portfolio_final['equity']:,.2f}")
+    tg.send(
+        f"✅ Cycle complete | Equity: ${portfolio_final['equity']:,.2f} | "
+        f"Cash: ${portfolio_final['cash']:,.2f} | Positions: {len(positions_final)}"
+    )
 
 
 def run_btc_check():

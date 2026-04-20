@@ -1,5 +1,5 @@
 {
-  "updated": "2026-04-20T15:42:43.324327",
+  "updated": "2026-04-20T16:19:58.869970",
   "tickers": [
     "MSFT",
     "GOOGL",
@@ -56,16 +56,24 @@
     "ABB",
     "ETN",
     "ISRG",
+    "HOOD",
+    "COIN",
+    "DUOL",
+    "APP",
+    "SMCI",
+    "VRT",
+    "DELL",
+    "JOBY",
+    "ACHR",
+    "RXRX",
+    "SOUN",
     "AAPL",
-    "TSLA",
-    "JPM",
-    "V",
-    "MA"
+    "TSLA"
   ],
   "sources": {
-    "sector_list": 60,
+    "sector_list": 69,
     "congress": 0,
     "pinned": [],
-    "total": 60
+    "total": 68
   }
 }
