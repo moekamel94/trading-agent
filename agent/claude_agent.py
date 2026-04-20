@@ -79,6 +79,57 @@ HIGH-GROWTH STOCKS (Future Growth Score >= 70):
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
+MID-GROWTH STOCKS — Evaluation Framework:
+These are profitable or near-profitable companies in secular growth markets,
+earlier in their curve than mega-caps. High P/E and thin margins are NORMAL.
+
+WEIGHT HEAVILY:
+• Revenue acceleration QoQ — rate of growth increasing > absolute margin level
+• Rule of 40 ≥ 40 even with negative FCF = healthy growth-tech balance
+• Margin expansion trend: +200-300bps/quarter = very bullish even if still thin
+• User/customer growth if in research snippets
+• Expanding TAM narrative — is the serviceable market itself growing?
+
+IGNORE / DO NOT PENALISE:
+• High P/E up to 200x forward if growth > 30% and expanding
+• No FCF yet if gross margin > 40% and trending up
+• Thin net margin if gross margin is strong
+
+Target: 30-80% gain over 3-12 months. Thesis = growth acceleration.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+SPECULATIVE / MOONSHOT STOCKS — VC Lens Required:
+LUNR, SERV, AUR, ASTS, JOBY, ACHR, RXRX, OKLO, SMR
+
+These are pre-profit or early-revenue companies on paradigm-shift trajectories.
+DO NOT evaluate them like normal stocks. Size small (1-3%), thesis is 10-year.
+
+WEIGHT HEAVILY (venture capital signals):
+• Technology milestone: first launch, first contract, first revenue, regulatory approval
+• Institutional validation: NASA contract, Nvidia backing, DoD contract, major partnership
+• TAM potential: hundreds of billions addressable = thesis intact
+• Competitive moat: IP leadership, first-mover advantage, exclusive contracts
+• Narrative momentum: is this company being named THE leader in its category?
+• Analyst conviction: even 2-3 analyst buys with large price targets = meaningful
+• Insider/Congress buying: especially significant pre-revenue (they know the pipeline)
+
+COMPLETELY IGNORE for speculative:
+• EPS (negative — expected and normal for pre-profit stage)
+• P/E ratio (meaningless before profitability)
+• Profit margin (irrelevant until commercial scale)
+• FCF (R&D burn is the price of being early — do not penalise)
+
+EXIT THESIS for speculative — only SELL if:
+• Technology milestone fails or pushed back 2+ years
+• Key partnership falls through
+• Competitor achieves the milestone first (first-mover lost)
+• Dilutive capital raise suggesting cash runway < 12 months
+HOLD THROUGH: normal volatility, -20-30% drawdowns with no thesis change, flat periods
+DO NOT apply dead money rule — moonshots accumulate in silence then explode
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
 CONVICTION BOOSTERS (raise your confidence score):
 • Congress buying last 60 days → strong conviction signal
 • Net insider buying (Form 4) → positive signal
@@ -402,6 +453,18 @@ def _build_synthesis(symbol: str, signals: dict) -> str:
         # Deduplicate (same snippet shouldn't appear twice)
         bull = list(dict.fromkeys(bull))
         bear = list(dict.fromkeys(bear))
+
+    # ── Tier-aware signal cleanup ─────────────────────────────────────────────
+    tier = config.TICKER_TIERS.get(symbol, "mid_growth")
+    if tier == "speculative":
+        # Strip fundamentals-based bear signals — meaningless for pre-profit moonshots
+        bear = [b for b in bear if not any(kw in b for kw in (
+            "EPS declining", "thin/negative margin", "P/E=", "expensive P/E",
+        ))]
+        bull.append("speculative/moonshot — evaluated on thesis & milestone signals, not fundamentals")
+    elif tier == "mid_growth":
+        # Soften P/E penalty — high P/E is normal for fast growers
+        bear = [b for b in bear if "expensive P/E" not in b or g_score >= 60]
 
     # ── Build output ──────────────────────────────────────────────────────────
     lines = [f"=== HOLISTIC SYNTHESIS: {symbol} ==="]

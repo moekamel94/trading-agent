@@ -112,10 +112,14 @@ def run_cycle(dry_run: bool = False):
     for exit_order in exits:
         sym    = exit_order["symbol"]
         reason = exit_order["reason"]
-        print(f"  [EXIT] {sym} — {reason}")
+        action = exit_order.get("action", "SELL")
+        print(f"  [EXIT] {sym} — {action} | {reason}")
+        if action == "REVIEW":
+            tg.send(f"🔍 REVIEW **{sym}** | {reason} — check if thesis still intact")
+            continue
         if not dry_run:
             try:
-                alpaca.place_market_order(sym, 0, "SELL")  # Alpaca close position
+                alpaca.place_market_order(sym, 0, "SELL")
                 db.log_trade(sym, "SELL", "auto", 0, 0, 0, 10, reason)
             except Exception as e:
                 print(f"    ERROR closing {sym}: {e}")
@@ -180,28 +184,32 @@ def run_cycle(dry_run: bool = False):
             continue
 
         # --- Cheap preliminary gate: only run expensive research if worth it ---
-        # Uses only yfinance fundamentals (already fetched) + technicals.
-        # Saves 6 web searches + 6 financial API calls for stocks with weak prelim signal.
         if not _is_crypto(symbol):
-            prelim_score = 0
-            eps  = fund.get("eps_growth_yoy")
-            rev  = fund.get("revenue_growth")
-            pe   = fund.get("pe_ratio")
-            r1m  = tech.get("return_1m")
-            r3m  = tech.get("return_3m")
-            rsi  = tech.get("rsi")
-            gc   = tech.get("golden_cross")
-            dc   = tech.get("death_cross")
-            if eps is None or eps > 0:          prelim_score += 1
-            if rev is None or rev > 0:          prelim_score += 1
-            if r1m is None or r1m > -5:         prelim_score += 1
-            if r3m is None or r3m > 0:          prelim_score += 1
-            if gc:                               prelim_score += 2
-            if dc:                               prelim_score -= 2
-            if rsi and rsi > 70:                prelim_score -= 1
-            if prelim_score < 2:
-                print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} — not worth deep research")
-                continue
+            tier = config.TICKER_TIERS.get(symbol, "mid_growth")
+
+            if tier == "speculative":
+                pass  # moonshots always proceed to deep research — thesis evaluated there
+            else:
+                prelim_score = 0
+                eps = fund.get("eps_growth_yoy")
+                rev = fund.get("revenue_growth")
+                r1m = tech.get("return_1m")
+                r3m = tech.get("return_3m")
+                rsi = tech.get("rsi")
+                gc  = tech.get("golden_cross")
+                dc  = tech.get("death_cross")
+                if eps is None or eps > 0:   prelim_score += 1
+                if rev is None or rev > 0:   prelim_score += 1
+                if r1m is None or r1m > -5:  prelim_score += 1
+                if r3m is None or r3m > 0:   prelim_score += 1
+                if gc:                        prelim_score += 2
+                if dc:                        prelim_score -= 2
+                if rsi and rsi > 70:         prelim_score -= 1
+                # mid_growth threshold = 1; mega/large_growth = 2
+                threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 2
+                if prelim_score < threshold:
+                    print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} (tier={tier}, need {threshold})")
+                    continue
 
         # --- Deep research + financial data + social + future growth ---
         print(f"  [{symbol}] running deep research + financial data + social + growth eval...")
