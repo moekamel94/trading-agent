@@ -301,7 +301,7 @@ def main():
         scheduler = BackgroundScheduler(timezone="America/New_York")
         scheduler.add_job(
             basket_mgr.refresh,
-            CronTrigger(day_of_week="mon",
+            CronTrigger(day="1-7", day_of_week="mon",
                         hour=config.BASKET_REFRESH_HOUR,
                         minute=config.BASKET_REFRESH_MINUTE),
             id="basket_refresh",
@@ -339,7 +339,7 @@ def main():
         scheduler.start()
         print(
             f"[Scheduler] Started inside Kimmy:\n"
-            f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
+            f"  Basket refresh     : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
             f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
             f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
@@ -365,7 +365,7 @@ def main():
         scheduler = BlockingScheduler(timezone="America/New_York")
         scheduler.add_job(
             basket_mgr.refresh,
-            CronTrigger(day_of_week="mon",
+            CronTrigger(day="1-7", day_of_week="mon",
                         hour=config.BASKET_REFRESH_HOUR,
                         minute=config.BASKET_REFRESH_MINUTE),
             id="basket_refresh",
@@ -400,7 +400,7 @@ def main():
         )
         print(
             f"Scheduler started:\n"
-            f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
+            f"  Basket refresh     : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
             f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
             f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"

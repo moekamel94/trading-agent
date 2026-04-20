@@ -105,7 +105,7 @@ BTC_VIX_MAX          = 38     # don't buy BTC during equity market panic
 
 # --- Basket ---
 BASKET_REFRESH_HOUR   = 8
-BASKET_REFRESH_MINUTE = 0   # Monday 8:00 AM ET
+BASKET_REFRESH_MINUTE = 0   # First Monday of each month, 8:00 AM ET
 
 # --- Options ---
 OPTION_DAYS_TO_EXPIRY = 30  # target ~30 days out

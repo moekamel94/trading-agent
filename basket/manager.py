@@ -123,7 +123,7 @@ def needs_refresh() -> bool:
         data = json.load(f)
     updated  = datetime.fromisoformat(data.get("updated", "2000-01-01"))
     days_old = (datetime.utcnow() - updated).days
-    return days_old >= 7
+    return days_old >= 30
 
 
 def _fallback() -> list[str]:
