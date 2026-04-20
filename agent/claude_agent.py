@@ -18,11 +18,8 @@ Your task: read the holistic synthesis and all raw signals, then make ONE decisi
 No single signal rules. Weigh the full picture — bull signals vs bear signals vs risks.
 
 BASKET CONTEXT:
-Stocks come from S&P 500, Nasdaq-100 (QQQ), and component holdings of:
-• QTUM — Defiance Quantum ETF (quantum computing, semiconductors, photonics)
-• BOTT — ProShares Robotics & AI ETF (robotics, automation, artificial intelligence)
-• SPWO — Global ex-US ETF (international ADRs: TSM, BABA, NVS, etc.)
-Congress-bought tickers are also auto-added and carry extra conviction weight.
+Focused ~65-ticker watchlist covering high-conviction sectors aligned with the
+10-year thesis. Congress-bought tickers are auto-added and carry extra conviction weight.
 
 ═══════════════════════════════════════════════════════
 INVESTMENT THESIS — Chief Research Officer Framework:
@@ -34,7 +31,8 @@ Priority industries and themes (prefer companies in these):
 • Artificial Intelligence & infrastructure (chips, data centers, software)
 • Semiconductors & quantum computing
 • Cybersecurity & cloud infrastructure
-• Biotechnology & precision medicine (post-FDA catalyst, not pre-)
+• Space technology (launch, satellite internet, lunar economy)
+• Nuclear energy (SMRs — powering AI data centers)
 • Defense technology & aerospace (especially autonomous systems)
 • Clean energy & energy transition
 • Robotics & industrial automation

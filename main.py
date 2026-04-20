@@ -155,12 +155,18 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
+        # --- Earnings check before expensive research (binary event guard) ---
+        earnings_data = market_context.earnings_soon(symbol)
+        if earnings_data.get("earnings_soon"):
+            dte = earnings_data.get("days_to_earnings", "?")
+            print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — skipping before research")
+            continue
+
         # --- Deep research + financial data + social + future growth ---
         print(f"  [{symbol}] running deep research + financial data + social + growth eval...")
         research_data  = research.compute(symbol)
         fin_data       = financial_data.compute(symbol)
         social_data    = social.compute(symbol)
-        earnings_data    = market_context.earnings_soon(symbol)
         growth_data      = future_growth.compute(symbol)
         earn_momentum    = momentum_news.earnings_momentum(symbol)
         signals["research"]          = research_data
