@@ -48,7 +48,7 @@ TRADE_CUTOFF_MINUTE  = 30
 
 # --- Scheduler ---
 RUN_HOUR   = 9
-RUN_MINUTE = 35  # 9:35 AM ET, 5 min after market open
+RUN_MINUTE = 30  # 9:30 AM ET, at market open
 
 # Summary schedule (ET)
 PREMARKET_SUMMARY_HOUR   = 9
