@@ -82,6 +82,19 @@ _mem_init()
 _pending: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
+# Concurrency guards
+# ---------------------------------------------------------------------------
+
+# Per-channel lock: only ONE message processed at a time per channel.
+# This prevents duplicate approval requests and duplicate code execution
+# when messages arrive quickly or Discord re-delivers a message.
+_channel_locks: dict[int, asyncio.Lock] = {}
+
+# Deduplication set: tracks message IDs we've already handled.
+# Discord occasionally fires on_message twice for the same message.
+_processed_msg_ids: set[int] = set()
+
+# ---------------------------------------------------------------------------
 # System prompts
 # ---------------------------------------------------------------------------
 
@@ -105,6 +118,9 @@ _BASE = (
     "- Be thorough — if a task needs multiple steps, do all of them\n"
     "- Keep responses clear and concise (this is Discord, not a document editor)\n"
     "- If code is long, use code blocks\n"
+    "- IMPORTANT: When a task is fully complete, always end your final message with '✅ Done.' "
+    "so Mohammed knows everything finished successfully. If there were errors you could not fix, "
+    "end with '⛔ Stopped — [reason]. Please check and tell me how to proceed.' Never silently fail.\n"
     f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
 )
 
@@ -324,7 +340,7 @@ class ApprovalView(discord.ui.View):
             _pending[self.aid]["approved"] = True
             _pending[self.aid]["event"].set()
         await interaction.response.edit_message(
-            content=interaction.message.content + "\n\n✅ **Approved**", view=None
+            content=interaction.message.content + "\n\n✅ **Approved — executing now...**", view=None
         )
 
     @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.danger)
@@ -333,7 +349,7 @@ class ApprovalView(discord.ui.View):
             _pending[self.aid]["approved"] = False
             _pending[self.aid]["event"].set()
         await interaction.response.edit_message(
-            content=interaction.message.content + "\n\n❌ **Denied**", view=None
+            content=interaction.message.content + "\n\n❌ **Denied — stopping.**", view=None
         )
 
 
@@ -349,6 +365,10 @@ async def _send_approval(channel, description: str) -> bool:
         await asyncio.wait_for(event.wait(), timeout=120.0)
         return _pending[aid]["approved"]
     except asyncio.TimeoutError:
+        # Timed out waiting — notify and stop
+        await channel.send(
+            "⏰ **Approval timed out** — I've stopped. Send your request again when ready."
+        )
         return False
     finally:
         _pending.pop(aid, None)
@@ -544,6 +564,11 @@ def _get_system(channel_name: str) -> str:
     return _PERSONAS["default"]
 
 
+# Safety cap: if Claude loops more than this many tool rounds without finishing,
+# stop and notify Mohammed rather than burning more API credits.
+_MAX_TOOL_ROUNDS = 15
+
+
 async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channel=None) -> str:
     import anthropic
     client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -553,7 +578,18 @@ async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channe
     messages = _mem_load(channel_id, limit=20)
     system = _get_system(channel_name)
 
+    rounds = 0
     while True:
+        rounds += 1
+        if rounds > _MAX_TOOL_ROUNDS:
+            stop_msg = (
+                "⛔ **Stopped — too many steps without finishing.**\n"
+                "I've hit the safety limit to avoid wasting API credits. "
+                "Please check what happened and tell me how to continue."
+            )
+            _mem_save(channel_id, "assistant", stop_msg)
+            return stop_msg
+
         response = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=4096,
@@ -568,6 +604,13 @@ async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channe
             for block in response.content:
                 if block.type == "tool_use":
                     result = await _exec_tool(block.name, block.input, channel=channel)
+
+                    # If Mohammed denied an approval, stop immediately — don't retry or loop.
+                    if block.name == "request_approval" and result == "denied":
+                        stop_msg = "⛔ **Stopped** — you denied the action. Let me know if you want to try a different approach."
+                        _mem_save(channel_id, "assistant", stop_msg)
+                        return stop_msg
+
                     results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -639,6 +682,16 @@ class KimmyBot(commands.Bot):
         if message.author.bot:
             return
 
+        # Dedup: Discord can fire on_message twice for the same message ID.
+        # Discard if we've already started processing it.
+        if message.id in _processed_msg_ids:
+            return
+        _processed_msg_ids.add(message.id)
+        # Keep the set bounded — discard old IDs once it grows large
+        if len(_processed_msg_ids) > 2000:
+            for mid in list(_processed_msg_ids)[:1000]:
+                _processed_msg_ids.discard(mid)
+
         content = message.content
         if self.user:
             content = content.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
@@ -646,17 +699,34 @@ class KimmyBot(commands.Bot):
         if not content:
             return
 
+        # Per-channel lock: only one request processed at a time per channel.
+        # If a previous request is still running, tell Mohammed and drop this one.
+        if message.channel.id not in _channel_locks:
+            _channel_locks[message.channel.id] = asyncio.Lock()
+        lock = _channel_locks[message.channel.id]
+
+        if lock.locked():
+            await message.reply(
+                "⏳ **Still working on your previous request.** "
+                "Please wait for it to finish before sending a new one."
+            )
+            return
+
         channel_name = getattr(message.channel, "name", "dm")
-        async with message.channel.typing():
-            try:
-                reply = await _ask_claude(
-                    message.channel.id, channel_name, content, channel=message.channel
-                )
-                # Split into ≤1900-char chunks (leave room for code block markers)
-                for chunk in textwrap.wrap(reply, 1900, break_long_words=False, replace_whitespace=False):
-                    await message.reply(chunk)
-            except Exception as e:
-                await message.reply(f"Error: {e}")
+        async with lock:
+            async with message.channel.typing():
+                try:
+                    reply = await _ask_claude(
+                        message.channel.id, channel_name, content, channel=message.channel
+                    )
+                    # Split into ≤1900-char chunks (leave room for code block markers)
+                    for chunk in textwrap.wrap(reply, 1900, break_long_words=False, replace_whitespace=False):
+                        await message.reply(chunk)
+                except Exception as e:
+                    await message.reply(
+                        f"⛔ **I hit an error and stopped.**\n```\n{e}\n```\n"
+                        f"Fix it here and tell me to continue when ready."
+                    )
 
         await self.process_commands(message)
 
