@@ -1,9 +1,11 @@
 """
 Entry point.
-  python main.py              # run one full cycle now
+  python main.py              # daily cheap scan (uses research cache)
   python main.py --dry-run    # simulate without placing trades
-  python main.py --schedule   # start APScheduler (legacy, prefer Task Scheduler)
-  python main.py --btc-check  # check BTC position only (runs every 6h via Task Scheduler)
+  python main.py --monthly    # run full deep research, update cache, refresh basket
+  python main.py --schedule   # start APScheduler
+  python main.py --discord    # start Discord bot + scheduler
+  python main.py --btc-check  # check BTC position only
 """
 import sys
 import argparse
@@ -11,6 +13,7 @@ from datetime import datetime, timezone
 
 import config
 import database.db as db
+import database.research_cache as research_cache
 from broker import alpaca
 from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context, future_growth, momentum_news
 from agent import claude_agent
@@ -76,6 +79,75 @@ def is_market_hours() -> bool:
     open_time  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
     close_time = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
     return open_time <= now_et < close_time
+
+
+def run_monthly_research():
+    """
+    Full deep research cycle — run once per month.
+    Calls all paid APIs (research, financial_data, social, future_growth, sentiment,
+    earnings_momentum) for every basket ticker and stores results in research_cache.json.
+    After caching, refreshes the basket with congress buys.
+    Daily cycles then use this cache for free.
+    """
+    print(f"\n{'='*60}")
+    print(f"MONTHLY RESEARCH started at {datetime.now(timezone.utc).isoformat()}")
+    print('='*60)
+
+    db.init()
+    stock_basket = basket_mgr.load()
+    stocks = [s for s in stock_basket if not _is_crypto(s)]
+
+    print(f"  Researching {len(stocks)} tickers...")
+    tg.send(f"📚 Monthly research starting — {len(stocks)} tickers to analyse")
+
+    done = 0
+    for symbol in stocks:
+        print(f"\n  [{symbol}] deep research...")
+        try:
+            bars  = _get_bars(symbol)
+            tech  = technical.compute(bars)
+            fund  = fundamentals.compute(symbol)
+            sent  = sentiment.compute(symbol)
+            cong  = congress.compute(symbol)
+            insd  = insider.compute(symbol)
+
+            research_data  = research.compute(symbol)
+            fin_data       = financial_data.compute(symbol)
+            social_data    = social.compute(symbol)
+            growth_data    = future_growth.compute(symbol)
+            earn_mom       = momentum_news.earnings_momentum(symbol)
+            earnings_data  = market_context.earnings_soon(symbol)
+
+            g_score = growth_data.get("score", "?")
+            print(f"  [{symbol}] growth={g_score}/100 | sent={sent.get('label')} | "
+                  f"social={social_data.get('combined_label')} | "
+                  f"earn_mom={earn_mom.get('label', 'n/a')}")
+
+            research_cache.save(symbol, {
+                "fundamentals":       fund,
+                "sentiment":          sent,
+                "congressional":      cong,
+                "insider":            insd,
+                "future_growth":      growth_data,
+                "financial_data":     fin_data,
+                "social":             social_data,
+                "earnings_data":      earnings_data,
+                "earnings_momentum":  earn_mom,
+                "research_snippets":  (research_data or {}).get("snippets", []),
+                "research_source_count": (research_data or {}).get("source_count", 0),
+            })
+            done += 1
+        except Exception as e:
+            print(f"  [{symbol}] ERROR: {e}")
+
+    # Refresh basket after research is done
+    print("\n  Refreshing basket with latest congress buys...")
+    basket_mgr.refresh()
+
+    msg = (f"📚 Monthly research complete — {done}/{len(stocks)} tickers cached\n"
+           f"Basket refreshed. Daily cycles now use cached data (free).")
+    print(f"\n{msg}")
+    tg.send(msg)
 
 
 def run_cycle(dry_run: bool = False):
@@ -176,19 +248,19 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
-        # --- Earnings check before expensive research (binary event guard) ---
-        earnings_data = market_context.earnings_soon(symbol)
-        dte = earnings_data.get("days_to_earnings")
-        if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
-            print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk")
-            continue
+        # --- Earnings check using cached date (free — no Finnhub call) ---
+        if not _is_crypto(symbol):
+            dte = research_cache.days_to_earnings_cached(symbol)
+            if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
+                print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk (cached)")
+                continue
 
-        # --- Cheap preliminary gate: only run expensive research if worth it ---
+        # --- Preliminary gate (technicals + free fundamentals only) ---
         if not _is_crypto(symbol):
             tier = config.TICKER_TIERS.get(symbol, "mid_growth")
 
             if tier == "speculative":
-                pass  # moonshots always proceed to deep research — thesis evaluated there
+                pass  # always proceed — thesis checked post-cache load
             else:
                 prelim_score = 0
                 eps = fund.get("eps_growth_yoy")
@@ -205,19 +277,36 @@ def run_cycle(dry_run: bool = False):
                 if gc:                        prelim_score += 2
                 if dc:                        prelim_score -= 2
                 if rsi and rsi > 70:         prelim_score -= 1
-                # mid_growth threshold = 1; mega/large_growth = 2
                 threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 2
                 if prelim_score < threshold:
                     print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} (tier={tier}, need {threshold})")
                     continue
 
-        # --- Deep research + financial data + social + future growth ---
-        print(f"  [{symbol}] running deep research + financial data + social + growth eval...")
-        research_data  = research.compute(symbol)
-        fin_data       = financial_data.compute(symbol)
-        social_data    = social.compute(symbol)
-        growth_data      = future_growth.compute(symbol)
-        earn_momentum    = momentum_news.earnings_momentum(symbol)
+        # --- Load cached research (free — no API calls) ---
+        if not _is_crypto(symbol):
+            cached = research_cache.load(symbol)
+            if not cached:
+                print(f"  [{symbol}] -> SKIP | No research cache — run python main.py --monthly first")
+                continue
+            earnings_data = cached.get("earnings_data") or {}
+            research_data = {"snippets": cached.get("research_snippets", []),
+                             "source_count": cached.get("research_source_count", 0)}
+            fin_data      = cached.get("financial_data") or {}
+            social_data   = cached.get("social") or {}
+            growth_data   = cached.get("future_growth") or {}
+            earn_momentum = cached.get("earnings_momentum") or {}
+            sent          = cached.get("sentiment") or sent
+            cong          = cached.get("congressional") or cong
+            insd          = cached.get("insider") or insd
+        else:
+            # BTC: no cache, fetch live sentiment
+            earnings_data = {}
+            research_data = {}
+            fin_data      = {}
+            social_data   = social.compute(symbol)
+            growth_data   = {}
+            earn_momentum = {}
+
         signals["research"]          = research_data
         signals["financial_data"]    = fin_data
         signals["social"]            = social_data
@@ -225,12 +314,14 @@ def run_cycle(dry_run: bool = False):
         signals["earnings_momentum"] = earn_momentum
         signals["market_context"]    = mkt_ctx
         signals["future_growth"]     = growth_data
+
         g_score = growth_data.get("score", 0)
-        g_class = growth_data.get("classification", "unknown")
+        g_class = growth_data.get("classification", "cached")
         g_winds = growth_data.get("tailwinds", [])
         em_label = earn_momentum.get("label", "n/a")
         em_score = earn_momentum.get("combined_score", "n/a")
-        print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | social={social_data.get('combined_label')} | earnings_soon={earnings_data.get('earnings_soon')} | earn_momentum={em_label}({em_score})")
+        print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | "
+              f"social={social_data.get('combined_label')} | earn_momentum={em_label}({em_score})")
 
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = {**decision, "_symbol": symbol}
@@ -375,6 +466,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run",        action="store_true")
     parser.add_argument("--schedule",       action="store_true")
+    parser.add_argument("--monthly",        action="store_true")
     parser.add_argument("--btc-check",      action="store_true")
     parser.add_argument("--premarket",      action="store_true")
     parser.add_argument("--close-summary",  action="store_true")
@@ -382,6 +474,10 @@ def main():
     parser.add_argument("--bot",            action="store_true")
     parser.add_argument("--discord",        action="store_true")
     args = parser.parse_args()
+
+    if args.monthly:
+        run_monthly_research()
+        return
 
     if args.discord:
         # Run the trading scheduler in a background thread alongside the Discord bot.
@@ -392,11 +488,11 @@ def main():
 
         scheduler = BackgroundScheduler(timezone="America/New_York")
         scheduler.add_job(
-            basket_mgr.refresh,
+            run_monthly_research,
             CronTrigger(day="1-7", day_of_week="mon",
                         hour=config.BASKET_REFRESH_HOUR,
                         minute=config.BASKET_REFRESH_MINUTE),
-            id="basket_refresh",
+            id="monthly_research",
         )
         scheduler.add_job(
             lambda: reporter.run_premarket(dry_run=False),
@@ -431,7 +527,7 @@ def main():
         scheduler.start()
         print(
             f"[Scheduler] Started inside Kimmy:\n"
-            f"  Basket refresh     : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
+            f"  Monthly research   : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
             f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
             f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
@@ -456,11 +552,11 @@ def main():
 
         scheduler = BlockingScheduler(timezone="America/New_York")
         scheduler.add_job(
-            basket_mgr.refresh,
+            run_monthly_research,
             CronTrigger(day="1-7", day_of_week="mon",
                         hour=config.BASKET_REFRESH_HOUR,
                         minute=config.BASKET_REFRESH_MINUTE),
-            id="basket_refresh",
+            id="monthly_research",
         )
         scheduler.add_job(
             lambda: reporter.run_premarket(dry_run=args.dry_run),
@@ -492,7 +588,7 @@ def main():
         )
         print(
             f"Scheduler started:\n"
-            f"  Basket refresh     : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
+            f"  Monthly research   : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
             f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
             f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
