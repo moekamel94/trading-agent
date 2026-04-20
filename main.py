@@ -259,6 +259,50 @@ def main():
     args = parser.parse_args()
 
     if args.discord:
+        # Run the trading scheduler in a background thread alongside the Discord bot.
+        # This means one service (kimmy) handles both Discord and auto-trading.
+        import threading
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        scheduler = BackgroundScheduler(timezone="America/New_York")
+        scheduler.add_job(
+            basket_mgr.refresh,
+            CronTrigger(day_of_week="mon",
+                        hour=config.BASKET_REFRESH_HOUR,
+                        minute=config.BASKET_REFRESH_MINUTE),
+            id="basket_refresh",
+        )
+        scheduler.add_job(
+            lambda: reporter.run_premarket(dry_run=False),
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.PREMARKET_SUMMARY_HOUR,
+                        minute=config.PREMARKET_SUMMARY_MINUTE),
+            id="premarket_summary",
+        )
+        scheduler.add_job(
+            run_cycle,
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.RUN_HOUR,
+                        minute=config.RUN_MINUTE),
+            id="trading_cycle",
+        )
+        scheduler.add_job(
+            reporter.run_close,
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.CLOSE_SUMMARY_HOUR,
+                        minute=config.CLOSE_SUMMARY_MINUTE),
+            id="close_summary",
+        )
+        scheduler.start()
+        print(
+            f"[Scheduler] Started inside Kimmy:\n"
+            f"  Basket refresh     : Mondays {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
+            f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
+            f"  Trading cycle      : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
+            f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
+        )
+
         from notifications import discord_bot
         discord_bot.run_bot()
     elif args.btc_check:
