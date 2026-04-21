@@ -36,8 +36,8 @@ SECTOR_LIST = [
     "CCJ", "OKLO", "SMR", "CEG",
     # Defense Tech
     "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT", "GE", "ATI", "CACI",
-    # Clean Energy (removed NEE, RUN, SEDG — low growth, don't fit the thesis)
-    "ENPH", "FSLR",
+    # Clean Energy (removed NEE, RUN, SEDG, ENPH — low growth / broken thesis)
+    "FSLR",
     # Robotics / Automation
     "ETN", "ISRG", "SYM", "TRMB",
     # AI Networking / Infrastructure + Data
