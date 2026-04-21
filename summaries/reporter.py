@@ -57,45 +57,32 @@ def run_premarket(dry_run: bool = False):
         "crypto_pct":  0,
     }
 
-    watchlist = basket_mgr.load() + config.CRYPTO_WATCHLIST
-    lines.append("SIGNAL OUTLOOK PER TICKER")
+    # Only show current holdings — no Claude calls, no full basket scan
+    from notifications import discord_bot as tg
+    lines.append("CURRENT HOLDINGS")
     lines.append("-" * 60)
 
-    for symbol in watchlist:
-        try:
-            bars = alpaca.get_crypto_bars(symbol) if "/" in symbol else alpaca.get_stock_bars(symbol)
-            tech = technical.compute(bars)
-            sent = sentiment.compute(symbol)
-            cong = congress.compute(symbol)
-            insd = insider.compute(symbol)
-            fund = fundamentals.compute(symbol)
-
-            signals = {
-                "technical": tech, "sentiment": sent,
-                "congressional": cong, "insider": insd, "fundamentals": fund,
-            }
-
-            passes, criteria_reason = risk_mgr.check_entry_criteria(signals)
-            if not passes:
-                lines.append(f"  {symbol:<10} SKIP  | {criteria_reason}")
-                continue
-
-            decision = claude_agent.decide(symbol, signals, port_ctx)
-            rsi_str  = f"RSI {tech.get('rsi', 'N/A')}" if tech else "no data"
-            sent_lbl = sent.get("label", "neutral")
-
+    try:
+        for p in positions:
+            sym    = p["symbol"]
+            upl    = p.get("unrealized_pl") or 0
+            uplpct = (p.get("unrealized_plpc") or 0) * 100
+            bars   = alpaca.get_stock_bars(sym) if "/" not in sym else alpaca.get_crypto_bars(sym)
+            tech   = technical.compute(bars)
+            rsi    = tech.get("rsi")
+            gc     = "GC" if tech.get("golden_cross") else ""
+            dc     = "DC" if tech.get("death_cross") else ""
+            arrow  = "▲" if upl >= 0 else "▼"
             lines.append(
-                f"  {symbol:<10} {decision['action']:<4}  conf={decision['confidence']}/10 | "
-                f"{rsi_str} | sentiment={sent_lbl}"
+                f"  {sym:<8} {arrow} {uplpct:+.1f}%  RSI={rsi:.0f if rsi else 'N/A'}  {gc}{dc}"
             )
-            lines.append(f"    Why: {decision.get('rationale', '')}")
-        except Exception as e:
-            lines.append(f"  {symbol:<10} ERROR: {e}")
+    except Exception as e:
+        lines.append(f"  [Error fetching positions: {e}]")
 
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("premarket", body)
-    pass  # Telegram removed
+    tg.send("🌅 Pre-market\n" + body)
 
 
 def run_close():

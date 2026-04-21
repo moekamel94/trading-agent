@@ -209,6 +209,8 @@ def run_monthly_research():
     if to_remove: changes.append(f"Removed: {', '.join(to_remove)}")
     changes_str = " | ".join(changes) if changes else "No changes to basket"
 
+    _os.environ.pop("KIMMY_MONTHLY", None)  # re-enable cost guard for daily cycles
+
     msg = (f"Monthly research complete — {done}/{len(stocks)} tickers cached\n"
            f"Basket curation: {changes_str}\n"
            f"{curation_reasoning[:300]}")
