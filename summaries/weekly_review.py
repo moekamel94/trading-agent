@@ -102,9 +102,9 @@ def run():
     sector_pcts: dict = {}
     for p in pos_data:
         s = p["sector"]
-        sector_pcts[s] = sector_pcts.get(s, 0) + p["pct_portfolio"]
+        sector_pcts[s] = sector_pcts.get(s, 0) + p["pct"]
 
-    spec_pct = sum(p["pct_portfolio"] for p in pos_data if p["tier"] == "speculative")
+    spec_pct = sum(p["pct"] for p in pos_data if p["tier"] == "speculative")
     spec_count = sum(1 for p in pos_data if p["tier"] == "speculative")
 
     prompt = f"""You are Kimmy's investment committee doing a weekly portfolio review.
