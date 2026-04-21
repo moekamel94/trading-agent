@@ -209,14 +209,8 @@ def run_cycle(dry_run: bool = False):
     positions = alpaca.get_positions()
     port_ctx  = _portfolio_context(portfolio, positions)
 
-    # --- Market-wide context (once per cycle) ---
+    # --- Market-wide context (once per cycle — free: CNN F&G + yfinance VIX) ---
     mkt_ctx = market_context.compute()
-
-    # --- Global macro/geopolitical momentum (once per cycle) ---
-    print("  [MACRO] Fetching global macro/geopolitical momentum news...")
-    macro_momentum = momentum_news.global_macro_momentum()
-    mkt_ctx["macro_momentum"] = macro_momentum
-    print(f"  [MACRO] label={macro_momentum.get('label', '?')} score={macro_momentum.get('score', '?')} themes={macro_momentum.get('themes', [])}")
     print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | VIX={mkt_ctx['vix'].get('vix','?')}")
     if mkt_ctx.get("upcoming_macro_events"):
         print(f"  Macro events this week: {[e['event'] for e in mkt_ctx['upcoming_macro_events']]}")
