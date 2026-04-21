@@ -282,7 +282,7 @@ def run_cycle(dry_run: bool = False):
                 if gc:                        prelim_score += 2
                 if dc:                        prelim_score -= 2
                 if rsi and rsi > 70:         prelim_score -= 1
-                threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 2
+                threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 3
                 if prelim_score < threshold:
                     print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} (tier={tier}, need {threshold})")
                     continue

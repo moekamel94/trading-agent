@@ -69,7 +69,7 @@ MID_GROWTH_MOMENTUM_NEEDED       = 2
 MID_GROWTH_TECHNICAL_NEEDED      = 1      # just avoid confirmed death+downtrend
 MID_GROWTH_PE_MAX                = 200    # high-growth stocks can carry high P/E
 MID_GROWTH_MARGIN_MIN            = -5.0   # thin/slightly negative margin OK
-MID_GROWTH_PRELIM_MIN            = 1      # lower prelim gate threshold
+MID_GROWTH_PRELIM_MIN            = 2      # need at least 2 positive signals before calling Claude
 MID_GROWTH_DEAD_MONEY_REV_EXEMPT = 0.25  # skip dead money if revenue growing >25%
 
 SPEC_GROWTH_SCORE_MIN         = 35    # minimum future_growth score for speculative
