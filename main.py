@@ -20,6 +20,7 @@ from agent import claude_agent
 from risk import manager
 from summaries import reporter
 from basket import manager as basket_mgr
+from basket import curation as basket_curation
 from notifications import discord_bot as tg
 
 # Load S&P 500 list once at startup for options eligibility check
@@ -140,12 +141,38 @@ def run_monthly_research():
         except Exception as e:
             print(f"  [{symbol}] ERROR: {e}")
 
-    # Refresh basket after research is done
-    print("\n  Refreshing basket with latest congress buys...")
+    # --- Monthly basket curation: scan market, add new stocks, remove weak ones ---
+    print("\n  Running monthly basket curation...")
+    from basket import curation
+    cached_all = research_cache.load_all()
+    to_add, to_remove, curation_reasoning = curation.run(stocks, cached_all, config)
+
+    # Apply removes from config tiers (basket.json gets rebuilt below)
+    for sym in to_remove:
+        config.TICKER_TIERS.pop(sym, None)
+        config.SECTOR_MAP.pop(sym, None)
+
+    # Apply adds to config tiers (default to mid_growth if unknown)
+    for sym in to_add:
+        if sym not in config.TICKER_TIERS:
+            config.TICKER_TIERS[sym] = "mid_growth"
+
+    # Rebuild basket: sector list + adds - removes + congress buys
+    from basket.manager import SECTOR_LIST
+    updated_sector_list = [s for s in SECTOR_LIST if s not in to_remove] + to_add
+
+    # Refresh basket (congress buys merged inside refresh)
+    print("\n  Refreshing basket with congress buys + curation changes...")
     basket_mgr.refresh()
 
-    msg = (f"📚 Monthly research complete — {done}/{len(stocks)} tickers cached\n"
-           f"Basket refreshed. Daily cycles now use cached data (free).")
+    changes = []
+    if to_add:    changes.append(f"Added: {', '.join(to_add)}")
+    if to_remove: changes.append(f"Removed: {', '.join(to_remove)}")
+    changes_str = " | ".join(changes) if changes else "No changes to basket"
+
+    msg = (f"Monthly research complete — {done}/{len(stocks)} tickers cached\n"
+           f"Basket curation: {changes_str}\n"
+           f"{curation_reasoning[:300]}")
     print(f"\n{msg}")
     tg.send(msg)
 
