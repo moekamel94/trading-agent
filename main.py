@@ -98,43 +98,60 @@ def run_monthly_research():
     stock_basket = basket_mgr.load()
     stocks = [s for s in stock_basket if not _is_crypto(s)]
 
-    print(f"  Researching {len(stocks)} tickers...")
-    tg.send(f"📚 Monthly research starting — {len(stocks)} tickers to analyse")
+    # Split by research depth to manage cost:
+    #   LIGHT  (mega + large_growth): yfinance + FMP financials only — no SerpAPI/social
+    #   FULL   (mid_growth + speculative): all paid APIs — these change fastest, need full picture
+    light_tiers = {"mega", "large_growth"}
+    light = [s for s in stocks if config.TICKER_TIERS.get(s, "mid_growth") in light_tiers]
+    full  = [s for s in stocks if config.TICKER_TIERS.get(s, "mid_growth") not in light_tiers]
+
+    print(f"  Research plan: {len(light)} light (mega/large) + {len(full)} full (mid/speculative)")
+    tg.send(f"Monthly research starting — {len(light)} light + {len(full)} full depth")
 
     done = 0
     for symbol in stocks:
-        print(f"\n  [{symbol}] deep research...")
+        tier      = config.TICKER_TIERS.get(symbol, "mid_growth")
+        is_light  = tier in light_tiers
+        depth_tag = "light" if is_light else "full"
+        print(f"\n  [{symbol}] {depth_tag} research ({tier})...")
         try:
             bars  = _get_bars(symbol)
             tech  = technical.compute(bars)
-            fund  = fundamentals.compute(symbol)
-            sent  = sentiment.compute(symbol)
-            cong  = congress.compute(symbol)
-            insd  = insider.compute(symbol)
+            fund  = fundamentals.compute(symbol)       # yfinance — always free
+            sent  = sentiment.compute(symbol)          # RSS — free
+            cong  = congress.compute(symbol)           # scraper — free
+            insd  = insider.compute(symbol)            # SEC EDGAR — free
+            earnings_data = market_context.earnings_soon(symbol)  # Finnhub — cheap
 
-            research_data  = research.compute(symbol)
-            fin_data       = financial_data.compute(symbol)
-            social_data    = social.compute(symbol)
-            growth_data    = future_growth.compute(symbol)
-            earn_mom       = momentum_news.earnings_momentum(symbol)
-            earnings_data  = market_context.earnings_soon(symbol)
+            if is_light:
+                # Mega/large: skip expensive web research + social + growth scoring
+                fin_data      = financial_data.compute(symbol)  # FMP/Finnhub only
+                research_data = {}
+                social_data   = {}
+                growth_data   = {}
+                earn_mom      = {}
+            else:
+                # Mid/speculative: full picture — all paid APIs
+                research_data = research.compute(symbol)
+                fin_data      = financial_data.compute(symbol)
+                social_data   = social.compute(symbol)
+                growth_data   = future_growth.compute(symbol)
+                earn_mom      = momentum_news.earnings_momentum(symbol)
 
-            g_score = growth_data.get("score", "?")
-            print(f"  [{symbol}] growth={g_score}/100 | sent={sent.get('label')} | "
-                  f"social={social_data.get('combined_label')} | "
-                  f"earn_mom={earn_mom.get('label', 'n/a')}")
+            g_score = growth_data.get("score", "cached") if growth_data else "-"
+            print(f"  [{symbol}] growth={g_score} | sent={sent.get('label')} | depth={depth_tag}")
 
             research_cache.save(symbol, {
-                "fundamentals":       fund,
-                "sentiment":          sent,
-                "congressional":      cong,
-                "insider":            insd,
-                "future_growth":      growth_data,
-                "financial_data":     fin_data,
-                "social":             social_data,
-                "earnings_data":      earnings_data,
-                "earnings_momentum":  earn_mom,
-                "research_snippets":  (research_data or {}).get("snippets", []),
+                "fundamentals":          fund,
+                "sentiment":             sent,
+                "congressional":         cong,
+                "insider":               insd,
+                "future_growth":         growth_data,
+                "financial_data":        fin_data,
+                "social":                social_data,
+                "earnings_data":         earnings_data,
+                "earnings_momentum":     earn_mom,
+                "research_snippets":     (research_data or {}).get("snippets", []),
                 "research_source_count": (research_data or {}).get("source_count", 0),
             })
             done += 1
@@ -182,8 +199,8 @@ def run_cycle(dry_run: bool = False):
         print(f"[SKIP] run_cycle called outside market hours — no trades placed.")
         return
 
-    # Auto-trigger monthly research if cache is missing or older than 30 days
-    if research_cache.needs_refresh(max_days=30):
+    # Auto-trigger monthly research if cache is missing or older than 35 days
+    if research_cache.needs_refresh(max_days=35):
         print("[AUTO] Research cache empty or expired — running monthly research first...")
         run_monthly_research()
 
