@@ -35,7 +35,15 @@ Priority industries and themes (prefer companies in these):
 • Nuclear energy (SMRs — powering AI data centers)
 • Defense technology & aerospace (especially autonomous systems)
 • Clean energy & energy transition
-• Robotics & industrial automation
+• Robotics & industrial automation (ETN, ISRG, SYM, TRMB)
+• Healthcare AI & biotech platforms (LLY, DXCM, VEEV, RXRX)
+• E-commerce & marketplace platforms (SHOP, UBER, SE, GRAB)
+• Financial infrastructure (MA, MSCI — toll booths on global capital flows)
+• AI data infrastructure (PWR, PSTG, SNOW — picks-and-shovels of AI buildout)
+• Energy & commodities tied to AI/EV megatrends:
+  FANG/COP (Permian FCF engines), WMB (Transco gas pipeline for AI data centers),
+  FCX (copper is the physical substrate of AI infrastructure — 50,000 tons per data center),
+  RGLD (gold royalty streams, 75%+ margins), MP (only US rare earth magnet producer, DoD-backed)
 • Consumer platforms with network effects (marketplace lock-in)
 • Moonshot speculative bets (max 10% of portfolio total — 1-3% per position):
   IONQ (quantum computing — networked qubits, DARPA/AstraZeneca/NVIDIA partnerships),

@@ -114,6 +114,12 @@ TICKER_TIERS = {
     "GD": "large_growth", "AXON": "large_growth",
     "ISRG": "large_growth", "ETN": "large_growth",
     "COIN": "large_growth", "ANET": "large_growth",
+    "LLY": "large_growth", "PWR": "large_growth",
+    "SHOP": "large_growth", "UBER": "large_growth",
+    "MA": "large_growth", "MSCI": "large_growth",
+    "FANG": "large_growth", "FCX": "large_growth",
+    "WMB": "large_growth", "RGLD": "large_growth",
+    "COP": "large_growth",
     # ── Mid growth (high-conviction, earlier in curve) ───────────────────
     "AMAT": "mid_growth", "LRCX": "mid_growth", "KLAC": "mid_growth",
     "MU": "mid_growth", "IBM": "mid_growth",
@@ -126,7 +132,12 @@ TICKER_TIERS = {
     "MELI": "mid_growth", "NU": "mid_growth",
     "SYM": "mid_growth", "CELH": "mid_growth", "CAVA": "mid_growth",
     "RKLB": "mid_growth", "RDDT": "mid_growth",
+    "DXCM": "mid_growth", "VEEV": "mid_growth",
+    "PSTG": "mid_growth", "SNOW": "mid_growth",
+    "TRMB": "mid_growth", "SE": "mid_growth",
     # ── Speculative / Moonshots (asymmetric 10-year bets) ────────────────
+    "GRAB": "speculative",            # SEA super-app — first profitable year, fintech flywheel
+    "MP": "speculative",              # only US rare earth magnet producer — DoD + Apple contracts
     "ASTS": "speculative",            # satellite-to-phone internet (2.8B existing subscribers)
     "OKLO": "speculative",            # nuclear microreactors for AI data centers (Sam Altman)
     "SMR": "speculative",             # small modular reactors
@@ -168,12 +179,21 @@ SECTOR_MAP = {
     "KTOS": "defense", "AXON": "defense", "BWXT": "defense",
     "ENPH": "clean_energy", "FSLR": "clean_energy",
     "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics", "SYM": "robotics",
-    "ANET": "ai_infra", "VRT": "ai_infra",
+    "ANET": "ai_infra", "VRT": "ai_infra", "PWR": "ai_infra",
+    "PSTG": "ai_infra", "SNOW": "ai_infra",
     "HOOD": "fintech", "COIN": "fintech", "MELI": "fintech", "NU": "fintech",
+    "MA": "fintech", "MSCI": "fintech",
     "DUOL": "consumer_tech", "RDDT": "consumer_tech",
+    "SHOP": "ecommerce", "UBER": "ecommerce",
     "JOBY": "evtol",
-    "RXRX": "biotech",
+    "RXRX": "biotech", "LLY": "healthcare", "DXCM": "healthcare", "VEEV": "healthcare",
     "CELH": "consumer_goods", "CAVA": "consumer_goods",
+    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics",
+    "SYM": "robotics", "TRMB": "robotics",
+    "SE": "international", "GRAB": "international",
+    "FANG": "energy_oil", "COP": "energy_oil",
+    "WMB": "energy_midstream",
+    "FCX": "commodities_metals", "RGLD": "commodities_metals", "MP": "commodities_metals",
     "AAPL": "mega_tech", "TSLA": "mega_tech",
 }
 

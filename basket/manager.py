@@ -37,19 +37,27 @@ SECTOR_LIST = [
     "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT",
     # Clean Energy (removed NEE, RUN, SEDG — low growth, don't fit the thesis)
     "ENPH", "FSLR",
-    # Robotics / Automation (removed ROK, EMR — traditional industrials; ABB — no Yahoo data)
-    "ETN", "ISRG",
-    # AI Networking / Infrastructure
-    "ANET", "VRT",
-    # High-growth compounders — fintech & consumer tech
-    "HOOD", "COIN", "DUOL",
-    "MELI", "NU",                              # LatAm digital / neobank
-    "RDDT",                                    # social data moat / AI training
-    "CELH", "CAVA",                            # consumer high-growth
-    # AI drug discovery & robotics
-    "RXRX", "SYM",
+    # Robotics / Automation
+    "ETN", "ISRG", "SYM", "TRMB",
+    # AI Networking / Infrastructure + Data
+    "ANET", "VRT", "PWR", "PSTG", "SNOW",
+    # Fintech & financial infrastructure
+    "HOOD", "COIN", "MELI", "NU", "MA", "MSCI",
+    # Consumer tech & e-commerce
+    "DUOL", "RDDT", "SHOP", "UBER",
+    "CELH", "CAVA",
+    # Healthcare / Biotech AI
+    "RXRX", "LLY", "DXCM", "VEEV",
+    # International high-growth
+    "SE", "GRAB",
     # eVTOL / air mobility
     "JOBY",
+    # Energy — Oil & Gas
+    "FANG", "COP",
+    # Energy — Midstream
+    "WMB",
+    # Commodities & Metals (AI/EV-linked)
+    "FCX", "RGLD", "MP",
     # Anchor mega-caps
     "AAPL", "TSLA",
 ]
