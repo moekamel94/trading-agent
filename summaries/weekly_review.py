@@ -1,0 +1,217 @@
+"""
+Weekly portfolio review — runs every Sunday at 6:00 PM ET.
+
+One Claude Haiku call reviews all open positions holistically:
+- Position sizing vs limits
+- P&L and thesis health per holding
+- Sector concentration
+- Dead money candidates
+- Rebalancing recommendations
+
+Sends a full action plan to Discord. Uses only cached research + live
+yfinance (no paid APIs). Cost: ~$0.002 per week.
+"""
+import json
+import anthropic
+import config
+import database.db as db
+import database.research_cache as research_cache
+from broker import alpaca
+from signals import technical
+from notifications import discord_bot as tg
+
+
+def _get_bars(symbol: str):
+    if "/" in symbol:
+        return alpaca.get_crypto_bars(symbol)
+    return alpaca.get_stock_bars(symbol)
+
+
+def run():
+    print("\n" + "=" * 60)
+    print("WEEKLY PORTFOLIO REVIEW")
+    print("=" * 60)
+
+    try:
+        portfolio  = alpaca.get_portfolio()
+        positions  = alpaca.get_positions()
+    except Exception as e:
+        tg.send(f"❌ Weekly review failed — could not fetch portfolio: {e}")
+        return
+
+    equity = portfolio["equity"]
+    cash   = portfolio["cash"]
+
+    if not positions:
+        tg.send("📋 Weekly Review: No open positions — fully in cash.")
+        return
+
+    # Build a detailed snapshot of every position
+    pos_data = []
+    for p in positions:
+        sym   = p["symbol"]
+        qty   = p["qty"]
+        price = p["current_price"]
+        entry = p.get("avg_entry") or p.get("avg_entry_price") or 0
+        val   = abs(qty * price)
+        pct   = val / equity * 100 if equity else 0
+        upl   = p.get("unrealized_pl") or 0
+        uplpc = (p.get("unrealized_plpc") or 0) * 100
+        tier  = config.TICKER_TIERS.get(sym, "unknown")
+        sector = config.SECTOR_MAP.get(sym, "unknown")
+
+        # Live technicals (free — yfinance)
+        try:
+            bars  = _get_bars(sym)
+            tech  = technical.compute(bars)
+            rsi   = tech.get("rsi")
+            gc    = tech.get("golden_cross")
+            dc    = tech.get("death_cross")
+            r1m   = tech.get("return_1m")
+            r3m   = tech.get("return_3m")
+            above_sma200 = (tech.get("price") or 0) > (tech.get("sma200") or 0)
+        except Exception:
+            rsi = gc = dc = r1m = r3m = None
+            above_sma200 = None
+
+        # Cached fundamentals (free)
+        cached  = research_cache.load(sym) or {}
+        fund    = cached.get("fundamentals") or {}
+        growth  = cached.get("future_growth") or {}
+        earn_m  = cached.get("earnings_momentum") or {}
+
+        pos_data.append({
+            "symbol":       sym,
+            "tier":         tier,
+            "sector":       sector,
+            "pct_portfolio": round(pct, 1),
+            "value_usd":    round(val, 0),
+            "entry_price":  round(entry, 2),
+            "current_price": round(price, 2),
+            "unrealized_pl_usd": round(upl, 0),
+            "unrealized_pl_pct": round(uplpc, 1),
+            "rsi":          round(rsi, 1) if rsi else None,
+            "golden_cross": gc,
+            "death_cross":  dc,
+            "return_1m_pct": round(r1m, 1) if r1m is not None else None,
+            "return_3m_pct": round(r3m, 1) if r3m is not None else None,
+            "above_sma200": above_sma200,
+            "revenue_growth": fund.get("revenue_growth"),
+            "eps_growth":    fund.get("eps_growth_yoy"),
+            "growth_score":  growth.get("score"),
+            "earnings_label": earn_m.get("label"),
+        })
+
+    # Sector concentration
+    sector_pcts: dict = {}
+    for p in pos_data:
+        s = p["sector"]
+        sector_pcts[s] = sector_pcts.get(s, 0) + p["pct_portfolio"]
+
+    spec_pct = sum(p["pct_portfolio"] for p in pos_data if p["tier"] == "speculative")
+    spec_count = sum(1 for p in pos_data if p["tier"] == "speculative")
+
+    prompt = f"""You are Kimmy's investment committee doing a weekly portfolio review.
+Today is a Sunday review — market opens Monday. Your job is to review every position
+and give clear, actionable recommendations before the week begins.
+
+PORTFOLIO OVERVIEW:
+  Total equity : ${equity:,.2f}
+  Cash         : ${cash:,.2f} ({cash/equity*100:.1f}% of portfolio)
+  Positions    : {len(pos_data)}
+  Speculative  : {spec_count} positions = {spec_pct:.1f}% (max allowed: {config.MAX_SPECULATIVE_PCT}%)
+
+SECTOR CONCENTRATION:
+{json.dumps(sector_pcts, indent=2)}
+
+POSITION DETAILS:
+{json.dumps(pos_data, indent=2, default=str)}
+
+LIMITS TO ENFORCE:
+  - Max 8% per position
+  - Max 10% total in speculative tier (max 5 positions)
+  - Max 25% in any single sector
+  - Dead money rule: if held >90 days AND profit <3% → recommend exit (NOT for speculative)
+  - Speculative: hold through volatility unless technology thesis broken
+
+KIMMY'S THESIS: AI/semis, cybersecurity, defense, nuclear energy, space, healthcare AI,
+fintech, energy/commodities tied to AI. 25% annual return target.
+
+REVIEW EACH POSITION AND ANSWER:
+1. Is the position sized correctly? Flag any over/underweight.
+2. Is the thesis still intact? Check revenue/EPS trends.
+3. Any technical warning signs? (death cross, below SMA200, RSI extremes)
+4. Is it dead money? Flat for too long with no catalyst?
+5. Any position to trim, add to, or exit?
+
+OUTPUT FORMAT — respond in this exact JSON:
+{{
+  "actions": [
+    {{
+      "symbol": "XXXX",
+      "recommendation": "HOLD" | "TRIM" | "EXIT" | "ADD",
+      "urgency": "immediate" | "this_week" | "monitor",
+      "reason": "one concise sentence"
+    }}
+  ],
+  "portfolio_health": "brief 2-sentence overall assessment",
+  "cash_comment": "should we deploy cash, hold it, or raise more?",
+  "top_concern": "single biggest risk in the current portfolio"
+}}"""
+
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        result = json.loads(raw)
+    except Exception as e:
+        tg.send(f"❌ Weekly review Claude call failed: {e}")
+        return
+
+    # Format Discord message
+    actions   = result.get("actions", [])
+    health    = result.get("portfolio_health", "")
+    cash_note = result.get("cash_comment", "")
+    concern   = result.get("top_concern", "")
+
+    urgency_emoji = {"immediate": "🔴", "this_week": "🟡", "monitor": "🔵"}
+    action_emoji  = {"EXIT": "🔴 EXIT", "TRIM": "🟠 TRIM", "ADD": "🟢 ADD", "HOLD": "⚪ HOLD"}
+
+    lines = ["📋 **Weekly Portfolio Review**\n"]
+    lines.append(f"**Portfolio health:** {health}")
+    lines.append(f"**Cash:** {cash_note}")
+    lines.append(f"**Top concern:** {concern}\n")
+
+    immediate = [a for a in actions if a["urgency"] == "immediate"]
+    this_week = [a for a in actions if a["urgency"] == "this_week"]
+    monitor   = [a for a in actions if a["urgency"] == "monitor"]
+
+    if immediate:
+        lines.append("**🔴 Act immediately:**")
+        for a in immediate:
+            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} {a['symbol']} — {a['reason']}")
+
+    if this_week:
+        lines.append("\n**🟡 This week:**")
+        for a in this_week:
+            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} {a['symbol']} — {a['reason']}")
+
+    if monitor:
+        lines.append("\n**🔵 Monitor:**")
+        for a in monitor:
+            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} {a['symbol']} — {a['reason']}")
+
+    msg = "\n".join(lines)
+    print(msg)
+    tg.send(msg)
+    db.log_summary("weekly_review", msg)
+    print("\nWeekly review complete.")

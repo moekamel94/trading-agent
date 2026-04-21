@@ -19,6 +19,7 @@ from signals import technical, sentiment, congress, insider, fundamentals, resea
 from agent import claude_agent
 from risk import manager
 from summaries import reporter
+from summaries import weekly_review
 from basket import manager as basket_mgr
 from basket import curation as basket_curation
 from notifications import discord_bot as tg
@@ -589,12 +590,17 @@ def main():
     parser.add_argument("--premarket",      action="store_true")
     parser.add_argument("--close-summary",  action="store_true")
     parser.add_argument("--basket-refresh", action="store_true")
+    parser.add_argument("--weekly",         action="store_true")
     parser.add_argument("--bot",            action="store_true")
     parser.add_argument("--discord",        action="store_true")
     args = parser.parse_args()
 
     if args.monthly:
         run_monthly_research()
+        return
+
+    if args.weekly:
+        weekly_review.run()
         return
 
     if args.discord:
@@ -631,6 +637,15 @@ def main():
                 reporter.run_close()
             except Exception as e:
                 print(f"Close summary error: {e}")
+
+        def _safe_weekly():
+            try:
+                weekly_review.run()
+            except Exception as e:
+                msg = f"❌ Weekly review crashed: {e}"
+                print(msg)
+                try: tg.send(msg)
+                except Exception: pass
 
         # misfire_grace_time: if the bot was down when the job fired, run it
         # within this many seconds of restart instead of skipping it entirely
@@ -675,6 +690,12 @@ def main():
                         hour=config.CLOSE_SUMMARY_HOUR,
                         minute=config.CLOSE_SUMMARY_MINUTE),
             id="close_summary",
+            misfire_grace_time=GRACE,
+        )
+        scheduler.add_job(
+            _safe_weekly,
+            CronTrigger(day_of_week="sun", hour=18, minute=0),
+            id="weekly_review",
             misfire_grace_time=GRACE,
         )
         scheduler.start()
