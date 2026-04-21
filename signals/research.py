@@ -129,7 +129,14 @@ def _searxng(symbol: str) -> list[str]:
 
 
 def compute(symbol: str) -> dict:
-    """Query all sources in parallel. Returns snippets + metadata for Claude."""
+    """Query all sources in parallel. Returns snippets + metadata for Claude.
+    MONTHLY ONLY — never call this from run_cycle(). Paid APIs: SerpAPI, Tavily, Exa, Serper, Firecrawl.
+    """
+    import traceback, os
+    # Hard guard: crash loudly if called outside --monthly context
+    if os.environ.get("KIMMY_MONTHLY") != "1":
+        print(f"  [COST GUARD] research.compute({symbol}) blocked — not in monthly context")
+        return {"snippets": [], "snippet_count": 0, "source_count": 0}
     tasks = {
         "SerpAPI":   lambda: _serpapi(symbol),
         "Tavily":    lambda: _tavily(symbol),

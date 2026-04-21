@@ -85,11 +85,15 @@ def is_market_hours() -> bool:
 def run_monthly_research():
     """
     Full deep research cycle — run once per month.
+    Sets KIMMY_MONTHLY=1 so paid research.compute() calls are allowed.
     Calls all paid APIs (research, financial_data, social, future_growth, sentiment,
     earnings_momentum) for every basket ticker and stores results in research_cache.json.
     After caching, refreshes the basket with congress buys.
     Daily cycles then use this cache for free.
     """
+    import os as _os
+    _os.environ["KIMMY_MONTHLY"] = "1"
+
     print(f"\n{'='*60}")
     print(f"MONTHLY RESEARCH started at {datetime.now(timezone.utc).isoformat()}")
     print('='*60)

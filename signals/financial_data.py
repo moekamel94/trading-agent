@@ -219,8 +219,9 @@ def _fmp_layer(symbol: str) -> dict:
 
     try:
         r = requests.get(f"{base}/income-statement", params={**params, "limit": 2}, timeout=_TIMEOUT)
-        if r.status_code == 200 and len(r.json()) >= 2:
-            latest, prior = r.json()[0], r.json()[1]
+        _income = r.json() if r.status_code == 200 else []
+        if len(_income) >= 2:
+            latest, prior = _income[0], _income[1]
             rev_latest = latest.get("revenue", 0) or 0
             rev_prior  = prior.get("revenue", 1) or 1
             result["revenue_latest"] = rev_latest

@@ -1,8 +1,9 @@
 import sqlite3
 import json
+import os
 from datetime import datetime
 
-DB_PATH = "trading_agent.db"
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trading_agent.db")
 
 
 def _conn():
