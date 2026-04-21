@@ -260,17 +260,16 @@ def run_cycle(dry_run: bool = False):
             except Exception as e:
                 print(f"    ERROR closing {sym}: {e}")
 
-    # --- Signal + decision loop ---
+    # =========================================================
+    # PHASE 1: Collect signals for all candidates (no Claude)
+    # =========================================================
     stock_basket = basket_mgr.load()
     watchlist = stock_basket + config.CRYPTO_WATCHLIST
-    signals_map = {}  # used by exit checks
+    signals_map = {}
+    tech_map: dict = {}  # tech per symbol for Phase 3 trade execution
 
-    # Cycle tracking for end-of-cycle summary
     scanned_count  = 0
-    claude_count   = 0
-    cycle_buys:  list[str] = []
-    cycle_sells: list[str] = []
-    cycle_holds: list[str] = []  # tickers Claude reviewed but held
+    candidates: list[dict] = []
 
     for symbol in watchlist:
         print(f"\n  [{symbol}] collecting signals...")
@@ -280,7 +279,6 @@ def run_cycle(dry_run: bool = False):
 
         # Quick technical pre-filter: skip immediately if price is below SMA50
         # AND a death cross is confirmed (both signals bearish = clear downtrend).
-        # This avoids 4 expensive API calls per ticker that would fail the gate anyway.
         if not _is_crypto(symbol):
             price  = tech.get("price") or 0
             sma50  = tech.get("sma50") or 0
@@ -310,24 +308,24 @@ def run_cycle(dry_run: bool = False):
             "congressional": cong,
             "insider":       insd,
             "fundamentals":  fund,
-            "market_context": mkt_ctx,  # needed for bear market override
+            "market_context": mkt_ctx,
         }
         signals_map[symbol] = signals
 
-        # --- Hard criteria gate: block BUY before calling Claude (saves API cost) ---
+        # Hard criteria gate
         passes, criteria_reason = manager.check_entry_criteria(signals)
         if not passes:
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
-        # --- Earnings check using cached date (free — no Finnhub call) ---
+        # Earnings check using cached date (free — no Finnhub call)
         if not _is_crypto(symbol):
             dte = research_cache.days_to_earnings_cached(symbol)
             if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
                 print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk (cached)")
                 continue
 
-        # --- Preliminary gate (technicals + free fundamentals only) ---
+        # Preliminary gate (technicals + free fundamentals only)
         if not _is_crypto(symbol):
             tier = config.TICKER_TIERS.get(symbol, "mid_growth")
 
@@ -354,7 +352,7 @@ def run_cycle(dry_run: bool = False):
                     print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} (tier={tier}, need {threshold})")
                     continue
 
-        # --- Load cached research (free — no API calls) ---
+        # Load cached research (free — no API calls)
         if not _is_crypto(symbol):
             cached = research_cache.load(symbol)
             if not cached:
@@ -387,16 +385,39 @@ def run_cycle(dry_run: bool = False):
         signals["market_context"]    = mkt_ctx
         signals["future_growth"]     = growth_data
 
-        g_score = growth_data.get("score", 0)
-        g_class = growth_data.get("classification", "cached")
-        g_winds = growth_data.get("tailwinds", [])
+        g_score  = growth_data.get("score", 0)
+        g_class  = growth_data.get("classification", "cached")
+        g_winds  = growth_data.get("tailwinds", [])
         em_label = earn_momentum.get("label", "n/a")
         em_score = earn_momentum.get("combined_score", "n/a")
         print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | "
               f"social={social_data.get('combined_label')} | earn_momentum={em_label}({em_score})")
 
-        claude_count += 1
-        decision = claude_agent.decide(symbol, signals, port_ctx)
+        synthesis = claude_agent._build_synthesis(symbol, signals)
+        tech_map[symbol] = tech
+        candidates.append({"symbol": symbol, "signals": signals, "synthesis": synthesis})
+        print(f"  [{symbol}] -> CANDIDATE | queued for committee review")
+
+    # =========================================================
+    # PHASE 2: One committee Claude call for ALL candidates
+    # =========================================================
+    cycle_buys:  list[str] = []
+    cycle_sells: list[str] = []
+    cycle_holds: list[str] = []
+
+    if candidates:
+        print(f"\n  [Committee] Reviewing {len(candidates)} candidates in one call...")
+        decisions = claude_agent.committee_review(candidates, port_ctx, mkt_ctx)
+    else:
+        decisions = []
+        print("  [Committee] No candidates passed all filters — skipping committee call")
+
+    # =========================================================
+    # PHASE 3: Execute approved trades
+    # =========================================================
+    for decision in decisions:
+        symbol = decision["symbol"]
+        signals = signals_map.get(symbol, {})
         decision = {**decision, "_symbol": symbol}
         decision = manager.apply_conviction_bonuses(decision, signals)
         decision = manager.validate(decision, port_ctx)
@@ -413,6 +434,7 @@ def run_cycle(dry_run: bool = False):
             cycle_holds.append(symbol)
 
         if action in ("BUY", "SELL") and trades_allowed:
+            tech  = tech_map.get(symbol, {})
             price = tech.get("price", 0) or 1
             qty   = manager.compute_qty(symbol, alloc, price, portfolio)
 
@@ -515,7 +537,7 @@ def run_cycle(dry_run: bool = False):
         msg_parts.append("Open positions:")
         msg_parts.extend(pos_lines)
         msg_parts.append("")
-    msg_parts.append(f"Scanned {len(watchlist)} tickers | {scanned_count} passed filters | {claude_count} reached Claude")
+    msg_parts.append(f"Scanned {len(watchlist)} tickers | {scanned_count} passed filters | {len(candidates)} sent to committee")
     if cycle_holds:
         msg_parts.append(f"Held (reviewed): {', '.join(cycle_holds)}")
     msg_parts.extend(trade_lines)
