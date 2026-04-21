@@ -195,8 +195,16 @@ def run_monthly_research():
 
 
 def run_cycle(dry_run: bool = False):
+    import zoneinfo
+    now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    time_label = now_et.strftime("%I:%M %p ET")
+    day_label  = now_et.strftime("%a %b %-d")
+
     if not dry_run and not is_market_hours():
-        print(f"[SKIP] run_cycle called outside market hours — no trades placed.")
+        msg = (f"⏸️ Cycle skipped — market closed\n"
+               f"{day_label} {time_label} | Next open: Mon–Fri 9:30–4:00 PM ET")
+        print(msg)
+        tg.send(msg)
         return
 
     print(f"\n{'='*60}")
@@ -239,6 +247,13 @@ def run_cycle(dry_run: bool = False):
     watchlist = stock_basket + config.CRYPTO_WATCHLIST
     signals_map = {}  # used by exit checks
 
+    # Cycle tracking for end-of-cycle summary
+    scanned_count  = 0
+    claude_count   = 0
+    cycle_buys:  list[str] = []
+    cycle_sells: list[str] = []
+    cycle_holds: list[str] = []  # tickers Claude reviewed but held
+
     for symbol in watchlist:
         print(f"\n  [{symbol}] collecting signals...")
 
@@ -262,6 +277,7 @@ def run_cycle(dry_run: bool = False):
                 print(f"  [{symbol}] -> SKIP | Quick filter: overextended + below SMA50")
                 continue
 
+        scanned_count += 1
         sent = sentiment.compute(symbol)
         cong = congress.compute(symbol)
         insd = insider.compute(symbol)
@@ -361,6 +377,7 @@ def run_cycle(dry_run: bool = False):
         print(f"  [{symbol}] growth={g_score}/100 ({g_class}) | tailwinds={g_winds} | "
               f"social={social_data.get('combined_label')} | earn_momentum={em_label}({em_score})")
 
+        claude_count += 1
         decision = claude_agent.decide(symbol, signals, port_ctx)
         decision = {**decision, "_symbol": symbol}
         decision = manager.apply_conviction_bonuses(decision, signals)
@@ -373,6 +390,9 @@ def run_cycle(dry_run: bool = False):
         asset_type = decision["asset_type"]
 
         print(f"  [{symbol}] -> {action} | confidence={confidence} | alloc={alloc}% | {rationale}")
+
+        if action == "HOLD":
+            cycle_holds.append(symbol)
 
         if action in ("BUY", "SELL") and not dry_run:
             price = tech.get("price", 0) or 1
@@ -397,6 +417,10 @@ def run_cycle(dry_run: bool = False):
                         alpaca.place_market_order(symbol, qty, action)
                         db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
                         print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
+                        if action == "BUY":
+                            cycle_buys.append(symbol)
+                        elif action == "SELL":
+                            cycle_sells.append(symbol)
 
                         # Build rich notification with key signals
                         tier   = config.TICKER_TIERS.get(symbol, "mid_growth")
@@ -434,12 +458,53 @@ def run_cycle(dry_run: bool = False):
     positions_final = alpaca.get_positions()
     db.log_snapshot(portfolio_final["equity"], portfolio_final["cash"], positions_final)
 
-    buys_this_cycle = [e for e in exits] if exits else []
-    print(f"\nCycle complete. Equity: ${portfolio_final['equity']:,.2f}")
-    tg.send(
-        f"✅ Cycle complete | Equity: ${portfolio_final['equity']:,.2f} | "
-        f"Cash: ${portfolio_final['cash']:,.2f} | Positions: {len(positions_final)}"
-    )
+    equity = portfolio_final["equity"]
+    cash   = portfolio_final["cash"]
+    print(f"\nCycle complete. Equity: ${equity:,.2f}")
+
+    # Build positions P&L block
+    pos_lines = []
+    for p in sorted(positions_final, key=lambda x: abs(x.get("unrealized_pl") or 0), reverse=True)[:8]:
+        sym    = p["symbol"]
+        upl    = p.get("unrealized_pl") or 0
+        uplpct = p.get("unrealized_plpc") or 0
+        arrow  = "▲" if upl >= 0 else "▼"
+        pos_lines.append(f"  {sym:<6} {arrow} ${upl:+,.0f} ({uplpct*100:+.1f}%)")
+
+    # Build trade summary
+    trade_lines = []
+    exit_syms = [e["symbol"] for e in exits] if exits else []
+    if exit_syms:
+        trade_lines.append(f"🔴 Exits triggered: {', '.join(exit_syms)}")
+    if cycle_buys:
+        trade_lines.append(f"🟢 Bought: {', '.join(cycle_buys)}")
+    if cycle_sells:
+        trade_lines.append(f"🔴 Sold: {', '.join(cycle_sells)}")
+    if not trade_lines:
+        trade_lines.append("No trades — held positions, nothing met entry criteria")
+
+    fg_score = mkt_ctx.get("fear_and_greed", {}).get("score", "?")
+    fg_label = mkt_ctx.get("fear_and_greed", {}).get("label", "")
+    vix_val  = mkt_ctx.get("vix", {}).get("vix", "?")
+
+    msg_parts = [
+        f"📊 Daily Scan — {time_label} | {day_label}",
+        f"Market: F&G={fg_score} ({fg_label}) | VIX={vix_val}",
+        f"Portfolio: ${equity:,.0f} equity | ${cash:,.0f} cash | {len(positions_final)} positions",
+        "",
+    ]
+    if pos_lines:
+        msg_parts.append("Open positions:")
+        msg_parts.extend(pos_lines)
+        msg_parts.append("")
+    msg_parts.append(f"Scanned {len(watchlist)} tickers | {scanned_count} passed filters | {claude_count} reached Claude")
+    if cycle_holds:
+        msg_parts.append(f"Held (reviewed): {', '.join(cycle_holds)}")
+    msg_parts.extend(trade_lines)
+
+    summary = "\n".join(msg_parts)
+    print(summary)
+    tg.send(summary)
 
 
 def run_btc_check():
