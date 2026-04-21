@@ -199,13 +199,7 @@ def run_cycle(dry_run: bool = False):
     now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     time_label = now_et.strftime("%I:%M %p ET")
     day_label  = now_et.strftime("%a %b %-d")
-
-    if not dry_run and not is_market_hours():
-        msg = (f"⏸️ Cycle skipped — market closed\n"
-               f"{day_label} {time_label} | Next open: Mon–Fri 9:30–4:00 PM ET")
-        print(msg)
-        tg.send(msg)
-        return
+    trades_allowed = dry_run or is_market_hours()
 
     print(f"\n{'='*60}")
     print(f"Trading cycle started at {datetime.now(timezone.utc).isoformat()}")
@@ -394,7 +388,7 @@ def run_cycle(dry_run: bool = False):
         if action == "HOLD":
             cycle_holds.append(symbol)
 
-        if action in ("BUY", "SELL") and not dry_run:
+        if action in ("BUY", "SELL") and trades_allowed:
             price = tech.get("price", 0) or 1
             qty   = manager.compute_qty(symbol, alloc, price, portfolio)
 
@@ -583,49 +577,84 @@ def main():
         return
 
     if args.discord:
-        # Run the trading scheduler in a background thread alongside the Discord bot.
-        # This means one service (kimmy) handles both Discord and auto-trading.
-        import threading
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
 
+        # Safe wrappers — a crash in one job must never kill the whole bot
+        def _safe_cycle():
+            try:
+                run_cycle()
+            except Exception as e:
+                msg = f"❌ Trading cycle crashed: {e}"
+                print(msg)
+                try: tg.send(msg)
+                except Exception: pass
+
+        def _safe_monthly():
+            try:
+                run_monthly_research()
+            except Exception as e:
+                msg = f"❌ Monthly research crashed: {e}"
+                print(msg)
+                try: tg.send(msg)
+                except Exception: pass
+
+        def _safe_premarket():
+            try:
+                reporter.run_premarket(dry_run=False)
+            except Exception as e:
+                print(f"Premarket summary error: {e}")
+
+        def _safe_close():
+            try:
+                reporter.run_close()
+            except Exception as e:
+                print(f"Close summary error: {e}")
+
+        # misfire_grace_time: if the bot was down when the job fired, run it
+        # within this many seconds of restart instead of skipping it entirely
+        GRACE = 3600  # 1 hour — catches bot restarts mid-session
+
         scheduler = BackgroundScheduler(timezone="America/New_York")
         scheduler.add_job(
-            run_monthly_research,
+            _safe_monthly,
             CronTrigger(day="1-7", day_of_week="mon",
                         hour=config.BASKET_REFRESH_HOUR,
                         minute=config.BASKET_REFRESH_MINUTE),
             id="monthly_research",
+            misfire_grace_time=GRACE,
         )
         scheduler.add_job(
-            lambda: reporter.run_premarket(dry_run=False),
+            _safe_premarket,
             CronTrigger(day_of_week="mon-fri",
                         hour=config.PREMARKET_SUMMARY_HOUR,
                         minute=config.PREMARKET_SUMMARY_MINUTE),
             id="premarket_summary",
+            misfire_grace_time=GRACE,
         )
-        # Morning cycle: catch overnight news and gaps
         scheduler.add_job(
-            run_cycle,
+            _safe_cycle,
             CronTrigger(day_of_week="mon-fri",
                         hour=config.RUN_HOUR,
                         minute=config.RUN_MINUTE),
             id="trading_cycle_open",
+            misfire_grace_time=GRACE,
         )
-        # Afternoon cycle: daily bars ~97% complete — best signal quality
         scheduler.add_job(
-            run_cycle,
+            _safe_cycle,
             CronTrigger(day_of_week="mon-fri",
                         hour=config.AFTERNOON_HOUR,
                         minute=config.AFTERNOON_MINUTE),
             id="trading_cycle_close",
+            misfire_grace_time=GRACE,
         )
         scheduler.add_job(
-            reporter.run_close,
+            _safe_close,
             CronTrigger(day_of_week="mon-fri",
                         hour=config.CLOSE_SUMMARY_HOUR,
                         minute=config.CLOSE_SUMMARY_MINUTE),
             id="close_summary",
+            misfire_grace_time=GRACE,
         )
         scheduler.start()
         print(
