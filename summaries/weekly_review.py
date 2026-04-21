@@ -177,38 +177,98 @@ OUTPUT FORMAT — respond in this exact JSON:
         tg.send(f"❌ Weekly review Claude call failed: {e}")
         return
 
-    # Format Discord message
     actions   = result.get("actions", [])
     health    = result.get("portfolio_health", "")
     cash_note = result.get("cash_comment", "")
     concern   = result.get("top_concern", "")
 
-    urgency_emoji = {"immediate": "🔴", "this_week": "🟡", "monitor": "🔵"}
-    action_emoji  = {"EXIT": "🔴 EXIT", "TRIM": "🟠 TRIM", "ADD": "🟢 ADD", "HOLD": "⚪ HOLD"}
+    action_emoji = {"EXIT": "🔴 EXIT", "TRIM": "🟠 TRIM", "ADD": "🟢 ADD", "HOLD": "⚪ HOLD"}
 
-    lines = ["📋 **Weekly Portfolio Review**\n"]
-    lines.append(f"**Portfolio health:** {health}")
-    lines.append(f"**Cash:** {cash_note}")
-    lines.append(f"**Top concern:** {concern}\n")
+    # Build a lookup of current positions
+    pos_lookup = {p["symbol"]: p for p in pos_data}
 
+    # --- Execute trades for EXIT and TRIM ---
+    executed = []
+    for a in actions:
+        sym  = a["symbol"]
+        rec  = a["recommendation"]
+        if rec not in ("EXIT", "TRIM"):
+            continue
+        if sym not in pos_lookup:
+            continue
+
+        pos = pos_lookup[sym]
+        try:
+            position_raw = next((p for p in positions if p["symbol"] == sym), None)
+            if not position_raw:
+                continue
+            qty   = abs(float(position_raw["qty"]))
+            price = float(position_raw["current_price"])
+
+            if rec == "EXIT":
+                alpaca.place_market_order(sym, qty, "SELL")
+                db.log_trade(sym, "SELL", "stock", qty, price, 0, 8,
+                             f"[Weekly review] {a['reason']}")
+                executed.append(f"🔴 SOLD {sym} ({qty:.2f} shares @ ${price:.2f}) — {a['reason']}")
+                print(f"  [Weekly] EXIT {sym} executed")
+
+            elif rec == "TRIM":
+                # Trim to max position size (8%) — sell the excess
+                current_pct = pos["pct_portfolio"]
+                target_pct  = config.MAX_POSITION_PCT * 0.75  # trim to 75% of max
+                if current_pct > config.MAX_POSITION_PCT:
+                    excess_pct = current_pct - target_pct
+                    trim_value = equity * excess_pct / 100
+                    trim_qty   = round(trim_value / price, 6) if price else 0
+                    if trim_qty > 0 and trim_qty < qty:
+                        alpaca.place_market_order(sym, trim_qty, "SELL")
+                        db.log_trade(sym, "SELL", "stock", trim_qty, price, excess_pct, 7,
+                                     f"[Weekly trim] {a['reason']}")
+                        executed.append(f"🟠 TRIMMED {sym} — sold {trim_qty:.2f} shares "
+                                        f"(reduced from {current_pct:.1f}% to ~{target_pct:.1f}%) "
+                                        f"— {a['reason']}")
+                        print(f"  [Weekly] TRIM {sym} executed")
+                    else:
+                        executed.append(f"🟠 TRIM {sym} skipped — position not oversized enough")
+                else:
+                    executed.append(f"🟠 TRIM {sym} noted but position ({current_pct:.1f}%) within limits")
+        except Exception as e:
+            executed.append(f"⚠️ {rec} {sym} failed: {e}")
+            print(f"  [Weekly] {rec} {sym} error: {e}")
+
+    # --- Format Discord report ---
     immediate = [a for a in actions if a["urgency"] == "immediate"]
     this_week = [a for a in actions if a["urgency"] == "this_week"]
     monitor   = [a for a in actions if a["urgency"] == "monitor"]
 
+    lines = ["📋 **Weekly Portfolio Review**\n"]
+    lines.append(f"**Health:** {health}")
+    lines.append(f"**Cash:** {cash_note}")
+    lines.append(f"**Top concern:** {concern}\n")
+
+    if executed:
+        lines.append("**✅ Actions taken:**")
+        for e in executed:
+            lines.append(f"  {e}")
+        lines.append("")
+
     if immediate:
-        lines.append("**🔴 Act immediately:**")
+        lines.append("**🔴 Immediate:**")
         for a in immediate:
-            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} {a['symbol']} — {a['reason']}")
+            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} "
+                         f"{a['symbol']} — {a['reason']}")
 
     if this_week:
         lines.append("\n**🟡 This week:**")
         for a in this_week:
-            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} {a['symbol']} — {a['reason']}")
+            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} "
+                         f"{a['symbol']} — {a['reason']}")
 
     if monitor:
-        lines.append("\n**🔵 Monitor:**")
+        lines.append("\n**🔵 Holding:**")
         for a in monitor:
-            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} {a['symbol']} — {a['reason']}")
+            lines.append(f"  {action_emoji.get(a['recommendation'], a['recommendation'])} "
+                         f"{a['symbol']} — {a['reason']}")
 
     msg = "\n".join(lines)
     print(msg)
