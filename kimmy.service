@@ -1,0 +1,16 @@
+[Unit]
+Description=Kimmy Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/trading-agent
+ExecStart=/usr/bin/python3 /root/trading-agent/main.py --discord
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
