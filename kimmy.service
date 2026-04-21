@@ -1,16 +1,25 @@
 [Unit]
 Description=Kimmy Trading Bot
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/root/trading-agent
-ExecStart=/root/venv/bin/python3 /root/trading-agent/main.py --discord
+ExecStart=/root/venv/bin/python3 -u main.py --discord
 Restart=always
 RestartSec=15
+StartLimitIntervalSec=0
+
+# Ensure UTF-8 output (prevents encoding crashes)
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+Environment=TZ=America/New_York
+
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=kimmy
 
 [Install]
 WantedBy=multi-user.target
