@@ -21,13 +21,29 @@ _TIMEOUT = 10
 _TODAY   = date.today().isoformat()
 _WEEK_AGO = (date.today() - timedelta(days=7)).isoformat()
 
+# Session-level skip set — APIs added here are skipped for the rest of the process
+_SKIPPED: set[str] = set()
+
+
+def _quota_hit(name: str, status: int, body: str = "") -> bool:
+    """Return True if response indicates quota/trial exhausted; adds to skip set."""
+    lower = body.lower()
+    hit = status in (402, 429) or any(
+        kw in lower for kw in ("quota", "limit exceeded", "trial", "out of credits",
+                               "subscription required", "rate limit", "exceeded your")
+    )
+    if hit and name not in _SKIPPED:
+        _SKIPPED.add(name)
+        print(f"  [API_SKIP] {name}: quota/trial exceeded — skipping for this session")
+    return hit
+
 
 # ── Layer 1: Finnhub — real-time ────────────────────────────────────────────
 
 def _finnhub_quote(symbol: str) -> dict:
-    if not config.FINNHUB_API_KEY:
+    if not config.FINNHUB_API_KEY or "finnhub" in _SKIPPED:
         return {}
-    clean = symbol.replace("/", "")  # BTC/USD → BTCUSD for crypto
+    clean = symbol.replace("/", "")
     try:
         r = requests.get(
             "https://finnhub.io/api/v1/quote",
@@ -35,6 +51,7 @@ def _finnhub_quote(symbol: str) -> dict:
             timeout=_TIMEOUT,
         )
         if r.status_code != 200:
+            _quota_hit("finnhub", r.status_code, r.text)
             return {}
         d = r.json()
         return {
@@ -50,7 +67,7 @@ def _finnhub_quote(symbol: str) -> dict:
 
 
 def _finnhub_news(symbol: str) -> list[str]:
-    if not config.FINNHUB_API_KEY:
+    if not config.FINNHUB_API_KEY or "finnhub" in _SKIPPED:
         return []
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     try:
@@ -60,6 +77,7 @@ def _finnhub_news(symbol: str) -> list[str]:
             timeout=_TIMEOUT,
         )
         if r.status_code != 200:
+            _quota_hit("finnhub", r.status_code, r.text)
             return []
         articles = r.json()[:5]
         return [a.get("headline", "") for a in articles if a.get("headline")]
@@ -68,7 +86,7 @@ def _finnhub_news(symbol: str) -> list[str]:
 
 
 def _finnhub_recommendations(symbol: str) -> dict:
-    if not config.FINNHUB_API_KEY:
+    if not config.FINNHUB_API_KEY or "finnhub" in _SKIPPED:
         return {}
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     try:
@@ -78,6 +96,7 @@ def _finnhub_recommendations(symbol: str) -> dict:
             timeout=_TIMEOUT,
         )
         if r.status_code != 200 or not r.json():
+            _quota_hit("finnhub", r.status_code, r.text)
             return {}
         latest = r.json()[0]
         return {
@@ -103,7 +122,7 @@ def _finnhub_layer(symbol: str) -> dict:
 # ── Layer 2: Alpha Vantage — indicators ─────────────────────────────────────
 
 def _alpha_vantage_indicator(function: str, symbol: str, extra: dict = {}) -> dict:
-    if not config.ALPHA_VANTAGE_KEY:
+    if not config.ALPHA_VANTAGE_KEY or "alpha_vantage" in _SKIPPED:
         return {}
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     try:
@@ -116,8 +135,14 @@ def _alpha_vantage_indicator(function: str, symbol: str, extra: dict = {}) -> di
         }
         r = requests.get("https://www.alphavantage.co/query", params=params, timeout=_TIMEOUT)
         if r.status_code != 200:
+            _quota_hit("alpha_vantage", r.status_code, r.text)
             return {}
-        return r.json()
+        d = r.json()
+        # Alpha Vantage embeds rate-limit notices in the JSON body
+        if "Note" in d or "Information" in d:
+            _quota_hit("alpha_vantage", 429, str(d))
+            return {}
+        return d
     except Exception:
         return {}
 
@@ -157,7 +182,7 @@ def _alpha_vantage_layer(symbol: str) -> dict:
 # ── Layer 3: Twelve Data — price + indicators ────────────────────────────────
 
 def _twelve_data_layer(symbol: str) -> dict:
-    if not config.TWELVE_DATA_KEY:
+    if not config.TWELVE_DATA_KEY or "twelve_data" in _SKIPPED:
         return {}
     clean = symbol.replace("/", "/")  # Twelve Data supports BTC/USD natively
     result = {}
@@ -169,13 +194,17 @@ def _twelve_data_layer(symbol: str) -> dict:
         )
         if r.status_code == 200:
             d = r.json()
-            if "close" in d:
-                result["price"]      = d.get("close")
-                result["volume"]     = d.get("volume")
-                result["52w_high"]   = d.get("fifty_two_week", {}).get("high")
-                result["52w_low"]    = d.get("fifty_two_week", {}).get("low")
-                result["pct_change"] = d.get("percent_change")
+            if d.get("code") in (400, 401, 403, 429):
+                _quota_hit("twelve_data", d["code"], str(d))
+            elif "close" in d:
+                result["price"]          = d.get("close")
+                result["volume"]         = d.get("volume")
+                result["52w_high"]       = d.get("fifty_two_week", {}).get("high")
+                result["52w_low"]        = d.get("fifty_two_week", {}).get("low")
+                result["pct_change"]     = d.get("percent_change")
                 result["is_market_open"] = d.get("is_market_open")
+        else:
+            _quota_hit("twelve_data", r.status_code, r.text)
     except Exception:
         pass
     return result
@@ -184,7 +213,7 @@ def _twelve_data_layer(symbol: str) -> dict:
 # ── Layer 4: Financial Modeling Prep — deep data ─────────────────────────────
 
 def _fmp_layer(symbol: str) -> dict:
-    if not config.FMP_API_KEY:
+    if not config.FMP_API_KEY or "fmp" in _SKIPPED:
         return {}
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     result = {}
@@ -193,6 +222,9 @@ def _fmp_layer(symbol: str) -> dict:
 
     try:
         r = requests.get(f"{base}/profile", params=params, timeout=_TIMEOUT)
+        if r.status_code not in (200,):
+            _quota_hit("fmp", r.status_code, r.text)
+            return result
         if r.status_code == 200 and r.json():
             p = r.json()[0]
             result["company_name"] = p.get("companyName")
@@ -238,7 +270,7 @@ def _fmp_layer(symbol: str) -> dict:
 # ── Layer 5: Polygon — aggregates + news ────────────────────────────────────
 
 def _polygon_layer(symbol: str) -> dict:
-    if not config.POLYGON_API_KEY:
+    if not config.POLYGON_API_KEY or "polygon" in _SKIPPED:
         return {}
     if "/" in symbol:
         return {}  # Polygon free tier focuses on stocks
@@ -249,7 +281,9 @@ def _polygon_layer(symbol: str) -> dict:
             params={"apiKey": config.POLYGON_API_KEY},
             timeout=_TIMEOUT,
         )
-        if r.status_code == 200 and r.json().get("results"):
+        if r.status_code != 200:
+            _quota_hit("polygon", r.status_code, r.text)
+        elif r.json().get("results"):
             d = r.json()["results"][0]
             result["prev_open"]   = d.get("o")
             result["prev_close"]  = d.get("c")

@@ -2,6 +2,7 @@
 Description=Kimmy Trading Bot
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,7 +12,6 @@ ExecStartPre=/usr/bin/git -C /root/trading-agent pull
 ExecStart=/root/venv/bin/python3 -u main.py --discord
 Restart=always
 RestartSec=15
-StartLimitIntervalSec=0
 
 # Ensure UTF-8 output (prevents encoding crashes)
 Environment=PYTHONUNBUFFERED=1

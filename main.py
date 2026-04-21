@@ -671,9 +671,42 @@ def main():
                 try: tg.send(msg)
                 except Exception: pass
 
-        # misfire_grace_time: if the bot was down when the job fired, run it
-        # within this many seconds of restart instead of skipping it entirely
-        GRACE = 3600  # 1 hour — catches bot restarts mid-session
+        def _startup_catchup():
+            """
+            Runs 15s after bot start. APScheduler does NOT replay missed jobs across
+            process restarts (misfire_grace_time only covers executor delays, not
+            downtime). This function fills that gap: if the market is open and no
+            cycle has run in the last 3 hours, run one now.
+            """
+            import zoneinfo
+            now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+            if now_et.weekday() >= 5:
+                print("[Startup] Catchup skipped — weekend")
+                return
+            open_time  = now_et.replace(hour=9,  minute=35, second=0, microsecond=0)
+            close_time = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
+            if not (open_time <= now_et <= close_time):
+                print(f"[Startup] Catchup skipped — market closed ({now_et.strftime('%H:%M ET')})")
+                return
+            try:
+                db.init()
+                snaps = db.get_snapshots(limit=1)
+                if snaps:
+                    last_ts  = datetime.fromisoformat(snaps[0]["ts"])
+                    age_mins = (datetime.utcnow() - last_ts).total_seconds() / 60
+                    if age_mins < 180:
+                        print(f"[Startup] Catchup skipped — last cycle was {age_mins:.0f} min ago")
+                        return
+            except Exception:
+                pass
+            print("[Startup] Market open + no recent cycle — running catchup cycle now")
+            try: tg.send("🔄 Restarted during market hours — running catchup cycle")
+            except Exception: pass
+            _safe_cycle()
+
+        # misfire_grace_time: covers executor delays (not process restarts —
+        # those are handled by _startup_catchup above)
+        GRACE = 3600
 
         scheduler = BackgroundScheduler(timezone="America/New_York")
         scheduler.add_job(
@@ -722,6 +755,15 @@ def main():
             id="weekly_review",
             misfire_grace_time=GRACE,
         )
+        # One-time startup catchup — fires 15s after process start
+        from datetime import timedelta as _td
+        scheduler.add_job(
+            _startup_catchup,
+            "date",
+            run_date=datetime.now() + _td(seconds=15),
+            id="startup_catchup",
+        )
+
         scheduler.start()
         print(
             f"[Scheduler] Started inside Kimmy:\n"

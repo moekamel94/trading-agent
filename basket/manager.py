@@ -8,10 +8,7 @@ Sectors: AI/Software, Semiconductors, Quantum, Cybersecurity, Biotech,
 import json
 import os
 import re
-import requests
 from datetime import datetime
-
-from bs4 import BeautifulSoup
 
 BASKET_FILE = os.path.join(os.path.dirname(__file__), "basket.json")
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -70,25 +67,8 @@ def _is_us_ticker(symbol: str) -> bool:
 
 def _fetch_congress_buys() -> list[str]:
     try:
-        resp = requests.get(
-            "https://www.capitoltrades.com/trades?txType=purchase",
-            headers=_HEADERS, timeout=15,
-        )
-        if resp.status_code != 200:
-            return []
-        soup = BeautifulSoup(resp.text, "lxml")
-        tickers = set()
-        for row in soup.select("table tbody tr")[:50]:
-            cols = [c.get_text(strip=True) for c in row.find_all("td")]
-            if len(cols) >= 4:
-                for col in cols:
-                    cleaned = col.strip().upper()
-                    if _is_us_ticker(cleaned) and cleaned not in ("BUY", "SELL", "USD", "ETF"):
-                        tickers.add(cleaned)
-        result = list(tickers)
-        if result:
-            print(f"  [Basket] Congress buys: {len(result)} tickers -> {result[:10]}")
-        return result
+        from signals.congress import get_recent_buys
+        return get_recent_buys(days=45)
     except Exception as e:
         print(f"  [Basket] Congress buys fetch failed: {e}")
         return []

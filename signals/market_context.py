@@ -113,14 +113,18 @@ def earnings_soon(symbol: str) -> dict:
 
 def compute() -> dict:
     """Run all market-wide signals in parallel. Call once at cycle start."""
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        ft_fg   = ex.submit(_fear_and_greed)
-        ft_vix  = ex.submit(_vix)
-        ft_econ = ex.submit(_economic_calendar)
+    from signals.momentum_news import global_macro_momentum
 
-    fg   = ft_fg.result()
-    vix  = ft_vix.result()
-    econ = ft_econ.result()
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        ft_fg    = ex.submit(_fear_and_greed)
+        ft_vix   = ex.submit(_vix)
+        ft_econ  = ex.submit(_economic_calendar)
+        ft_macro = ex.submit(global_macro_momentum)
+
+    fg    = ft_fg.result()
+    vix   = ft_vix.result()
+    econ  = ft_econ.result()
+    macro = ft_macro.result()
 
     score = fg.get("score")
     if score is not None:
@@ -134,9 +138,13 @@ def compute() -> dict:
     else:
         risk = "unknown"
 
+    if macro.get("available"):
+        print(f"  Geopolitical: {macro.get('label','?')} (score={macro.get('score','?')}) | themes={macro.get('themes',[])} | headline={str(macro.get('top_headlines', ['']))[:80]}")
+
     return {
         "fear_and_greed":        fg,
         "vix":                   vix,
         "upcoming_macro_events": econ,
         "market_risk":           risk,
+        "macro_momentum":        macro,
     }

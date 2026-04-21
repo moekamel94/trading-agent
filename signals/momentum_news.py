@@ -22,6 +22,27 @@ from concurrent.futures import ThreadPoolExecutor
 _TIMEOUT = 10
 _HEADERS = {"User-Agent": "trading-agent mohammed.a.kamil@gmail.com"}
 
+# Session-level skip set shared with research.py
+def _get_skip_set() -> set:
+    try:
+        from signals import research as _r
+        return _r._SKIPPED
+    except Exception:
+        return set()
+
+
+def _quota_hit(name: str, status: int, body: str = "") -> bool:
+    skip = _get_skip_set()
+    lower = body.lower()
+    hit = status in (402, 429) or any(
+        kw in lower for kw in ("quota", "limit exceeded", "trial", "out of credits",
+                               "subscription required", "rate limit", "exceeded your")
+    )
+    if hit and name not in skip:
+        skip.add(name)
+        print(f"  [API_SKIP] {name}: quota/trial exceeded — skipping for this session")
+    return hit
+
 # ─────────────────────────────────────────────────────────────
 # GEOPOLITICAL / MACRO KEYWORDS
 # ─────────────────────────────────────────────────────────────
@@ -128,8 +149,10 @@ def _earnings_news_search(symbol: str) -> dict:
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     headlines = []
 
+    skip = _get_skip_set()
+
     # Try Serper
-    if config.SERPER_API_KEY:
+    if config.SERPER_API_KEY and "serper" not in skip:
         try:
             r = requests.post(
                 "https://google.serper.dev/search",
@@ -140,11 +163,13 @@ def _earnings_news_search(symbol: str) -> dict:
             if r.status_code == 200:
                 for x in r.json().get("organic", [])[:5]:
                     headlines.append(x.get("title", "") + " " + x.get("snippet", ""))
+            else:
+                _quota_hit("serper", r.status_code, r.text)
         except Exception:
             pass
 
     # Try Tavily
-    if config.TAVILY_API_KEY and len(headlines) < 3:
+    if config.TAVILY_API_KEY and "tavily" not in skip and len(headlines) < 3:
         try:
             r = requests.post(
                 "https://api.tavily.com/search",
@@ -245,8 +270,10 @@ def _search_macro_news() -> list[str]:
         except Exception:
             pass
 
+    skip = _get_skip_set()
+
     # Tavily — broader macro context
-    if config.TAVILY_API_KEY:
+    if config.TAVILY_API_KEY and "tavily" not in skip:
         for q in queries[:3]:
             try:
                 r = requests.post(
@@ -263,11 +290,14 @@ def _search_macro_news() -> list[str]:
                 if r.status_code == 200:
                     for x in r.json().get("results", [])[:3]:
                         results.append(x.get("title", "") + " " + x.get("content", "")[:200])
+                else:
+                    _quota_hit("tavily", r.status_code, r.text)
+                    break
             except Exception:
                 pass
 
     # Serper — Google News
-    if config.SERPER_API_KEY:
+    if config.SERPER_API_KEY and "serper" not in skip:
         try:
             r = requests.post(
                 "https://google.serper.dev/news",
@@ -278,6 +308,8 @@ def _search_macro_news() -> list[str]:
             if r.status_code == 200:
                 for x in r.json().get("news", [])[:5]:
                     results.append(x.get("title", "") + " " + x.get("snippet", ""))
+            else:
+                _quota_hit("serper", r.status_code, r.text)
         except Exception:
             pass
 
