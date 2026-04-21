@@ -25,6 +25,7 @@ SECTOR_LIST = [
     "MSFT", "GOOGL", "META", "AMZN", "ORCL", "PLTR", "CRM", "NOW", "AI",
     # Semiconductors (removed INTC, QCOM — declining thesis alignment)
     "NVDA", "AMD", "AVGO", "AMAT", "LRCX", "KLAC", "MU", "ARM", "MRVL", "TSM",
+    "SNPS", "KEYS",
     # Quantum Computing (removed QUBT — too early, no revenue path)
     "IONQ", "RGTI", "IBM",
     # Cybersecurity (removed OKTA — growth concerns, CRWD/PANW dominate)
@@ -34,13 +35,13 @@ SECTOR_LIST = [
     # Nuclear Energy
     "CCJ", "OKLO", "SMR", "CEG",
     # Defense Tech
-    "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT",
+    "LMT", "RTX", "NOC", "GD", "KTOS", "AXON", "BWXT", "GE", "ATI", "CACI",
     # Clean Energy (removed NEE, RUN, SEDG — low growth, don't fit the thesis)
     "ENPH", "FSLR",
     # Robotics / Automation
     "ETN", "ISRG", "SYM", "TRMB",
     # AI Networking / Infrastructure + Data
-    "ANET", "VRT", "PWR", "PSTG", "SNOW",
+    "ANET", "VRT", "PWR", "PSTG", "SNOW", "APH",
     # Fintech & financial infrastructure
     "HOOD", "COIN", "MELI", "NU", "MA", "MSCI",
     # Consumer tech & e-commerce

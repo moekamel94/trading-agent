@@ -120,6 +120,7 @@ TICKER_TIERS = {
     "FANG": "large_growth", "FCX": "large_growth",
     "WMB": "large_growth", "RGLD": "large_growth",
     "COP": "large_growth",
+    "SNPS": "large_growth", "GE": "large_growth", "APH": "large_growth",
     # ── Mid growth (high-conviction, earlier in curve) ───────────────────
     "AMAT": "mid_growth", "LRCX": "mid_growth", "KLAC": "mid_growth",
     "MU": "mid_growth", "IBM": "mid_growth",
@@ -135,6 +136,7 @@ TICKER_TIERS = {
     "DXCM": "mid_growth", "VEEV": "mid_growth",
     "PSTG": "mid_growth", "SNOW": "mid_growth",
     "TRMB": "mid_growth", "SE": "mid_growth",
+    "KEYS": "mid_growth", "ATI": "mid_growth", "CACI": "mid_growth",
     # ── Speculative / Moonshots (asymmetric 10-year bets) ────────────────
     "GRAB": "speculative",            # SEA super-app — first profitable year, fintech flywheel
     "MP": "speculative",              # only US rare earth magnet producer — DoD + Apple contracts
@@ -170,17 +172,18 @@ SECTOR_MAP = {
     "CRM": "ai_software",  "NOW": "ai_software",  "AI": "ai_software",
     "NVDA": "semis", "AMD": "semis",  "AVGO": "semis", "AMAT": "semis",
     "LRCX": "semis", "KLAC": "semis", "MU": "semis",   "ARM": "semis",
-    "MRVL": "semis", "TSM": "semis",
+    "MRVL": "semis", "TSM": "semis",  "SNPS": "semis", "KEYS": "semis",
     "IONQ": "quantum", "RGTI": "quantum", "IBM": "quantum",
     "CRWD": "cyber", "PANW": "cyber", "ZS": "cyber", "FTNT": "cyber", "S": "cyber",
     "RKLB": "space", "ASTS": "space",
     "CCJ": "nuclear", "OKLO": "nuclear", "SMR": "nuclear", "CEG": "nuclear",
     "LMT": "defense", "RTX": "defense", "NOC": "defense", "GD": "defense",
     "KTOS": "defense", "AXON": "defense", "BWXT": "defense",
+    "GE": "defense", "ATI": "defense", "CACI": "defense",
     "ENPH": "clean_energy", "FSLR": "clean_energy",
     "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics", "SYM": "robotics",
     "ANET": "ai_infra", "VRT": "ai_infra", "PWR": "ai_infra",
-    "PSTG": "ai_infra", "SNOW": "ai_infra",
+    "PSTG": "ai_infra", "SNOW": "ai_infra", "APH": "ai_infra",
     "HOOD": "fintech", "COIN": "fintech", "MELI": "fintech", "NU": "fintech",
     "MA": "fintech", "MSCI": "fintech",
     "DUOL": "consumer_tech", "RDDT": "consumer_tech",
