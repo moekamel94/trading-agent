@@ -199,11 +199,6 @@ def run_cycle(dry_run: bool = False):
         print(f"[SKIP] run_cycle called outside market hours — no trades placed.")
         return
 
-    # Auto-trigger monthly research if cache is missing or older than 35 days
-    if research_cache.needs_refresh(max_days=35):
-        print("[AUTO] Research cache empty or expired — running monthly research first...")
-        run_monthly_research()
-
     print(f"\n{'='*60}")
     print(f"Trading cycle started at {datetime.now(timezone.utc).isoformat()}")
     print(f"Mode: {'DRY RUN' if dry_run else 'LIVE PAPER TRADING'}")
