@@ -198,7 +198,7 @@ def run_cycle(dry_run: bool = False):
     import zoneinfo
     now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     time_label = now_et.strftime("%I:%M %p ET")
-    day_label  = now_et.strftime("%a %b %-d")
+    day_label  = now_et.strftime("%a %b %d").replace(" 0", " ")
     trades_allowed = dry_run or is_market_hours()
 
     print(f"\n{'='*60}")
