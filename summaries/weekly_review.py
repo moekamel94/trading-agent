@@ -81,25 +81,21 @@ def run():
         earn_m  = cached.get("earnings_momentum") or {}
 
         pos_data.append({
-            "symbol":       sym,
-            "tier":         tier,
-            "sector":       sector,
-            "pct_portfolio": round(pct, 1),
-            "value_usd":    round(val, 0),
-            "entry_price":  round(entry, 2),
-            "current_price": round(price, 2),
-            "unrealized_pl_usd": round(upl, 0),
-            "unrealized_pl_pct": round(uplpc, 1),
-            "rsi":          round(rsi, 1) if rsi else None,
-            "golden_cross": gc,
-            "death_cross":  dc,
-            "return_1m_pct": round(r1m, 1) if r1m is not None else None,
-            "return_3m_pct": round(r3m, 1) if r3m is not None else None,
-            "above_sma200": above_sma200,
-            "revenue_growth": fund.get("revenue_growth"),
-            "eps_growth":    fund.get("eps_growth_yoy"),
-            "growth_score":  growth.get("score"),
-            "earnings_label": earn_m.get("label"),
+            "sym":    sym,
+            "tier":   tier,
+            "sector": sector,
+            "pct":    round(pct, 1),
+            "pl_pct": round(uplpc, 1),
+            "rsi":    round(rsi, 1) if rsi else None,
+            "gc":     gc,
+            "dc":     dc,
+            "r1m":    round(r1m, 1) if r1m is not None else None,
+            "r3m":    round(r3m, 1) if r3m is not None else None,
+            "sma200": above_sma200,
+            "rev_g":  fund.get("revenue_growth"),
+            "eps_g":  fund.get("eps_growth_yoy"),
+            "g_score": growth.get("score"),
+            "earn":   earn_m.get("label"),
         })
 
     # Sector concentration
@@ -163,7 +159,7 @@ OUTPUT FORMAT — respond in this exact JSON:
     try:
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.content[0].text.strip()
@@ -185,7 +181,7 @@ OUTPUT FORMAT — respond in this exact JSON:
     action_emoji = {"EXIT": "🔴 EXIT", "TRIM": "🟠 TRIM", "ADD": "🟢 ADD", "HOLD": "⚪ HOLD"}
 
     # Build a lookup of current positions
-    pos_lookup = {p["symbol"]: p for p in pos_data}
+    pos_lookup = {p["sym"]: p for p in pos_data}
 
     # --- Execute trades for EXIT and TRIM ---
     executed = []
@@ -214,7 +210,7 @@ OUTPUT FORMAT — respond in this exact JSON:
 
             elif rec == "TRIM":
                 # Trim to max position size (8%) — sell the excess
-                current_pct = pos["pct_portfolio"]
+                current_pct = pos["pct"]
                 target_pct  = config.MAX_POSITION_PCT * 0.75  # trim to 75% of max
                 if current_pct > config.MAX_POSITION_PCT:
                     excess_pct = current_pct - target_pct
