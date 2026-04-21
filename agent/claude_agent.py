@@ -677,12 +677,26 @@ def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
                                  "market_context", "earnings", "earnings_momentum",
                                  "future_growth")}
 
+    holdings = portfolio.get("holdings", [])
+    holdings_str = ""
+    if holdings:
+        already_held = next((h for h in holdings if h["symbol"] == symbol), None)
+        rows = [f"  {h['symbol']:<6} {h['pct']:.1f}% ({h['pl_pct']:+.1f}%) [{h['tier']}]"
+                for h in holdings]
+        holdings_str = "\nCurrent holdings:\n" + "\n".join(rows)
+        if already_held:
+            holdings_str += (f"\n⚠️  ALREADY HOLDING {symbol} at {already_held['pct']:.1f}% "
+                             f"of portfolio (P&L: {already_held['pl_pct']:+.1f}%). "
+                             f"Adding more will increase concentration — only do so with high conviction.")
+
     prompt = f"""
 Ticker: {symbol}
 Portfolio: equity=${portfolio.get('equity', 0):,.2f}  cash=${portfolio.get('cash', 0):,.2f}
 Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS}
 Options exposure: {portfolio.get('options_pct', 0):.1f}% / {config.MAX_OPTIONS_PCT}%
 Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT}%
+Speculative tier: {portfolio.get('speculative_count', 0)} positions / {portfolio.get('speculative_pct', 0):.1f}% (max {config.MAX_SPECULATIVE_PCT}%)
+{holdings_str}
 
 {synthesis}
 {raw_block}

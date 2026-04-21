@@ -50,6 +50,22 @@ def _portfolio_context(portfolio, positions):
                       if config.TICKER_TIERS.get(p["symbol"]) == "speculative"]
     spec_val = sum(abs(p["qty"] * p["current_price"]) for p in spec_positions)
 
+    # Holdings list — so Claude knows exactly what's held and at what size
+    holdings = []
+    for p in positions:
+        val = abs(p["qty"] * p["current_price"])
+        pct = val / equity * 100 if equity else 0
+        upl = p.get("unrealized_pl") or 0
+        uplpct = p.get("unrealized_plpc") or 0
+        holdings.append({
+            "symbol":   p["symbol"],
+            "pct":      round(pct, 1),
+            "pl_pct":   round(uplpct * 100, 1),
+            "pl_usd":   round(upl, 0),
+            "tier":     config.TICKER_TIERS.get(p["symbol"], "unknown"),
+        })
+    holdings.sort(key=lambda x: x["pct"], reverse=True)
+
     return {
         **portfolio,
         "position_count":    len(positions),
@@ -58,6 +74,7 @@ def _portfolio_context(portfolio, positions):
         "sector_pcts":       sector_pcts,
         "speculative_count": len(spec_positions),
         "speculative_pct":   (spec_val / equity * 100) if equity else 0,
+        "holdings":          holdings,
     }
 
 
