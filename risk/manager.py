@@ -430,7 +430,7 @@ def check_btc_entry(signals: dict) -> tuple[bool, str]:
     if not above_sma50 and not above_sma200:
         return False, "BTC below both SMA50 and SMA200 — no uptrend"
 
-    return True, f"BTC criteria passed (RSI={rsi:.1f}, mom={mom_score}/3)"
+    return True, f"BTC criteria passed (RSI={f'{rsi:.1f}' if rsi is not None else 'N/A'}, mom={mom_score}/3)"
 
 
 # ── Exit monitoring ────────────────────────────────────────────────────────────
@@ -506,7 +506,7 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
             if tech.get("bb_position") == "above_upper" and tech.get("macd_cross") == "bearish":
                 bearish_signals += 1
             if bearish_signals >= 2:
-                exits.append({"symbol": sym, "action": "SELL", "reason": f"technical_exit ({bearish_signals} bearish signals: RSI={rsi:.0f if rsi else '?'}, MACD={tech.get('macd_cross')})"})
+                exits.append({"symbol": sym, "action": "SELL", "reason": f"technical_exit ({bearish_signals} bearish signals: RSI={f'{rsi:.0f}' if rsi else '?'}, MACD={tech.get('macd_cross')})"})
                 continue
 
         # BTC: single strong signal is enough

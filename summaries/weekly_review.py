@@ -56,7 +56,7 @@ def run():
         val   = abs(qty * price)
         pct   = val / equity * 100 if equity else 0
         upl   = p.get("unrealized_pl") or 0
-        uplpc = (p.get("unrealized_plpc") or 0) * 100
+        uplpc = p.get("unrealized_plpc", 0)
         tier  = config.TICKER_TIERS.get(sym, "unknown")
         sector = config.SECTOR_MAP.get(sym, "unknown")
 
@@ -113,7 +113,7 @@ and give clear, actionable recommendations before the week begins.
 
 PORTFOLIO OVERVIEW:
   Total equity : ${equity:,.2f}
-  Cash         : ${cash:,.2f} ({cash/equity*100:.1f}% of portfolio)
+  Cash         : ${cash:,.2f} ({cash/equity*100 if equity else 0.0:.1f}% of portfolio)
   Positions    : {len(pos_data)}
   Speculative  : {spec_count} positions = {spec_pct:.1f}% (max allowed: {config.MAX_SPECULATIVE_PCT}%)
 

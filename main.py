@@ -57,11 +57,11 @@ def _portfolio_context(portfolio, positions):
         val = abs(p["qty"] * p["current_price"])
         pct = val / equity * 100 if equity else 0
         upl = p.get("unrealized_pl") or 0
-        uplpct = p.get("unrealized_plpc") or 0
+        uplpct = p.get("unrealized_plpc", 0)
         holdings.append({
             "symbol":   p["symbol"],
             "pct":      round(pct, 1),
-            "pl_pct":   round(uplpct * 100, 1),
+            "pl_pct":   round(uplpct, 1),
             "pl_usd":   round(upl, 0),
             "tier":     config.TICKER_TIERS.get(p["symbol"], "unknown"),
         })
@@ -507,9 +507,9 @@ def run_cycle(dry_run: bool = False):
     for p in sorted(positions_final, key=lambda x: abs(x.get("unrealized_pl") or 0), reverse=True)[:8]:
         sym    = p["symbol"]
         upl    = p.get("unrealized_pl") or 0
-        uplpct = p.get("unrealized_plpc") or 0
+        uplpct = p.get("unrealized_plpc", 0)
         arrow  = "▲" if upl >= 0 else "▼"
-        pos_lines.append(f"  {sym:<6} {arrow} ${upl:+,.0f} ({uplpct*100:+.1f}%)")
+        pos_lines.append(f"  {sym:<6} {arrow} ${upl:+,.0f} ({uplpct:+.1f}%)")
 
     # Build trade summary
     trade_lines = []

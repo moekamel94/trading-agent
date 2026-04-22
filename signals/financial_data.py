@@ -18,8 +18,6 @@ from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 _TIMEOUT = 10
-_TODAY   = date.today().isoformat()
-_WEEK_AGO = (date.today() - timedelta(days=7)).isoformat()
 
 # Session-level skip set — APIs added here are skipped for the rest of the process
 _SKIPPED: set[str] = set()
@@ -70,10 +68,12 @@ def _finnhub_news(symbol: str) -> list[str]:
     if not config.FINNHUB_API_KEY or "finnhub" in _SKIPPED:
         return []
     clean = symbol.split("/")[0] if "/" in symbol else symbol
+    today = date.today().isoformat()
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
     try:
         r = requests.get(
             "https://finnhub.io/api/v1/company-news",
-            params={"symbol": clean, "from": _WEEK_AGO, "to": _TODAY, "token": config.FINNHUB_API_KEY},
+            params={"symbol": clean, "from": week_ago, "to": today, "token": config.FINNHUB_API_KEY},
             timeout=_TIMEOUT,
         )
         if r.status_code != 200:
@@ -255,7 +255,7 @@ def _fmp_layer(symbol: str) -> dict:
         if len(_income) >= 2:
             latest, prior = _income[0], _income[1]
             rev_latest = latest.get("revenue", 0) or 0
-            rev_prior  = prior.get("revenue", 1) or 1
+            rev_prior  = prior.get("revenue") or None
             result["revenue_latest"] = rev_latest
             result["revenue_growth"] = round((rev_latest - rev_prior) / rev_prior * 100, 2) if rev_prior else None
             result["net_income"]     = latest.get("netIncome")

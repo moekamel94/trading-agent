@@ -92,5 +92,9 @@ def _load_raw() -> dict:
     try:
         with open(_CACHE_FILE) as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError as e:
+        print(f"[Cache] research_cache.json corrupted — starting fresh: {e}")
+        return {}
+    except Exception as e:
+        print(f"[Cache] Could not load research_cache.json: {e}")
         return {}

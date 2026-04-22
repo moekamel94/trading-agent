@@ -628,7 +628,7 @@ def _format_raw_signals(signals: dict) -> str:
     if fg is not None: mkt_parts.append(f"F&G={fg}")
     if vix:            mkt_parts.append(f"VIX={vix}")
     macro = mkt.get("upcoming_macro_events", [])
-    if macro: mkt_parts.append("macro: " + ", ".join(e["event"] for e in macro[:2]))
+    if macro: mkt_parts.append("macro: " + ", ".join(e.get("event", "") for e in macro[:2] if e.get("event")))
     if mkt_parts: parts.append("Market: " + " | ".join(str(x) for x in mkt_parts))
 
     # Macro momentum (geopolitical/global)

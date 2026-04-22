@@ -106,8 +106,12 @@ def refresh() -> list[str]:
 
 def load() -> list[str]:
     if os.path.exists(BASKET_FILE):
-        with open(BASKET_FILE) as f:
-            data = json.load(f)
+        try:
+            with open(BASKET_FILE) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            print("[Basket] basket.json corrupted — rebuilding")
+            return refresh()
         tickers = data.get("tickers", [])
         for sym in _PINNED:
             if sym not in tickers:

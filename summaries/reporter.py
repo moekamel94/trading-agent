@@ -66,7 +66,7 @@ def run_premarket(dry_run: bool = False):
         for p in positions:
             sym    = p["symbol"]
             upl    = p.get("unrealized_pl") or 0
-            uplpct = (p.get("unrealized_plpc") or 0) * 100
+            uplpct = p.get("unrealized_plpc", 0)
             bars   = alpaca.get_stock_bars(sym) if "/" not in sym else alpaca.get_crypto_bars(sym)
             tech   = technical.compute(bars)
             rsi    = tech.get("rsi")
@@ -74,7 +74,7 @@ def run_premarket(dry_run: bool = False):
             dc     = "DC" if tech.get("death_cross") else ""
             arrow  = "▲" if upl >= 0 else "▼"
             lines.append(
-                f"  {sym:<8} {arrow} {uplpct:+.1f}%  RSI={rsi:.0f if rsi else 'N/A'}  {gc}{dc}"
+                f"  {sym:<8} {arrow} {uplpct:+.1f}%  RSI={f'{rsi:.0f}' if rsi else 'N/A'}  {gc}{dc}"
             )
     except Exception as e:
         lines.append(f"  [Error fetching positions: {e}]")
@@ -93,6 +93,7 @@ def run_close():
         "=" * 60,
     ]
 
+    portfolio = {"equity": 0, "cash": 0}
     try:
         portfolio = alpaca.get_portfolio()
         positions = alpaca.get_positions()
