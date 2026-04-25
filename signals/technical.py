@@ -73,6 +73,12 @@ def compute(df: pd.DataFrame) -> dict:
         if p_14 > 0:
             roc_14 = round((price - p_14) / p_14 * 100, 2)
 
+    # 30-day average daily dollar volume (ADV) — used for liquidity / position-size cap
+    adv_30d = None
+    if volume is not None and n >= 30:
+        avg_vol_30 = float(volume.iloc[-30:].mean())
+        adv_30d = round(avg_vol_30 * price, 0)
+
     return {
         "rsi":          round(float(rsi_val), 2) if pd.notna(rsi_val) else None,
         "macd_cross":   macd_cross,
@@ -87,4 +93,5 @@ def compute(df: pd.DataFrame) -> dict:
         "return_3m":    return_3m,
         "volume_ratio": volume_ratio,
         "roc_14":       roc_14,
+        "adv_30d":      adv_30d,
     }

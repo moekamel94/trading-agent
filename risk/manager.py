@@ -459,8 +459,14 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
             exits.append({"symbol": sym, "action": "SELL", "reason": f"stop_loss ({pct:.1f}%)"})
             continue
 
-        # Dead money: skip for speculative; skip for mid_growth if hypergrowth
-        if tier not in ("speculative",):
+        # Dead money: speculative gets a REVIEW flag (not auto-sell), all others auto-sell
+        if tier == "speculative":
+            days = days_held_map.get(sym, 0)
+            if days >= config.DEAD_MONEY_DAYS and pct < config.DEAD_MONEY_MIN_PCT:
+                exits.append({"symbol": sym, "action": "REVIEW",
+                               "reason": f"speculative_dead_money ({days}d, {pct:.1f}%) — is entry thesis still intact?"})
+                continue
+        else:
             skip_dead_money = False
             if tier == "mid_growth":
                 rev_g = (signals_map.get(sym, {}).get("fundamentals") or {}).get("revenue_growth") or 0
@@ -574,20 +580,35 @@ def validate(decision: dict, portfolio: dict) -> dict:
         congress_bonus = decision.get("_congress_bonus", 0)
         insider_bonus  = decision.get("_insider_bonus", 0)
         alloc = min(base + congress_bonus + insider_bonus, config.MAX_POSITION_PCT)
+
+        # ADV liquidity cap applied on final alloc (after bonuses, to prevent silent override)
+        adv_30d = decision.get("_adv_30d")
+        if adv_30d and adv_30d > 0:
+            equity      = portfolio.get("equity", 0)
+            dollar_pos  = equity * (alloc / 100)
+            adv_cap_usd = adv_30d * config.ADV_POSITION_PCT_MAX
+            if dollar_pos > adv_cap_usd and adv_cap_usd > 0:
+                capped_pct = (adv_cap_usd / equity * 100) if equity > 0 else alloc
+                print(f"    [Risk] ADV cap: ${dollar_pos:,.0f} > {config.ADV_POSITION_PCT_MAX:.0%} "
+                      f"of ADV ${adv_30d:,.0f} — capping alloc {alloc:.1f}% → {capped_pct:.1f}%")
+                alloc = round(capped_pct, 2)
+
         decision = {**decision, "allocation_pct": alloc}
 
     return decision
 
 
 def apply_conviction_bonuses(decision: dict, signals: dict) -> dict:
-    """Add congress/insider bonuses to allocation before validate()."""
+    """Add congress/insider bonuses and ADV to decision before validate()."""
     if decision.get("action") != "BUY":
         return decision
     cong = signals.get("congressional", {})
     insd = signals.get("insider", {})
     congress_bonus = config.CONGRESS_BONUS_PCT if cong.get("net_signal") == "bullish" else 0
     insider_bonus  = config.INSIDER_BONUS_PCT  if insd.get("net_signal") == "bullish"  else 0
-    return {**decision, "_congress_bonus": congress_bonus, "_insider_bonus": insider_bonus}
+    adv_30d = (signals.get("technical") or {}).get("adv_30d")
+    return {**decision, "_congress_bonus": congress_bonus,
+            "_insider_bonus": insider_bonus, "_adv_30d": adv_30d}
 
 
 def compute_qty(symbol: str, allocation_pct: float, price: float, portfolio: dict) -> float:

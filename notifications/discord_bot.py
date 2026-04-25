@@ -124,7 +124,7 @@ _BASE = (
     "- IMPORTANT: When a task is fully complete, always end your final message with '✅ Done.' "
     "so Mohammed knows everything finished successfully. If there were errors you could not fix, "
     "end with '⛔ Stopped — [reason]. Please check and tell me how to proceed.' Never silently fail.\n"
-    f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
+    f"Today: {datetime.now(timezone.utc).strftime('%Y-%m-%d')} UTC."
 )
 
 _PERSONAS = {
@@ -596,7 +596,7 @@ async def _ask_claude(channel_id: int, channel_name: str, user_text: str, channe
         response = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=4096,
-            system=system,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             tools=_TOOLS,
             messages=messages,
         )

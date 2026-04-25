@@ -1,6 +1,7 @@
 """
-Multi-source research module — queries 6 sources in parallel:
-SerpAPI, Tavily, Exa AI, Serper, Firecrawl, SearXNG (no key needed)
+Multi-source research module — queries 5 sources in parallel:
+Serper, Tavily, Exa AI, Firecrawl, SearXNG (no key needed)
+SerpAPI removed — Serper delivers identical Google results at 1/770th the cost.
 Results are fed to Claude to improve decision quality.
 """
 import requests
@@ -23,26 +24,6 @@ def _quota_hit(name: str, status: int, body: str = "") -> bool:
         _SKIPPED.add(name)
         print(f"  [API_SKIP] {name}: quota/trial exceeded — skipping for this session")
     return hit
-
-
-def _serpapi(symbol: str) -> list[str]:
-    if not config.SERPAPI_KEY or "serpapi" in _SKIPPED:
-        return []
-    try:
-        r = requests.get(
-            "https://serpapi.com/search.json",
-            params={"q": f"{symbol} stock analysis news", "api_key": config.SERPAPI_KEY, "num": 5},
-            timeout=_TIMEOUT,
-        )
-        if r.status_code != 200:
-            _quota_hit("serpapi", r.status_code, r.text)
-            return []
-        return [
-            f"{x.get('title','')} — {x.get('snippet','')}"
-            for x in r.json().get("organic_results", [])[:5]
-        ]
-    except Exception:
-        return []
 
 
 def _tavily(symbol: str) -> list[str]:
@@ -156,10 +137,9 @@ def compute(symbol: str) -> dict:
         print(f"  [COST GUARD] research.compute({symbol}) blocked — not in monthly context")
         return {"snippets": [], "snippet_count": 0, "source_count": 0}
     tasks = {
-        "SerpAPI":   lambda: _serpapi(symbol),
+        "Serper":    lambda: _serper(symbol),    # primary: $0.001/search (was SerpAPI $0.77/search)
         "Tavily":    lambda: _tavily(symbol),
         "Exa":       lambda: _exa(symbol),
-        "Serper":    lambda: _serper(symbol),
         "Firecrawl": lambda: _firecrawl(symbol),
         "SearXNG":   lambda: _searxng(symbol),
     }

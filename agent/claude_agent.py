@@ -279,6 +279,45 @@ Speculative:    conf 7→1.5% | 8→2% | 9→2.5% | 10→3%  (moonshots — size
 • Max 20% crypto, 20% options
 ═══════════════════════════════════════════════════════
 
+═══════════════════════════════════════════════════════
+6-AGENT INVESTMENT COMMITTEE — HOW TO RESPOND:
+You will respond AS all 6 agents sequentially within one JSON output per candidate.
+
+[CIO] Idea & Thesis: identify upside opportunity, growth narrative, narrative drift
+  (compare tone of last 2 quarters: growth→cost-cutting = -3 conf; cost-cutting→growth = +1)
+  Relative Strength: outperforming sector peers (90-day return) = +1; underperforming = -1
+  Output: decision (Buy/Avoid/Hold), confidence (1-10), narrative_drift, rel_strength, reason
+
+[QUANT] Technical confirmation: RSI, MACD, SMA cross, BB, volume ratio
+  HARD BLOCK if: RSI < 25 or > 78 | Death cross active | BB upper + MACD bearish simultaneously
+  Output: decision (Strongly_Bullish/Bullish/Neutral/Bearish/Block), signal (1 sentence)
+
+[CRO] Risk control: volatility, correlation, ADV liquidity, sector concentration
+  If correlation with existing holdings > 0.7 → Caution (NOT Block); if extreme downside → Block
+  Output: decision (Approve/Caution/Block), adv_ok (bool), top_risk (1 sentence)
+
+[CCO] Compliance gate — binary only:
+  REJECT if: earnings ≤ 3 days | F&G < 15 | congress selling + neg sentiment | price < $3
+  Output: decision (Approve/Reject), reason
+
+[DEVIL] Bear case: ONE sharp argument, probability estimate, severity
+  Severity: Low (downside <15%), Medium (15-30%, thesis at risk), High (>30% or thesis-killer)
+  Output: bear_case, probability (0-100 integer), severity (Low/Medium/High)
+
+[PM] Final allocation — applies confidence modifiers first:
+  final_confidence = CIO confidence
+    -1 if CRO=Caution | -2 if DA severity=High | -1 if DA severity=Medium
+    -1 if QUANT=Bearish | +1 if QUANT=Strongly_Bullish
+  Sizing (standard stocks): conf 9-10→8-15% | conf 7-8→5-8% | conf 5-6→2-4%
+  Moonshots: max 5% regardless of confidence
+  TRANCHE RULE: allocation_pct = 50% of target (enter at half size, scale in on confirmation)
+  target_pct = full position (reached after 2 independent confirmations)
+  Output: action, allocation_pct, target_pct, asset_type, option_direction, rationale
+
+GATE: Execute ONLY if CIO=Buy AND CRO≠Block AND CCO=Approve
+If gate fails → action=HOLD, allocation_pct=0, target_pct=0
+═══════════════════════════════════════════════════════
+
 HOLD is ALWAYS the safe default. Only BUY when multiple signals clearly agree.
 Return valid JSON only — no prose, no markdown fences."""
 
@@ -551,7 +590,7 @@ def _format_raw_signals(signals: dict) -> str:
     # Technical snapshot
     t_items = []
     for k in ("price", "rsi", "macd_cross", "bb_position", "golden_cross", "death_cross",
-               "sma50", "sma200", "return_1m", "return_3m", "volume_ratio"):
+               "sma50", "sma200", "return_1m", "return_3m", "volume_ratio", "adv_30d"):
         v = tech.get(k)
         if v is not None: t_items.append(f"{k}={v}")
     if t_items: parts.append("Technical: " + " | ".join(t_items))
@@ -708,7 +747,7 @@ Core signal detail:
     response = _client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=300,
-        system=_SYSTEM,
+        system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -733,55 +772,57 @@ Core signal detail:
         return {
             "action": "HOLD", "confidence": 0, "allocation_pct": 0,
             "asset_type": "stock", "option_direction": None,
+            "_parse_error": True,
             "rationale": "JSON parse error — defaulting to HOLD",
         }
 
 
 def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
     """
-    One Claude Haiku call reviewing ALL candidates as an investment committee.
-    Includes explicit geopolitical/macro risk review.
+    One Claude Haiku call running all candidates through the 6-agent committee chain.
+    CIO → QUANT → CRO → CCO → DEVIL → PM, with confidence aggregation formula.
+    Each candidate gets a rich structured output; tranche sizing is baked in.
     Falls back to individual decide() calls on parse failure.
     """
     if not candidates:
         return []
 
-    # ── Geopolitical / macro risk officer section ─────────────────────────────
-    macro     = mkt_ctx.get("macro_momentum") or {}
-    m_label   = macro.get("label", "neutral")
-    m_score   = macro.get("score", 0.0)
-    m_themes  = ", ".join(macro.get("themes", [])) or "none detected"
-    m_head    = (macro.get("top_headlines") or ["none"])[0][:120]
-    fg_score  = (mkt_ctx.get("fear_and_greed") or {}).get("score", "?")
-    vix_val   = (mkt_ctx.get("vix") or {}).get("vix", "?")
+    # ── Macro / geo risk block ────────────────────────────────────────────────
+    macro    = mkt_ctx.get("macro_momentum") or {}
+    m_label  = macro.get("label", "neutral")
+    m_score  = macro.get("score", 0.0)
+    m_themes = ", ".join(macro.get("themes", [])) or "none detected"
+    m_head   = (macro.get("top_headlines") or ["none"])[0][:120]
+    fg_score = (mkt_ctx.get("fear_and_greed") or {}).get("score", "?")
+    vix_val  = (mkt_ctx.get("vix") or {}).get("vix", "?")
 
     geo_warnings = []
     if m_label == "risk_off":
-        geo_warnings.append("⚠️  RISK-OFF: require confidence ≥ 9 for any new BUY")
+        geo_warnings.append("⚠️  RISK-OFF: CIO confidence must be ≥ 9 for any BUY")
     if isinstance(vix_val, (int, float)) and vix_val > 30:
-        geo_warnings.append(f"⚠️  VIX={vix_val} > 30: reduce all BUY confidence by 1 point")
+        geo_warnings.append(f"⚠️  VIX={vix_val} > 30: QUANT should output Bearish (applies -1 to final confidence)")
     if isinstance(vix_val, (int, float)) and vix_val > 25 and m_label == "risk_off":
-        geo_warnings.append("⚠️  VIX > 25 + risk_off: NO new positions unless confidence = 9+")
-    warn_str = "\n".join(geo_warnings) if geo_warnings else "No active risk-off warnings."
+        geo_warnings.append("⚠️  VIX > 25 + risk_off: CCO should Reject all new positions below confidence 9")
+    warn_str = "\n".join(geo_warnings) if geo_warnings else "No active warnings."
 
     geo_block = (
-        f"=== GEOPOLITICAL & MACRO RISK REVIEW ===\n"
-        f"Global Macro Signal: {m_label.upper()} (score={m_score:.2f})\n"
-        f"Active themes: {m_themes}\n"
-        f"Top headline: {m_head}\n"
+        f"=== MACRO & GEOPOLITICAL CONTEXT ===\n"
+        f"Signal: {m_label.upper()} (score={m_score:.2f}) | Themes: {m_themes}\n"
+        f"Headline: {m_head}\n"
         f"Market: Fear&Greed={fg_score} | VIX={vix_val}\n"
         f"{warn_str}"
     )
 
     # ── Portfolio status ───────────────────────────────────────────────────────
-    holdings = port_ctx.get("holdings", [])
-    held_str = ""
+    holdings    = port_ctx.get("holdings", [])
+    held_syms   = {h["symbol"] for h in holdings}
+    held_str    = ""
     if holdings:
         held_str = "\nHeld: " + " | ".join(
-            f"{h['symbol']} {h['pct']:.1f}% ({h['pl_pct']:+.1f}%)" for h in holdings[:10]
+            f"{h['symbol']} {h['pct']:.1f}% ({h['pl_pct']:+.1f}%)" for h in holdings[:12]
         )
     sector_pcts = port_ctx.get("sector_pcts", {})
-    sect_str = ""
+    sect_str    = ""
     if sector_pcts:
         sect_str = "\nSectors: " + " | ".join(
             f"{k}={v:.1f}%" for k, v in sorted(sector_pcts.items(), key=lambda x: -x[1])[:5]
@@ -800,50 +841,86 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
     # ── Candidate blocks ───────────────────────────────────────────────────────
     cand_blocks = []
     for i, c in enumerate(candidates, 1):
-        sym   = c["symbol"]
-        synth = c["synthesis"]
-        cong  = c["signals"].get("congressional", {})
-        insd  = c["signals"].get("insider", {})
+        sym    = c["symbol"]
+        synth  = c["synthesis"]
+        tech   = c["signals"].get("technical", {})
+        cong   = c["signals"].get("congressional", {})
+        insd   = c["signals"].get("insider", {})
+        tier   = config.TICKER_TIERS.get(sym, "mid_growth")
+
         flags = []
+        if sym in held_syms:
+            held = next((h for h in holdings if h["symbol"] == sym), None)
+            if held:
+                flags.append(f"⚠️ ALREADY HELD: {held['pct']:.1f}% ({held['pl_pct']:+.1f}%) — only add if high conviction")
         if cong.get("net_signal") == "bullish":
-            flags.append(
-                f"*** CONGRESS NET BUYING: {cong.get('buys', 0)} buys vs "
-                f"{cong.get('sells', 0)} sells (60 days) — STRONG CONVICTION SIGNAL ***"
-            )
+            flags.append(f"*** CONGRESS NET BUYING: {cong.get('buys',0)}B vs {cong.get('sells',0)}S (60d) ***")
         elif cong.get("net_signal") == "bearish":
-            flags.append(
-                f"*** CONGRESS NET SELLING: {cong.get('sells', 0)} sells — CAUTION ***"
-            )
+            flags.append(f"*** CONGRESS NET SELLING: {cong.get('sells',0)} sells — CAUTION ***")
         if insd.get("net_signal") == "bullish":
             flags.append("*** INSIDER NET BUYING (Form 4) ***")
         elif insd.get("net_signal") == "bearish":
-            flags.append("*** INSIDER NET SELLING (Form 4) — caution ***")
+            flags.append("*** INSIDER NET SELLING — caution ***")
+
+        adv = tech.get("adv_30d")
+        adv_str = f"ADV-30d=${adv:,.0f}" if adv else "ADV-30d=unknown"
         flag_str = ("\n  " + "\n  ".join(flags)) if flags else ""
-        cand_blocks.append(f"--- [{i}] {sym} ---{flag_str}\n{synth}")
+        cand_blocks.append(
+            f"--- [{i}] {sym} (tier={tier}, {adv_str}) ---{flag_str}\n{synth}"
+        )
 
     candidates_text = "\n\n".join(cand_blocks)
 
     n = len(candidates)
     schema = (
-        f"=== COMMITTEE DECISIONS ===\n"
-        f"Review all {n} candidates. Consider geo risk, portfolio concentration, sector limits.\n"
-        f"Return ONLY a JSON array with exactly {n} objects in the same order:\n"
-        f'[{{"symbol":"<ticker>","action":"BUY"|"SELL"|"HOLD","confidence":<1-10>,'
-        f'"allocation_pct":<0.0-8.0>,"asset_type":"stock"|"crypto"|"option",'
-        f'"option_direction":"call"|"put"|null,"rationale":"<one sentence>"}}]\n'
+        f"=== 6-AGENT COMMITTEE DECISIONS ===\n"
+        f"For each of the {n} candidates, run the full CIO→QUANT→CRO→CCO→DEVIL→PM chain.\n"
+        f"Apply the confidence formula: base=CIO.confidence, -1 if CRO=Caution, "
+        f"-2 if DA.severity=High, -1 if DA.severity=Medium, -1 if QUANT=Bearish, "
+        f"+1 if QUANT=Strongly_Bullish.\n"
+        f"GATE: action=BUY only if CIO=Buy AND CRO≠Block AND CCO=Approve.\n"
+        f"TRANCHE: allocation_pct = 50% of target_pct (half-size entry; scale in later).\n"
+        f"Return ONLY a JSON array with exactly {n} objects in candidate order:\n"
+        f'[{{\n'
+        f'  "symbol":"<ticker>",\n'
+        f'  "cio":{{"decision":"Buy"|"Avoid"|"Hold","confidence":<1-10>,"narrative_drift":"none"|"positive"|"negative","rel_strength":"outperforming"|"inline"|"underperforming","reason":"<one sentence>"}},\n'
+        f'  "quant":{{"decision":"Strongly_Bullish"|"Bullish"|"Neutral"|"Bearish"|"Block","signal":"<one sentence>"}},\n'
+        f'  "cro":{{"decision":"Approve"|"Caution"|"Block","adv_ok":true|false,"top_risk":"<one sentence>"}},\n'
+        f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>"}},\n'
+        f'  "devil":{{"bear_case":"<one sentence>","probability":<0-100>,"severity":"Low"|"Medium"|"High"}},\n'
+        f'  "final_confidence":<1-10>,\n'
+        f'  "action":"BUY"|"SELL"|"HOLD",\n'
+        f'  "allocation_pct":<0.0-8.0>,\n'
+        f'  "target_pct":<0.0-15.0>,\n'
+        f'  "asset_type":"stock"|"crypto"|"option",\n'
+        f'  "option_direction":"call"|"put"|null,\n'
+        f'  "rationale":"<one sentence>"\n'
+        f'}}]\n'
         f"No prose, no markdown fences — ONLY the JSON array."
     )
 
     prompt = f"{geo_block}\n\n{port_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
 
+    # thinking_budget: enough to reason through the 6-agent chain per candidate.
+    # max_tokens must exceed thinking_budget + expected output tokens.
+    _THINKING_BUDGET = 4000
+    _output_tokens   = 350 * n + 500
+    _max_tokens      = _THINKING_BUDGET + _output_tokens
+
     try:
         response = _client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=min(160 * n + 300, 4096),
-            system=_SYSTEM,
+            model="claude-opus-4-7",
+            max_tokens=_max_tokens,
+            thinking={"type": "enabled", "budget_tokens": _THINKING_BUDGET},
+            system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text.strip()
+        # Extended thinking returns multiple content blocks — extract the text block only
+        raw = next(
+            (block.text for block in response.content
+             if hasattr(block, "text") and getattr(block, "type", "") == "text"),
+            "",
+        ).strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -864,22 +941,9 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
             sym = c["symbol"]
             d   = returned.get(sym)
             if d:
-                result.append({
-                    "symbol":           sym,
-                    "action":           d.get("action", "HOLD"),
-                    "confidence":       int(d.get("confidence", 0)),
-                    "allocation_pct":   float(d.get("allocation_pct", 0)),
-                    "asset_type":       d.get("asset_type", "stock"),
-                    "option_direction": d.get("option_direction"),
-                    "rationale":        d.get("rationale", ""),
-                })
+                result.append(_normalise_committee_decision(sym, d))
             else:
-                result.append({
-                    "symbol": sym, "action": "HOLD", "confidence": 0,
-                    "allocation_pct": 0.0, "asset_type": "stock",
-                    "option_direction": None,
-                    "rationale": "Not returned by committee — HOLD",
-                })
+                result.append(_hold_decision(sym, "Not returned by committee"))
         return result
 
     except Exception as e:
@@ -889,11 +953,52 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
             try:
                 d = decide(c["symbol"], c["signals"], port_ctx)
                 d["symbol"] = c["symbol"]
+                d.setdefault("cio_confidence", d.get("confidence", 0))
+                d.setdefault("da_severity", "Low")
+                d.setdefault("target_pct", d.get("allocation_pct", 0))
+                d["_committee_fallback"] = str(e)
                 result.append(d)
             except Exception as e2:
-                result.append({
-                    "symbol": c["symbol"], "action": "HOLD", "confidence": 0,
-                    "allocation_pct": 0.0, "asset_type": "stock",
-                    "option_direction": None, "rationale": f"Error: {e2}",
-                })
+                result.append(_hold_decision(c["symbol"], f"Error: {e2}"))
         return result
+
+
+def _normalise_committee_decision(sym: str, d: dict) -> dict:
+    """Extract and validate fields from a 6-agent committee JSON object."""
+    cio    = d.get("cio", {})
+    devil  = d.get("devil", {})
+    action = d.get("action", "HOLD").upper()
+    alloc  = float(d.get("allocation_pct", 0))
+    target = float(d.get("target_pct", alloc * 2))  # fallback: double alloc
+
+    return {
+        "symbol":           sym,
+        "action":           action,
+        "confidence":       int(d.get("final_confidence", cio.get("confidence", 0))),
+        "cio_confidence":   int(cio.get("confidence", 0)),
+        "allocation_pct":   alloc,
+        "target_pct":       target,
+        "asset_type":       d.get("asset_type", "stock"),
+        "option_direction": d.get("option_direction"),
+        "rationale":        d.get("rationale", ""),
+        "da_severity":      devil.get("severity", "Low"),
+        "da_bear_case":     devil.get("bear_case", ""),
+        "da_probability":   int(devil.get("probability", 0)),
+        "quant_decision":   (d.get("quant") or {}).get("decision", "Neutral"),
+        "cro_decision":     (d.get("cro") or {}).get("decision", "Approve"),
+        "cco_decision":     (d.get("cco") or {}).get("decision", "Approve"),
+        "narrative_drift":  cio.get("narrative_drift", "none"),
+        "rel_strength":     cio.get("rel_strength", "inline"),
+    }
+
+
+def _hold_decision(sym: str, reason: str) -> dict:
+    return {
+        "symbol": sym, "action": "HOLD", "confidence": 0,
+        "cio_confidence": 0, "allocation_pct": 0.0, "target_pct": 0.0,
+        "asset_type": "stock", "option_direction": None,
+        "rationale": reason, "da_severity": "Low", "da_bear_case": "",
+        "da_probability": 0, "quant_decision": "Neutral",
+        "cro_decision": "Approve", "cco_decision": "Approve",
+        "narrative_drift": "none", "rel_strength": "inline",
+    }

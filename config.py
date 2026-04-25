@@ -9,7 +9,6 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NEWDATA_API_KEY   = os.getenv("NEWDATA_API_KEY", "")
-SERPAPI_KEY       = os.getenv("SERPAPI_KEY", "")
 TAVILY_API_KEY    = os.getenv("TAVILY_API_KEY", "")
 EXA_API_KEY       = os.getenv("EXA_API_KEY", "")
 SERPER_API_KEY    = os.getenv("SERPER_API_KEY", "")
@@ -109,7 +108,6 @@ TICKER_TIERS = {
     "PLTR": "large_growth", "CRM": "large_growth", "NOW": "large_growth",
     "ORCL": "large_growth", "AI": "large_growth",
     "CRWD": "large_growth", "PANW": "large_growth", "ZS": "large_growth",
-    "FTNT": "large_growth", "S": "large_growth",
     "LMT": "large_growth", "RTX": "large_growth", "NOC": "large_growth",
     "GD": "large_growth", "AXON": "large_growth",
     "ISRG": "large_growth", "ETN": "large_growth",
@@ -123,22 +121,17 @@ TICKER_TIERS = {
     "SNPS": "large_growth", "GE": "large_growth", "APH": "large_growth",
     # ── Mid growth (high-conviction, earlier in curve) ───────────────────
     "AMAT": "mid_growth", "LRCX": "mid_growth", "KLAC": "mid_growth",
-    "MU": "mid_growth", "IBM": "mid_growth",
+    "MU": "mid_growth",
     "RGTI": "mid_growth",
     "CCJ": "mid_growth", "CEG": "mid_growth",
-    "BWXT": "mid_growth", "KTOS": "mid_growth",
-    "FSLR": "mid_growth",
+    "BWXT": "mid_growth",
     "ABB": "mid_growth", "VRT": "mid_growth",
-    "HOOD": "mid_growth", "DUOL": "mid_growth",
+    "HOOD": "mid_growth",
     "MELI": "mid_growth", "NU": "mid_growth",
-    "SYM": "mid_growth", "CELH": "mid_growth", "CAVA": "mid_growth",
-    "RKLB": "mid_growth", "RDDT": "mid_growth",
-    "DXCM": "mid_growth", "VEEV": "mid_growth",
-    "PSTG": "mid_growth", "SNOW": "mid_growth",
-    "TRMB": "mid_growth", "SE": "mid_growth",
-    "KEYS": "mid_growth", "ATI": "mid_growth", "CACI": "mid_growth",
+    "RKLB": "mid_growth",
+    "DXCM": "mid_growth",
+    "KEYS": "mid_growth", "CACI": "mid_growth",
     # ── Speculative / Moonshots (asymmetric 10-year bets) ────────────────
-    "GRAB": "speculative",            # SEA super-app — first profitable year, fintech flywheel
     "MP": "speculative",              # only US rare earth magnet producer — DoD + Apple contracts
     "ASTS": "speculative",            # satellite-to-phone internet (2.8B existing subscribers)
     "OKLO": "speculative",            # nuclear microreactors for AI data centers (Sam Altman)
@@ -173,36 +166,54 @@ SECTOR_MAP = {
     "NVDA": "semis", "AMD": "semis",  "AVGO": "semis", "AMAT": "semis",
     "LRCX": "semis", "KLAC": "semis", "MU": "semis",   "ARM": "semis",
     "MRVL": "semis", "TSM": "semis",  "SNPS": "semis", "KEYS": "semis",
-    "IONQ": "quantum", "RGTI": "quantum", "IBM": "quantum",
-    "CRWD": "cyber", "PANW": "cyber", "ZS": "cyber", "FTNT": "cyber", "S": "cyber",
+    "IONQ": "quantum", "RGTI": "quantum",
+    "CRWD": "cyber", "PANW": "cyber", "ZS": "cyber",
     "RKLB": "space", "ASTS": "space",
     "CCJ": "nuclear", "OKLO": "nuclear", "SMR": "nuclear", "CEG": "nuclear",
     "LMT": "defense", "RTX": "defense", "NOC": "defense", "GD": "defense",
-    "KTOS": "defense", "AXON": "defense", "BWXT": "defense",
-    "GE": "defense", "ATI": "defense", "CACI": "defense",
-    "FSLR": "clean_energy",
-    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics", "SYM": "robotics",
+    "AXON": "defense", "BWXT": "defense", "GE": "defense", "CACI": "defense",
+    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics",
     "ANET": "ai_infra", "VRT": "ai_infra", "PWR": "ai_infra",
     "PSTG": "ai_infra", "SNOW": "ai_infra", "APH": "ai_infra",
     "HOOD": "fintech", "COIN": "fintech", "MELI": "fintech", "NU": "fintech",
     "MA": "fintech", "MSCI": "fintech",
-    "DUOL": "consumer_tech", "RDDT": "consumer_tech",
     "SHOP": "ecommerce", "UBER": "ecommerce",
     "JOBY": "evtol",
-    "RXRX": "biotech", "LLY": "healthcare", "DXCM": "healthcare", "VEEV": "healthcare",
-    "CELH": "consumer_goods", "CAVA": "consumer_goods",
-    "ABB": "robotics", "ETN": "robotics", "ISRG": "robotics",
-    "SYM": "robotics", "TRMB": "robotics",
-    "SE": "international", "GRAB": "international",
+    "RXRX": "biotech", "LLY": "healthcare", "DXCM": "healthcare",
     "FANG": "energy_oil", "COP": "energy_oil",
-    "WMB": "energy_midstream",
-    "FCX": "commodities_metals", "RGLD": "commodities_metals", "MP": "commodities_metals",
-    "AAPL": "mega_tech", "TSLA": "mega_tech",
+    "FCX": "commodities_metals", "MP": "commodities_metals",
+    "AAPL": "mega_tech",
 }
 
-# --- Position Sizing (legacy bonus modifiers) ---
+# --- Position Sizing ---
 CONGRESS_BONUS_PCT   = 2.0
 INSIDER_BONUS_PCT    = 1.0
+
+# --- 6-Agent Confidence Modifiers ---
+# Applied to CIO base confidence before PM sizes the position
+CONF_MOD_CRO_CAUTION      = -1   # CRO = Caution
+CONF_MOD_DA_HIGH          = -2   # Devil's Advocate severity = High
+CONF_MOD_DA_MEDIUM        = -1   # Devil's Advocate severity = Medium
+CONF_MOD_QUANT_BEARISH    = -1   # QUANT = Bearish
+CONF_MOD_QUANT_STRONG_BUY =  1   # QUANT = Strongly Bullish
+
+# --- Tranche / Scale-In ---
+# Tranche 1 = 50% of target on entry
+# Tranche 2 = +25% after earnings beat OR price breaks prior high on volume
+# Tranche 3 = +25% after second independent confirmation
+TRANCHE_1_PCT   = 0.50   # fraction of target size for initial entry
+TRANCHE_2_PCT   = 0.25   # fraction added on first confirmation
+TRANCHE_3_PCT   = 0.25   # fraction added on second confirmation
+# Minimum confidence delta required to replace a position (new must beat weakest by this)
+REPLACEMENT_CONF_DELTA = 2
+
+# --- Liquidity / ADV ---
+# Position size in dollars must not exceed this fraction of 30-day avg daily dollar volume
+ADV_POSITION_PCT_MAX = 0.05   # 5% of ADV
+
+# --- Basket Weekly Review ---
+BASKET_WEEKLY_REVIEW_HOUR   = 8
+BASKET_WEEKLY_REVIEW_MINUTE = 0   # Saturday 8:00 AM ET (day before weekly portfolio review)
 
 # --- Exit Criteria ---
 STOP_LOSS_PCT        = 8.0    # wider for position trading (was 7%)

@@ -158,8 +158,8 @@ OUTPUT FORMAT — respond in this exact JSON:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.content[0].text.strip()

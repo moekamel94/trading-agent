@@ -218,6 +218,49 @@ def run_monthly_research():
     tg.send(msg)
 
 
+def run_weekly_basket_review():
+    """
+    Weekly basket maintenance — free signals only, runs every Saturday 8:00 AM ET.
+    Uses yfinance + congress/insider free APIs + one small Haiku call (~$0.03/month total).
+    No paid APIs — monthly deep research handles the expensive analysis.
+    """
+    print(f"\n{'='*60}")
+    print(f"WEEKLY BASKET REVIEW started at {datetime.now(timezone.utc).isoformat()}")
+    print('='*60)
+    db.init()
+
+    existing_basket = basket_mgr.load()
+    stocks = [s for s in existing_basket if not _is_crypto(s)]
+    cached_all = research_cache.load_all()
+
+    to_add, to_remove, reasoning = basket_curation.run_weekly(stocks, cached_all)
+
+    if not to_add and not to_remove:
+        msg = "Weekly basket review: no changes — basket is healthy"
+        print(msg)
+        tg.send(msg)
+        return
+
+    # Apply removes
+    for sym in to_remove:
+        config.TICKER_TIERS.pop(sym, None)
+        config.SECTOR_MAP.pop(sym, None)
+
+    # Apply adds (default mid_growth)
+    for sym in to_add:
+        if sym not in config.TICKER_TIERS:
+            config.TICKER_TIERS[sym] = "mid_growth"
+
+    basket_mgr.refresh()
+
+    changes = []
+    if to_add:    changes.append(f"Added: {', '.join(to_add)}")
+    if to_remove: changes.append(f"Removed: {', '.join(to_remove)}")
+    msg = f"Weekly basket update: {' | '.join(changes)}\n{reasoning[:300]}"
+    print(msg)
+    tg.send(msg)
+
+
 def run_cycle(dry_run: bool = False):
     import zoneinfo
     now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
@@ -318,11 +361,16 @@ def run_cycle(dry_run: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             continue
 
-        # Earnings check using cached date (free — no Finnhub call)
+        # Earnings check — cached first, live fallback if no date in cache
         if not _is_crypto(symbol):
             dte = research_cache.days_to_earnings_cached(symbol)
+            if dte is None:
+                # No cached date — live Finnhub call to catch recently-announced earnings
+                live_earn = market_context.earnings_soon(symbol)
+                if live_earn.get("earnings_soon"):
+                    dte = live_earn.get("days_to_earnings")
             if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
-                print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk (cached)")
+                print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk")
                 continue
 
         # Preliminary gate (technicals + free fundamentals only)
@@ -408,6 +456,12 @@ def run_cycle(dry_run: bool = False):
     if candidates:
         print(f"\n  [Committee] Reviewing {len(candidates)} candidates in one call...")
         decisions = claude_agent.committee_review(candidates, port_ctx, mkt_ctx)
+        # Alert on committee fallback (Opus parse failure degraded to individual Haiku calls)
+        fallback_errors = {d["symbol"]: d["_committee_fallback"]
+                           for d in decisions if d.get("_committee_fallback")}
+        if fallback_errors:
+            err_sample = next(iter(fallback_errors.values()))
+            tg.send(f"⚠️ Committee review fallback ({len(fallback_errors)} symbols) — {err_sample[:120]}")
     else:
         decisions = []
         print("  [Committee] No candidates passed all filters — skipping committee call")
@@ -419,6 +473,10 @@ def run_cycle(dry_run: bool = False):
         symbol = decision["symbol"]
         signals = signals_map.get(symbol, {})
         decision = {**decision, "_symbol": symbol}
+
+        if decision.get("_parse_error"):
+            tg.send(f"⚠️ [{symbol}] Claude JSON parse error — defaulted to HOLD")
+
         decision = manager.apply_conviction_bonuses(decision, signals)
         decision = manager.validate(decision, port_ctx)
 
@@ -483,15 +541,94 @@ def run_cycle(dry_run: bool = False):
                         if pe:                snap.append(f"PE={pe:.0f}")
                         if em:                snap.append(f"earnings={em}")
 
-                        emoji = "🟢" if action == "BUY" else "🔴"
+                        da_sev  = decision.get("da_severity", "")
+                        da_bear = decision.get("da_bear_case", "")
+                        target  = decision.get("target_pct", alloc)
+                        cio_c   = decision.get("cio_confidence", confidence)
+                        emoji   = "🟢" if action == "BUY" else "🔴"
                         tg.send(
-                            f"{emoji} {action} {symbol} [{tier}]\n"
-                            f"conf={confidence}/10 | {alloc}% (${dollar_amt:,.0f}) @ ${price:.2f}\n"
+                            f"{emoji} {action} {symbol} [{tier}] Tranche 1/{3 if target > alloc else 1}\n"
+                            f"CIO={cio_c}/10 → final={confidence}/10 | {alloc}% now → {target}% target (${dollar_amt:,.0f})\n"
                             f"{' | '.join(snap)}\n"
-                            f"WHY: {rationale}"
+                            f"WHY: {rationale}\n"
+                            + (f"BEAR: {da_bear} [{da_sev}]" if da_bear else "")
                         )
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")
+
+    # =========================================================
+    # PHASE 3b: Scale-in — advance tranches for existing positions
+    # =========================================================
+    active_tranches = db.get_all_tranches()
+    held_syms_set   = {p["symbol"] for p in positions}
+    for tranche in active_tranches:
+        sym    = tranche["symbol"]
+        t_num  = tranche["current_tranche"]
+        target = tranche["target_pct"]
+        if sym not in held_syms_set:
+            # Position was closed — clean up tranche record
+            db.delete_tranche(sym)
+            continue
+        if t_num >= 3:
+            continue  # fully scaled in
+
+        tech   = tech_map.get(sym) or (technical.compute(_get_bars(sym)) if sym in watchlist else {})
+        em_label = (signals_map.get(sym, {}).get("earnings_momentum") or {}).get("label", "")
+        r1m    = tech.get("return_1m")
+        price  = tech.get("price")
+        sma50  = tech.get("sma50")
+        gc     = tech.get("golden_cross")
+        vol_r  = tech.get("volume_ratio")
+
+        # Tranche 2 triggers: earnings beat OR price breakout above prior SMA50 on volume
+        t2_trigger = None
+        if em_label in ("strong_bullish", "bullish"):
+            t2_trigger = f"earnings_beat({em_label})"
+        elif price and sma50 and price > sma50 * 1.05 and vol_r and vol_r > 1.3:
+            t2_trigger = f"breakout(price {(price/sma50-1):.1%} above SMA50, vol {vol_r:.1f}x)"
+        elif gc and r1m and r1m > 5:
+            t2_trigger = f"golden_cross(1M={r1m:+.1f}%)"
+
+        # Tranche 3 triggers: second independent confirmation, different signal type
+        t3_trigger = None
+        if t_num == 2 and t2_trigger:
+            existing_t2 = tranche.get("tranche2_trigger") or ""
+            existing_t2_type = existing_t2.split("(")[0]
+            # Require a different signal type — compare prefix before "("
+            if existing_t2_type and not t2_trigger.startswith(existing_t2_type):
+                t3_trigger = t2_trigger
+
+        add_trigger = (t3_trigger if t_num == 2 else t2_trigger)
+        if add_trigger and trades_allowed:
+            add_qty_pct = target * (config.TRANCHE_2_PCT if t_num == 1 else config.TRANCHE_3_PCT)
+            price_val   = price or 1
+            qty         = manager.compute_qty(sym, add_qty_pct, price_val, portfolio)
+            if qty > 0:
+                try:
+                    alpaca.place_market_order(sym, qty, "BUY")
+                    new_t = db.advance_tranche(sym, add_trigger)
+                    db.log_trade(sym, "BUY", "stock", qty, price_val, add_qty_pct,
+                                 tranche.get("final_confidence", 0),
+                                 f"Tranche {new_t}: {add_trigger}")
+                    print(f"  [TRANCHE {new_t}] {sym} +{add_qty_pct:.1f}% — {add_trigger}")
+                    tg.send(f"📈 TRANCHE {new_t} {sym} +{add_qty_pct:.1f}% | {add_trigger}")
+                    cycle_buys.append(f"{sym}(T{new_t})")
+                except Exception as e:
+                    print(f"    TRANCHE ORDER ERROR {sym}: {e}")
+
+    # Register new BUYs from this cycle as tranche 1 positions
+    for decision in decisions:
+        sym = decision["symbol"]
+        if decision.get("action") == "BUY" and sym in [b.split("(")[0] for b in cycle_buys]:
+            target = decision.get("target_pct", decision.get("allocation_pct", 0) * 2)
+            if target > 0:
+                db.set_tranche(
+                    sym,
+                    target_pct=target,
+                    final_confidence=decision.get("confidence", 0),
+                    cio_confidence=decision.get("cio_confidence", 0),
+                    da_severity=decision.get("da_severity", "Low"),
+                )
 
     # --- Snapshot ---
     portfolio_final = alpaca.get_portfolio()
@@ -613,8 +750,9 @@ def main():
     parser.add_argument("--btc-check",      action="store_true")
     parser.add_argument("--premarket",      action="store_true")
     parser.add_argument("--close-summary",  action="store_true")
-    parser.add_argument("--basket-refresh", action="store_true")
-    parser.add_argument("--weekly",         action="store_true")
+    parser.add_argument("--basket-refresh",  action="store_true")
+    parser.add_argument("--weekly",          action="store_true")
+    parser.add_argument("--weekly-basket",   action="store_true")
     parser.add_argument("--bot",            action="store_true")
     parser.add_argument("--discord",        action="store_true")
     args = parser.parse_args()
@@ -625,6 +763,10 @@ def main():
 
     if args.weekly:
         weekly_review.run()
+        return
+
+    if args.weekly_basket:
+        run_weekly_basket_review()
         return
 
     if args.discord:
@@ -667,6 +809,15 @@ def main():
                 weekly_review.run()
             except Exception as e:
                 msg = f"❌ Weekly review crashed: {e}"
+                print(msg)
+                try: tg.send(msg)
+                except Exception: pass
+
+        def _safe_weekly_basket():
+            try:
+                run_weekly_basket_review()
+            except Exception as e:
+                msg = f"❌ Weekly basket review crashed: {e}"
                 print(msg)
                 try: tg.send(msg)
                 except Exception: pass
@@ -750,6 +901,14 @@ def main():
             misfire_grace_time=GRACE,
         )
         scheduler.add_job(
+            _safe_weekly_basket,
+            CronTrigger(day_of_week="sat",
+                        hour=config.BASKET_WEEKLY_REVIEW_HOUR,
+                        minute=config.BASKET_WEEKLY_REVIEW_MINUTE),
+            id="weekly_basket_review",
+            misfire_grace_time=GRACE,
+        )
+        scheduler.add_job(
             _safe_weekly,
             CronTrigger(day_of_week="sun", hour=18, minute=0),
             id="weekly_review",
@@ -771,7 +930,9 @@ def main():
             f"  Pre-market summary : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
             f"  Trading cycle (AM) : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
             f"  Trading cycle (PM) : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
-            f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET"
+            f"  Close summary      : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET\n"
+            f"  Weekly basket      : Saturday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (free-only)\n"
+            f"  Weekly review      : Sunday 18:00 ET"
         )
 
         from notifications import discord_bot
