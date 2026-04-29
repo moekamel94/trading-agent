@@ -1425,7 +1425,9 @@ def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
                              f"of portfolio (P&L: {already_held['pl_pct']:+.1f}%). "
                              f"Adding more will increase concentration — only do so with high conviction.")
 
-    prompt = f"""
+    prompt = f"""SIMPLE DECISION MODE — output the flat JSON schema at the end of this prompt ONLY.
+Do NOT use the 6-agent committee format. One flat JSON object, nothing else.
+
 Ticker: {symbol}
 Portfolio: equity=${portfolio.get('equity', 0):,.2f}  cash=${portfolio.get('cash', 0):,.2f}
 Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS} (concentration target: top 5 drive returns)
@@ -1443,7 +1445,7 @@ Core signal detail:
 
     response = _client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=600,
+        max_tokens=900,
         system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
@@ -1474,6 +1476,9 @@ Core signal detail:
         }
 
 
+_COMMITTEE_BATCH_SIZE = 20  # max candidates per committee call to prevent JSON errors
+
+
 def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
                      macro_regime: dict | None = None) -> list:
     """
@@ -1482,9 +1487,24 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
     Each candidate gets a rich structured output; tranche sizing is baked in.
     Falls back to individual decide() calls on parse failure.
     Learning context from recent trade outcomes is injected into the prompt.
+    Batched into groups of _COMMITTEE_BATCH_SIZE to prevent JSON parse errors on large lists.
     """
     if not candidates:
         return []
+
+    # Split into batches to avoid malformed JSON on very large prompts
+    if len(candidates) > _COMMITTEE_BATCH_SIZE:
+        results = []
+        for i in range(0, len(candidates), _COMMITTEE_BATCH_SIZE):
+            batch = candidates[i:i + _COMMITTEE_BATCH_SIZE]
+            print(f"  [Committee] Batch {i // _COMMITTEE_BATCH_SIZE + 1}: {len(batch)} candidates")
+            results.extend(_committee_review_batch(batch, port_ctx, mkt_ctx, macro_regime))
+        return results
+    return _committee_review_batch(candidates, port_ctx, mkt_ctx, macro_regime)
+
+
+def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
+                             macro_regime: dict | None = None) -> list:
 
     # ── Learning context (what worked / didn't in last 30 days) ──────────────
     try:
