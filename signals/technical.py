@@ -36,8 +36,31 @@ def compute(df: pd.DataFrame) -> dict:
         elif macd_prev > macd_sig_prev and macd_now < macd_sig_now:
             macd_cross = "bearish"
 
+    # MACD histogram acceleration: histogram growing above zero = bullish momentum building
+    macd_hist_now  = (macd_now  - macd_sig_now)  if pd.notna(macd_now)  and pd.notna(macd_sig_now)  else None
+    macd_hist_prev = (macd_prev - macd_sig_prev) if pd.notna(macd_prev) and pd.notna(macd_sig_prev) else None
+    macd_hist_accel = bool(
+        macd_hist_now is not None and macd_hist_prev is not None
+        and macd_hist_now > 0 and macd_hist_now > macd_hist_prev
+    )
+
     golden_cross = bool(pd.notna(sma50_val) and pd.notna(sma200_val) and sma50_val > sma200_val)
     death_cross  = bool(pd.notna(sma50_val) and pd.notna(sma200_val) and sma50_val < sma200_val)
+
+    # How many trading days ago did the death cross form?
+    # Walk backwards to find the last bar where SMA50 was still >= SMA200.
+    # Returns None if no death cross is active. Capped at 252 (treat anything older as >1yr).
+    death_cross_days = None
+    if death_cross:
+        lookback = min(len(sma50), len(sma200), 252)
+        for i in range(1, lookback):
+            s50 = sma50.iloc[-(i + 1)]
+            s200 = sma200.iloc[-(i + 1)]
+            if pd.notna(s50) and pd.notna(s200) and s50 >= s200:
+                death_cross_days = i
+                break
+        if death_cross_days is None:
+            death_cross_days = 252  # cross formed more than a year ago
 
     bb_position = None
     if pd.notna(bbu) and pd.notna(bbl):
@@ -79,11 +102,25 @@ def compute(df: pd.DataFrame) -> dict:
         avg_vol_30 = float(volume.iloc[-30:].mean())
         adv_30d = round(avg_vol_30 * price, 0)
 
+    # ATR(20) — Average True Range, used for volatility-adjusted stop placement
+    atr = None
+    if "high" in df.columns and "low" in df.columns and n >= 20:
+        try:
+            atr_series = ta.volatility.AverageTrueRange(
+                df["high"], df["low"], close, window=20
+            ).average_true_range()
+            atr_val = atr_series.iloc[-1]
+            atr = round(float(atr_val), 4) if pd.notna(atr_val) else None
+        except Exception:
+            atr = None
+
     return {
-        "rsi":          round(float(rsi_val), 2) if pd.notna(rsi_val) else None,
-        "macd_cross":   macd_cross,
-        "golden_cross": golden_cross,
-        "death_cross":  death_cross,
+        "rsi":              round(float(rsi_val), 2) if pd.notna(rsi_val) else None,
+        "macd_cross":       macd_cross,
+        "macd_hist_accel":   macd_hist_accel,
+        "golden_cross":      golden_cross,
+        "death_cross":       death_cross,
+        "death_cross_days":  death_cross_days,
         "bb_position":  bb_position,
         "price":        price,
         "sma50":        round(float(sma50_val),  2) if pd.notna(sma50_val)  else None,
@@ -94,4 +131,5 @@ def compute(df: pd.DataFrame) -> dict:
         "volume_ratio": volume_ratio,
         "roc_14":       roc_14,
         "adv_30d":      adv_30d,
+        "atr":          atr,
     }

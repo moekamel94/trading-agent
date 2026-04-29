@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "id": "pm_deployment_plan",
+      "added": "2026-04-28",
+      "priority": "high",
+      "title": "PM DIRECTIVE: Deploy cash — sell INTC, buy GEV/KTOS/VST/TLN at open",
+      "force_review_tickers": ["GEV", "KTOS", "VST", "TLN", "INTC"],
+      "context": "48.6% cash has crossed from prudent to paralysis. Committee voted to deploy $18-22K over 5 sessions to bring cash to 20-30%. This is a standing PM directive — not a request for re-evaluation. INTC: permanent remove, thesis broken (foundry losing money, losing share to TSM/AMD, no recovery path). GEV, KTOS, VST, TLN: first deployment tranche approved by committee on 2026-04-28 as AI capex concentration hedges. These tickers will appear as candidates in today's scan — PM must output the following actions when they are reviewed: INTC → SELL (if held). GEV → BUY long_term at 60% tranche (~3.1% allocation). KTOS → BUY medium_term at 60% tranche (~2.5% allocation). VST → BUY long_term at 60% tranche (~2.5% allocation). TLN → BUY long_term at 60% tranche (~2.1% allocation). Only defer if current macro or technical conditions have materially deteriorated since 2026-04-28 — state the specific reason in rationale if deferring.",
+      "options": [
+        "EXECUTE: Output SELL for INTC, BUY for GEV/KTOS/VST/TLN at stated allocations",
+        "DEFER: Only if macro/technical conditions have materially deteriorated — state reason explicitly"
+      ],
+      "owned_by": "PM",
+      "resolve_by": "this_session"
+    },
+    {
+      "id": "quantum_redundancy",
+      "added": "2026-04-28",
+      "priority": "medium",
+      "title": "RGTI vs IONQ — quantum slot redundancy decision",
+      "context": "CIO flagged RGTI and IONQ as redundant. IONQ is the primary speculative quantum slot (networked qubits, DARPA/NVIDIA/AstraZeneca). RGTI is currently mid_growth in basket.json. Committee must decide: does RGTI have a differentiated thesis vs IONQ (trapped-ion vs superconducting architecture divergence), or is it a lookalike play? If RGTI appears as a candidate today, CIO must output a verdict in the rationale: promote to spec slot with defined milestones, or output BUCKET with 'PERMANENT REMOVE: consolidate to IONQ'. Either way, the decision must be made this session.",
+      "options": [
+        "KEEP RGTI: promote to spec slot with its own thesis milestones (different architecture from IONQ)",
+        "REMOVE RGTI: output BUCKET/PERMANENT REMOVE — consolidate quantum exposure to IONQ only"
+      ],
+      "owned_by": "CIO + PM",
+      "resolve_by": "this_session"
+    }
+  ]
+}

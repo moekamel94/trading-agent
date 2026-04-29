@@ -1,0 +1,93 @@
+{
+  "IONQ": {
+    "tier": "speculative",
+    "thesis_intact": true,
+    "entry_thesis": "Quantum internet infrastructure layer. Networked qubits demonstrated. $130M revenue +200% YoY. DARPA/NVIDIA/AstraZeneca partnerships.",
+    "milestones": [
+      {"name": "Revenue >$200M", "target_date": "2025-Q4", "status": "pending"},
+      {"name": "New major enterprise contract", "target_date": "2025-Q3", "status": "pending"},
+      {"name": "Photonic interconnect milestone", "target_date": "2026-Q1", "status": "pending"}
+    ],
+    "kill_criteria": "Revenue growth <50% YoY OR major contract loss OR competitor achieves networked quantum advantage first",
+    "max_drawdown_tolerance": 0.35,
+    "thesis_window_end": "2028-Q1",
+    "last_review": "2026-04-25",
+    "notes": ""
+  },
+  "MP": {
+    "tier": "speculative",
+    "thesis_intact": true,
+    "entry_thesis": "Only US rare earth magnet producer. DoD + Apple contracts. China controls 80% of global rare earth supply — geopolitical moat is structural.",
+    "milestones": [
+      {"name": "Magnet production reaches full capacity", "target_date": "2025-Q4", "status": "pending"},
+      {"name": "GM or major automaker delivery expansion", "target_date": "2026-Q1", "status": "pending"},
+      {"name": "DoD contract renewal/expansion", "target_date": "2026-Q2", "status": "pending"}
+    ],
+    "kill_criteria": "Loss of DoD or Apple contract OR US-China rare earth deal that opens supply",
+    "max_drawdown_tolerance": 0.35,
+    "thesis_window_end": "2029-Q1",
+    "last_review": "2026-04-25",
+    "notes": ""
+  },
+  "SOUN": {
+    "tier": "speculative",
+    "thesis_intact": true,
+    "entry_thesis": "AI voice platform — $84M revenue +90% YoY. The missing UI layer for the LLM era. NVIDIA equity stake. Sticky automotive (Hyundai, Stellantis) + restaurant (Chipotle, White Castle) ARR.",
+    "milestones": [
+      {"name": "Revenue >$150M", "target_date": "2026-Q2", "status": "pending"},
+      {"name": "New auto OEM partnership signed", "target_date": "2025-Q4", "status": "pending"},
+      {"name": "Restaurant ARR >$30M", "target_date": "2026-Q1", "status": "pending"}
+    ],
+    "kill_criteria": "Revenue growth decelerates below 40% YoY OR NVIDIA fully exits stake OR major OEM customer churns",
+    "max_drawdown_tolerance": 0.35,
+    "thesis_window_end": "2029-Q1",
+    "last_review": "2026-04-25",
+    "notes": "Size small — do not chase above $8. Entry on dips only."
+  },
+  "LUNR": {
+    "tier": "speculative",
+    "thesis_intact": true,
+    "entry_thesis": "NASA lunar infrastructure — $200M+ Artemis contracts. Only public pure-play on the lunar economy. IM-2 already flew. Government-contracted revenue, not speculation.",
+    "milestones": [
+      {"name": "IM-3 mission success", "target_date": "2026-Q1", "status": "pending"},
+      {"name": "NSNS contract execution", "target_date": "2025-Q4", "status": "pending"},
+      {"name": "New NASA task order awards", "target_date": "2026-Q2", "status": "pending"}
+    ],
+    "kill_criteria": "Mission failure AND contract loss OR Artemis program budget cut >50%",
+    "max_drawdown_tolerance": 0.35,
+    "thesis_window_end": "2029-Q1",
+    "last_review": "2026-04-25",
+    "notes": "Customer concentration risk: NASA ~80% of revenue. Political risk on Artemis."
+  },
+  "RXRX": {
+    "tier": "speculative",
+    "thesis_intact": true,
+    "entry_thesis": "AI drug discovery platform. $12B Roche/Genentech milestone pipeline. 23PB irreplaceable biological imaging data — took 10 years and $500M+ to build, cannot be replicated.",
+    "milestones": [
+      {"name": "Phase 2 readout REC-994", "target_date": "2025-Q3", "status": "pending"},
+      {"name": "Phase 2 readout REC-2282", "target_date": "2025-Q4", "status": "pending"},
+      {"name": "New pharma partnership or milestone payment", "target_date": "2026-Q1", "status": "pending"}
+    ],
+    "kill_criteria": "Two consecutive Phase 2 clinical failures OR Roche partnership cancelled OR NVIDIA exits investment",
+    "max_drawdown_tolerance": 0.35,
+    "thesis_window_end": "2029-Q1",
+    "last_review": "2026-04-25",
+    "notes": "Downsized to 1% — on probation until Phase 2 readouts. Quarterly review required."
+  },
+  "ASTS": {
+    "tier": "speculative",
+    "thesis_intact": true,
+    "entry_thesis": "Satellite-to-phone internet via AT&T/Verizon/Vodafone. 2.8B existing subscribers work without switching. BlueBird satellites delivering 4G/5G to unmodified phones.",
+    "milestones": [
+      {"name": "5+ Block 2 satellites in orbit", "target_date": "2025-Q4", "status": "pending"},
+      {"name": "Commercial service launch", "target_date": "2026-Q1", "status": "pending"},
+      {"name": "Additional carrier agreement", "target_date": "2025-Q4", "status": "pending"}
+    ],
+    "kill_criteria": "Multiple launch failures AND major carrier (AT&T or Verizon) exits agreement",
+    "max_drawdown_tolerance": 0.35,
+    "max_position_pct": 1.0,
+    "thesis_window_end": "2029-Q1",
+    "last_review": "2026-04-25",
+    "notes": "Binary moonshot slot. Hard cap 1% regardless of confidence. Hold through vol."
+  }
+}

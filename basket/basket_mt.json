@@ -1,0 +1,21 @@
+{
+  "updated": "2026-04-28T20:32:23.000000",
+  "tickers": [
+    "ORCL"
+  ],
+  "metadata": {
+    "ORCL": {
+      "source": "earnings_catalyst",
+      "added": "2026-04-27",
+      "expires": "2026-06-23",
+      "note": "Earnings 2026-06-09 | RSI=70 | upside=40.7%",
+      "catalyst_date": "2026-06-09"
+    }
+  },
+  "sources": {
+    "congress_buy": 0,
+    "earnings_catalyst": 1,
+    "sector_rotation": 0,
+    "uw_discovery": 0
+  }
+}

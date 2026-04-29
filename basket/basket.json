@@ -1,15 +1,17 @@
 {
-  "updated": "2026-04-25T00:00:00.000000",
+  "updated": "2026-04-28T20:32:23.000000",
   "tickers": [
     "MSFT",
     "GOOGL",
     "META",
     "AMZN",
+    "NVDA",
+    "AAPL",
+    "TSLA",
     "ORCL",
     "PLTR",
     "CRM",
     "NOW",
-    "NVDA",
     "AMD",
     "AVGO",
     "AMAT",
@@ -19,6 +21,7 @@
     "ARM",
     "MRVL",
     "TSM",
+    "ASML",
     "KEYS",
     "IONQ",
     "RGTI",
@@ -39,7 +42,12 @@
     "BWXT",
     "GE",
     "CACI",
+    "KTOS",
     "ETN",
+    "GEV",
+    "VST",
+    "TLN",
+    "TDG",
     "ISRG",
     "ANET",
     "VRT",
@@ -53,20 +61,21 @@
     "MSCI",
     "SHOP",
     "UBER",
+    "SE",
+    "GRAB",
     "RXRX",
     "LLY",
     "DXCM",
-    "JOBY",
+    "VEEV",
     "FANG",
     "COP",
     "FCX",
-    "MP",
-    "AAPL"
+    "MP"
   ],
   "sources": {
-    "sector_list": 61,
+    "sector_list": 69,
     "congress": 0,
     "pinned": [],
-    "total": 61
+    "total": 69
   }
 }

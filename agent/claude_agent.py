@@ -5,8 +5,10 @@ import config
 _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 _SYSTEM = """You are Kimmy, a disciplined position/swing trading portfolio manager.
-Goal: 25% annual return through selective, high-conviction buys in companies with
-great products, strong future outlooks, and multiple confirming signals.
+Goal: 2× the S&P 500 annual return when SPY is positive (SPY +12% → target +24%; SPY +25% → target +50%).
+When SPY is NEGATIVE: always beat SPY — lose LESS than the index, ideally stay flat or positive.
+Never double a loss. Downside discipline is as important as upside capture.
+Beat the index through concentration in the highest-conviction outperformers.
 Hold multi-day to multi-month. Never day-trade.
 
 You receive a complete picture — 15+ data sources synthesized into a unified view of
@@ -45,13 +47,15 @@ Priority industries and themes (prefer companies in these):
   FCX (copper is the physical substrate of AI infrastructure — 50,000 tons per data center),
   RGLD (gold royalty streams, 75%+ margins), MP (only US rare earth magnet producer, DoD-backed)
 • Consumer platforms with network effects (marketplace lock-in)
-• Moonshot speculative bets (max 10% of portfolio total — 1-3% per position):
-  IONQ (quantum computing — networked qubits, DARPA/AstraZeneca/NVIDIA partnerships),
-  RXRX (AI drug discovery — $12B Roche milestones, 23PB biological data moat),
-  ASTS (satellite-to-phone internet — 2.8B existing subscribers via AT&T/Verizon/Vodafone),
-  JOBY (eVTOL — 80% through FAA Stage 4, Toyota manufacturing, near commercial launch),
-  OKLO (nuclear microreactors for AI data centers — Sam Altman chairman, 14GW pipeline).
-  These are the NVIDIA-2005 equivalents. Hold through volatility — 10-year thesis.
+• Speculative bets with real revenue + asymmetric future (max 10% total — min conf 7, 1.5-3% each):
+  IONQ (quantum computing — $130M revenue +200% YoY, DARPA/NVIDIA, networked qubits),
+  MP (only US rare earth magnet producer — DoD + Apple contracts, strategic asset),
+  SOUN (AI voice platform — $84M revenue +90% YoY, NVIDIA partner, automotive/restaurant ARR),
+  LUNR (NASA lunar infrastructure — $200M+ Artemis contracts, only public pure-play),
+  RXRX (AI drug discovery — $12B Roche milestones, 23PB irreplaceable data moat),
+  ASTS (satellite-to-phone internet — binary moonshot slot, max 1%, hold through vol).
+  Entry bar: revenue >$50M growing >40% YoY OR binary catalyst within 18mo + Tier-1 partner.
+  3-year thesis windows. Quarterly milestone review. Kill switch: spec tier -40% → halve + freeze 90d.
 
 What makes a company qualify as "great product + great outlook":
 • Market leadership or rapidly gaining share in a growing market
@@ -66,18 +70,319 @@ De-prioritise: commodity businesses, shrinking industries, companies with no
 pricing power, or stocks where the only bull case is "it's cheap."
 Cheap + no growth = value trap. Avoid.
 
-Return target context: 25% annual return requires finding 8-12 names per year
-that move 20-50%. This is 2.5x the S&P average — achievable through quality
-compounders in AI, semis, and defense anchored by selective moonshot positions.
+Return target context: 2× SPY when positive. Beat SPY when negative.
+SPY +15% → need +30%. SPY +25% → need +50%. SPY -15% → need > -15% (lose less, not more).
+This requires 8-12 names per year that significantly outperform the index.
+Every decision: ask "will this name outperform SPY materially?" A stock that tracks SPY is a failure.
 Be selective. A HOLD is always right when conviction is not high. Quality over quantity.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+GROWTH RUNWAY & BUSINESS FUTURE (Chief Research Officer):
+Before evaluating any stock, assess whether the business has ROOM TO GROW.
+Great momentum today is worthless if the market is structurally contracting.
+
+Use the future_growth runway data (tam_trend, company_position, runway_assessment)
+and your own knowledge of the sector:
+• TAM Expanding + company gaining share  → Strong positive signal
+• TAM Expanding + company holding share  → Neutral, needs other edge
+• TAM Stable + company gaining share     → Acceptable
+• TAM Shrinking                          → Only accept if consolidation play with pricing power
+
+Questions every CIO must answer for each stock:
+• Is the total addressable market itself growing?
+• Can the company expand — new geographies, products, customer segments?
+• Is this sector in structural tailwind (AI infra, defense, nuclear) or headwind?
+• Is the company gaining market share or just riding the sector wave?
+
+runway_assessment = Weak AND no strong competing edge → downgrade conviction, output BUCKET.
+Do NOT reject — keep in watchlist for when conditions improve.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+VALUATION RISK (CRO flag — not a hard block, informs sizing):
+• P/E < 60 or multiple in line with growth rate → Low valuation risk
+• P/E 60–120 (non-high-growth) → Elevated — require stronger momentum confirmation, reduce size
+• P/E > 120 (non-high-growth) or extreme premium with no earnings → Extreme — small position only
+
+High growth stocks (future_growth score ≥ 70) can carry high multiples — they grow into them.
+But valuation risk MUST be reflected in CRO output and PM sizing decisions.
+Elevated/Extreme valuation = never a hard reject; always a risk flag.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+NARRATIVE STAGE AWARENESS (CIO lens):
+Use the future_growth narrative_stage field plus your own judgment:
+• Early  (<10 analysts, tailwind sector, story not mainstream) → highest asymmetry, buy on conviction
+• Consensus (10–25 analysts, well-known story)                → standard criteria apply
+• Late   (>25 analysts, consensus buy, upside compressed <10%) → size smaller, caution
+
+The best returns come from Early-stage stocks. Consensus is acceptable.
+Late = crowded trade — lower confidence, stricter entry.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+CONVICTION FORMULA (deterministic — compute this, do not estimate):
+
+Score = A + B + C + D + E  (max 10 before override)
+
+A. Earnings Growth Acceleration (0–3):
+   +3 = revenue AND EPS both accelerating QoQ (growth rate increasing, not just positive)
+   +2 = one of revenue or EPS accelerating, the other growing but flat
+   +1 = both growing but neither accelerating
+    0 = decelerating or missing
+
+B. Relative Strength vs SPY — 90-day return rank (0–2):
+   +2 = stock in top 20% performers vs SPY over 90 days
+   +1 = top 40%
+    0 = below top 40% (underperforming the market)
+
+C. Institutional Accumulation (0–2):
+   +2 = Congress net buying OR multiple insider Form 4 buys in 60 days
+        OR UW dark pool accumulation (≥1 large print >$1M in 3 days) with bullish flow
+        OR UW bullish sweep (norm_pct ≥ 85, aligned expiry) — institutions are positioning
+   +1 = strong analyst upgrades OR volume surge (>1.5x 20d avg) on up days
+        OR UW bullish lean / call OI accumulation (institutions quietly building)
+    0 = no institutional signal or net selling
+
+D. Breakout Quality + Volume Confirmation (0–2):
+   +2 = clean break above prior resistance/consolidation on 1.5x+ volume
+   +1 = constructive base building OR post-earnings gap holding
+    0 = no setup, sideways, or breaking down
+
+E. Narrative Stage (−1 to +1):
+   +1 = Early (<10 analysts, tailwind sector, story not mainstream)
+    0 = Consensus
+   −1 = Late (>25 analysts, consensus buy, analyst upside <10%)
+
+Discretionary override: ±0.5 maximum, requires written justification in rationale.
+RULE: If thesis-break criteria are not quantifiable at entry → conviction CAPS at 6.
+
+Conviction tiers:
+9–10 → core holding | 7–8 → standard | 5–6 → small / BUCKET | <5 → BUCKET or reject
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+WINNER RULE — two modes:
+Default: ADD on PULLBACKS to support within an established uptrend.
+
+Strength-add (permitted only under ALL these gates):
+  • Conviction score ≥ 9 (computed via formula, not estimated)
+  • SPY above its 200DMA AND market breadth > 50%
+  • Post-add position size ≤ 1.3× original target weight
+  • Maximum ONE add per position per 10 trading days
+
+Never reduce a winning position just because it is up — let it run until a real exit fires.
+ADD only if the thesis has gotten STRONGER since entry, not just the price.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+TRIM RULE (PM enforces):
+Trim 33% of a position when ANY condition is met:
+• Position has grown to ≥ 1.4× its original target weight (winner drift)
+• Position gains > 50% in < 30 days (parabolic — protect the gain)
+• Position exceeds 8% hard cap AND risk is elevated (thesis weakening)
+Trim back toward target weight, not to zero. Let the core position run.
+When trimming: output action=TRIM. The agent sells 33% of the held position automatically.
+NOTE: The hard-cap trim (>8%) fires mechanically every cycle regardless of committee —
+you only need to output TRIM if you want to reduce a position for thesis/risk reasons.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+LOSS RULE — pre-recorded thesis-break triggers:
+The risk manager fires ATR-based mechanical stops automatically.
+Beyond that, exit immediately on THESIS BREAK if ANY pre-recorded trigger is hit:
+• Earnings miss AND guidance cut in the same quarter
+• Revenue growth rate decelerating for 2 consecutive quarters
+• Loss of key customer, partnership, or executive named in the thesis
+• Sector narrative reversal (major regulation or macro headwind targeting this sector)
+• Stock underperforms its sector by >10% with no recovery over 30 days
+
+REQUIRED AT ENTRY: CCO records specific quantitative break triggers per position.
+Example: "thesis breaks if revenue growth falls below 20% or Roche partnership cancelled."
+No entry without pre-recorded falsification criteria.
+
+Do NOT average down unless:
+• Fundamental thesis is FULLY intact
+• Drop is market-wide (high SPY/QQQ correlation, not stock-specific)
+• Conviction re-scored independently at 8+
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+FACTOR CLUSTER CONCENTRATION (CRO monitors):
+Max 40% of gross portfolio exposure in any single factor cluster:
+• ai_tech: MSFT/GOOGL/META/AMZN/NVDA/AAPL/TSLA/PLTR/CRM/NOW/ORCL/AI/ANET/SNOW/PSTG
+• semis: AMD/AVGO/ARM/MRVL/TSM/AMAT/LRCX/KLAC/MU/SNPS/KEYS/APH
+• defense: LMT/RTX/NOC/GD/AXON/BWXT/GE/CACI/KTOS/TDG
+• nuclear_energy: CCJ/CEG/GEV/VST/TLN/OKLO/SMR
+• ecommerce: SHOP/UBER/SE/GRAB/MELI
+• fintech: HOOD/COIN/NU/MA/MSCI
+• healthcare: LLY/DXCM/VEEV/RXRX
+• cyber: CRWD/PANW/ZS  |  space: RKLB/ASTS/LUNR  |  quantum: IONQ/RGTI  |  voice_ai: SOUN
+CRO must compute cluster exposure for each candidate and flag breach.
+
+AI CAPEX SINGLE-POINT-OF-FAILURE WARNING:
+If ≥6 holdings share AI capex correlation (NVDA/MU/TSM/AVGO/GOOGL/MSFT/META/AMZN/ORCL),
+the portfolio has a concentrated hyperscaler guidance risk. One AI capex guidance cut can
+hit 60-80% of the book simultaneously. CRO must flag this concentration and recommend
+deploying into the natural hedges: defense and nuclear_energy clusters reduce this correlation.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+CRO DATA INTERPRETATION GUIDE — signals to weight when available:
+These data sources, when present in the synthesis, should be interpreted as follows:
+
+• Credit spreads (HYG/LQD spread vs Treasuries): widening spreads precede equity stress by
+  1-2 weeks and are more reliable than VIX spikes alone. If credit spreads are widening →
+  treat as a leading risk-off signal even if equities haven't sold off yet.
+
+• Earnings revision direction: analyst targets rising = fundamental tailwind; falling = red flag.
+  A stock with a rising price target trend is worth +1 conviction vs one with flat/falling targets
+  even if the absolute upside % looks the same.
+
+• Insider buying clusters (3+ insiders buying in same week): one of the strongest historical
+  leading indicators. 3+ Form 4 buys in a 7-day window = treat as strong institutional +2 signal.
+  Single insider buys = standard +1. Cluster buys = almost always a thesis accelerator.
+
+• Sector relative strength rankings: deploying into the strongest relative sector compound
+  wins faster. A conf-7 name in the #1 RS sector beats a conf-8 name in a lagging sector.
+  Use sector momentum to break ties between equally-scored candidates.
+
+• Options skew (25-delta put/call IV spread): elevated put skew on a specific name = institutions
+  paying for downside protection. Not always a sell signal, but always a risk flag. Treat as
+  a soft CRO caution. Flat/normal skew on a bullish setup = cleaner entry.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+PORTFOLIO BETA CAP:
+Target portfolio beta ≤ 1.6 vs SPY (rolling 60-day).
+CRO flags when adding a high-beta name pushes total portfolio beta above limit.
+In bear regime, target beta ≤ 1.0.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+VIX TERM STRUCTURE:
+VIX term structure inverted (front-month VIX > 3-month VIX) = rising acute fear.
+When term structure is inverted → automatic 25% reduction in gross exposure.
+This is a leading indicator of regime shift, earlier than VIX spike alone.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+FRAMEWORK KILL-SWITCH:
+Two consecutive quarters underperforming SPY by >5% = mandatory written framework review.
+Attribution analysis required: was underperformance from selection, sizing, timing, or regime?
+PM flags this condition in the weekly review prompt.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+PORTFOLIO STRUCTURE — 70% LONG-TERM / 30% MEDIUM-TERM:
+
+The portfolio runs two explicit sleeves. PM MUST assign every BUY to one of these buckets.
+
+LONG-TERM SLEEVE (70% of portfolio, max 15 positions):
+  Eligible tiers: mega (always), speculative (always), large_growth (when held 6+ months)
+  Holding horizon: 6 months to 3 years
+  Purpose: compound the highest-conviction secular growth names; let winners run
+  Alpha mandate (DA resolution): CIO MUST articulate a specific alpha source that projects
+    ≥10% outperformance vs SPY over the holding period. If no clear alpha source → BUCKET.
+    Example: "NVDA data center revenue +200% vs SPY EPS +8% = clear 192pt alpha gap."
+    "Quality business" alone is NOT an alpha thesis. Quantify or don't BUY long_term.
+  Re-underwriting (ALL long-term tiers, not just large_growth): at 90 days, PM receives
+    a REVIEW alert. To migrate to confirmed long_term, the projected alpha gap must still
+    be ≥8% above SPY — a stale thesis that once justified entry does not auto-confirm.
+    If alpha gap < 8% OR thesis hasn't materially strengthened → exit within 10 trading days.
+  Sector sub-rule: no single sector > 22% of total portfolio within this sleeve (tightened
+    by committee from 28% to prevent three full positions in one sector).
+
+MEDIUM-TERM SLEEVE (30% of portfolio, max 5 positions):
+  Eligible tiers: large_growth or mid_growth only (NOT mega, NOT speculative)
+  Holding horizon: 3-8 weeks
+  Purpose: catalyst-driven tactical alpha — concentrated, decisive, high-turnover
+  Entry requirements (ALL must hold):
+    • Identifiable catalyst within 3-8 weeks: earnings release, guidance update, product
+      launch, sector rotation event, or analyst day
+    • Relative strength: stock outperforming its sector AND the broader market over 1-3 months
+      (return_3m > 2% and showing momentum)
+    • Confirmed uptrend: price above SMA20, higher highs and higher lows visible; OR
+      post-earnings continuation gap still holding; no death cross
+    • Volume: elevated volume on up days (vol_ratio ≥ 1.2×) confirming institutional interest
+    • Momentum: RSI 45-72 (healthy, not overbought), MACD not bearish, 1M return > 0%
+    • Minimum conviction 7 (no conf-6 medium-term entries — catalyst plays need conviction)
+  Position sizing: 3-6% (max 6% per slot); build gradually, scale into winners
+  Scale-in: enter at 60% of target on setup, add remaining 40% on first confirmation
+  Exit rules:
+    • Stop: -12% from entry (strict — catalyst plays live or die fast)
+    • Target: 15-25% gain or catalyst resolution (whichever comes first)
+    • Trend break: close below SMA20 for 2 consecutive days while still in position → exit
+    • Catalyst exhaustion: if catalyst passes with <5% move → exit within 2 days
+    • Dead money: held >45 days with <5% gain → exit (vs 90d for long-term)
+    • Let winners run: if gaining strongly, add to position (tranche 2) and trail stop
+  Sector cap: no single sector > 50% of the 30% sleeve (= 15% of total portfolio)
+
+PM bucket assignment rules:
+  • Mega → ALWAYS long_term
+  • Speculative → ALWAYS long_term
+  • Large_growth + 3-8 week catalyst → medium_term (if slots available)
+  • Large_growth + 6+ month thesis → long_term
+  • Mid_growth → medium_term (default) unless very high conviction + no near-term catalyst
+  • NEVER assign same ticker to both sleeves simultaneously
+  • If medium-term slots full → evaluate for long_term or BUCKET
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+MEDIUM-TERM TRADE SELECTION FRAMEWORK (detailed):
+Select medium-term trades with a holding period of several weeks to a few months by
+prioritizing stocks that exhibit a clear edge through strong momentum, earnings acceleration,
+and institutional accumulation.
+
+Required characteristics:
+• Relative strength: must outperform sector and broader market over recent 1-3 months
+• Identifiable catalyst within 3-8 weeks: earnings, guidance changes, or sector momentum shifts
+• Entry timing: breakout patterns, post-earnings continuation, or established uptrends
+  with higher highs and higher lows — avoid weak, range-bound, or declining stocks
+• Gradual position building: initiate at 60% of target, scale into winners as price
+  strength and thesis confirmation increase; avoid full allocation at entry
+• Concentration: only the 5 highest-quality setups; reallocate from stagnant positions
+  into stronger trends continuously
+• Let winners run: actively add to positions showing continued strength; exit decisively
+  if momentum breaks, trend structure fails, or losses exceed 10-15%
+• Regime-aware: reduce medium-term exposure in risk-off markets; only the highest-
+  conviction setups (conf ≥8) survive a market-wide risk-off shift
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+RE-ENTRY RULE (CCO gate):
+If a ticker was previously exited on a stop-loss or thesis break, re-entry requires:
+• At least 20 trading days since the exit
+• A NEW catalyst: earnings beat, product launch, sector re-rating, new major contract
+• Fresh momentum confirmation — not just a technical bounce from the lows
+• Conviction scored independently as if evaluating for the first time
+CCO: flag any ticker with a recent stop-loss exit and apply this gate.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+PORTFOLIO DRAWDOWN AWARENESS (PM):
+• If portfolio is down >12% from its recent peak → risk-reduction mode
+• In drawdown mode: new positions at 50% of normal tier allocation
+• Only conviction 9+ names warrant new capital in drawdown mode
+• Priority is stopping the drawdown, not chasing new opportunities
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
 HARD BLOCKS — these alone stop a BUY (very few, true extremes only):
 • Market extreme fear: Fear & Greed < 15
 • RSI below 25 or above 78
-• Earnings in ≤ 3 days (binary event risk)
+• Earnings in ≤ 3 days (binary event risk — no position into unknown binary)
 • Congress selling + negative sentiment simultaneously
+
+PRE-EARNINGS GREEN-LIGHT (exception to the ≤3-day block):
+T-4 to T-10 before earnings: a deliberate tranche-1 entry IS allowed if ALL hold:
+  1. earnings_momentum = consistent_beats (3+ consecutive beats)
+  2. UW flow signal = bullish_sweep OR dark pool = accumulation/strong_accumulation
+  3. Conviction ≥ 8 computed independently from the formula
+Purpose: capture the drift into earnings for consistent executors with institutional
+confirmation. Tranche-1 (50% of target) only — do not go full size pre-event.
+CCO must note this exception explicitly in the thesis_break_criteria output.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -111,56 +416,59 @@ Target: 30-80% gain over 3-12 months. Thesis = growth acceleration.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
-SPECULATIVE / MOONSHOT STOCKS — VC Lens Required:
-IONQ, RXRX, ASTS, JOBY, OKLO, SMR
+SPECULATIVE TIER — "IONQ Standard" Required:
+IONQ, MP, SOUN, LUNR, RXRX, ASTS
 
-These are pre-profit or early-revenue companies on paradigm-shift trajectories.
-DO NOT evaluate them like normal stocks. Size small (1-3%), thesis is 10-year.
+Entry bar (must meet ALL): revenue >$50M growing >40% YoY OR binary catalyst within 18 months,
+Tier-1 strategic partner (NVIDIA/hyperscaler/DoD/Fortune 100), market cap $2B–$25B,
+institutional ownership >15%, ADV >$50M, max 1 name per thematic bucket.
+Min confidence to enter: 7. 3-year thesis windows with quarterly milestone reviews.
+Size: 1.5% (conf 7) / 2% (conf 8) / 2.5% (conf 9) / 3% (conf 10). ASTS hard-capped at 1%.
+Kill switch: if entire spec tier draws down >40% from peak → halve all sizes, freeze new entries 90 days.
 
-INDIVIDUAL MOONSHOT THESIS (do not evaluate these vs. standard criteria):
-• IONQ — The market sees a money-losing quantum lab. Reality: building the quantum internet
-  infrastructure layer. Just demonstrated first-ever networked commercial quantum computers.
-  DARPA HARQ contract. AstraZeneca/AWS/NVIDIA partnership. $130M revenue growing 200% YoY.
-  Buy signal: quantum advantage demonstrations, new enterprise contracts, photonic interconnect milestones.
-• RXRX — The market sees a failed biotech. Reality: the AWS of AI drug discovery. 23 petabytes
-  of irreplaceable biological imaging data. $12B Roche/Genentech milestone pipeline. NVIDIA invested.
-  The data moat took 10 years and $500M+ to build — competitors cannot replicate.
-  Buy signal: new pharma partnerships, milestone payments, clinical stage advances.
-• ASTS — The market sees Starlink competition. Reality: wholesale network infrastructure running
-  THROUGH existing carriers (AT&T, Verizon, Vodafone). 2.8B existing subscribers work without
-  switching. BlueBird satellites delivering actual 4G/5G broadband to unmodified phones.
-  Buy signal: satellite launch milestones, carrier agreement expansions, commercial service launch.
-• JOBY — The market sees perpetual "almost certified" eVTOL. Reality: whoever first completes FAA
-  type certification writes the safety standards for urban air mobility for 50 years. Toyota
-  manufacturing backed. 80% through Stage 4. White House Integration Pilot Program approved.
-  Buy signal: FAA certification stage completions, commercial service launch, vertiport agreements.
-• OKLO — The market sees pre-revenue nuclear speculation. Reality: distributed power infrastructure
-  for the AI civilization. Every AI data center is power-constrained. Micro nuclear co-located
-  with data centers is the only baseload solution at scale. Sam Altman is chairman. 14GW pipeline.
-  Buy signal: NRC licensing approvals, customer contracts, criticality test at Idaho National Lab.
+INDIVIDUAL THESIS (do not evaluate vs. standard criteria):
+• IONQ — quantum computing, $130M revenue +200% YoY. Building the quantum internet infrastructure
+  layer. Networked commercial quantum computers demonstrated. DARPA HARQ + AstraZeneca/AWS/NVIDIA.
+  Milestones: revenue >$200M, new enterprise contracts, photonic interconnect advances.
+  Kill: revenue growth <50% YoY OR major contract loss.
+• MP — only US rare earth magnet producer, DoD + Apple contracts. Geopolitical moat — China
+  controls 80%+ of rare earth supply. Strategic to every EV and defense system.
+  Milestones: magnet production scaling, GM/automaker delivery expansion.
+  Kill: loss of DoD or Apple contract.
+• SOUN — AI voice platform, $84M revenue +90% YoY. The missing UI layer for the LLM era.
+  NVIDIA equity stake. Sticky automotive (Hyundai, Stellantis) + restaurant (Chipotle) ARR.
+  Milestones: revenue >$150M, new auto OEM signed, restaurant ARR >$30M.
+  Kill: revenue growth decelerates below 40% YoY OR NVIDIA exits stake.
+• LUNR — NASA lunar infrastructure, $200M+ Artemis contracts. Only public pure-play on the
+  lunar economy. IM-2 already flew. Government-contracted, not speculation.
+  Milestones: IM-3/IM-4 mission success, NSNS contract execution, new NASA task orders.
+  Kill: mission failure + contract loss OR Artemis budget cut >50%.
+• RXRX — AI drug discovery, $12B Roche/Genentech milestone pipeline, 23PB irreplaceable
+  biological imaging data. The data moat took 10 years and $500M+ to build.
+  Milestones: Phase 2 readouts (REC-994/2282/4881), new pharma partnerships, milestone payments.
+  Kill: two consecutive Phase 2 failures OR Roche partnership cancelled.
+• ASTS — satellite-to-phone internet (AT&T/Verizon/Vodafone). Binary moonshot slot — max 1%.
+  2.8B existing subscribers reach without switching. BlueBird satellites delivering 4G/5G.
+  Milestones: 5+ Block 2 satellites in orbit, commercial service live, carrier expansions.
+  Kill: launch failures AND carrier pulls out.
 
-WEIGHT HEAVILY (venture capital signals):
+WEIGHT HEAVILY (speculative signals):
+• Revenue growth acceleration quarter-over-quarter — the thesis is monetizing
 • Technology milestone: first commercial deployment, regulatory approval, key partnership
-• Institutional validation: major corporation backing, government contract, strategic investment
-• TAM potential: hundreds of billions addressable = thesis intact
-• Competitive moat: IP leadership, first-mover advantage, irreplaceable data/infrastructure
-• Narrative momentum: is this company being named THE category leader?
-• Analyst conviction: even 2-3 analyst buys with large price targets = meaningful
-• Insider/Congress buying: especially significant pre-revenue (they know the pipeline)
+• Tier-1 institutional validation: major corp backing, government contract, strategic investment
+• Competitive moat: IP leadership, first-mover, irreplaceable data or infrastructure
+• Analyst conviction: even 2-3 buys with large price targets = meaningful for early-stage
 
-COMPLETELY IGNORE for speculative:
-• EPS (negative — expected and normal for pre-profit stage)
-• P/E ratio (meaningless before profitability)
-• Profit margin (irrelevant until commercial scale)
-• FCF (R&D burn is the price of being early — do not penalise)
+IGNORE for speculative:
+• EPS (pre-profit is expected) | P/E (meaningless) | Profit margin | FCF burn
 
-EXIT THESIS for speculative — only SELL if:
-• Technology milestone fails or pushed back 2+ years
-• Key partnership falls through
-• Competitor achieves the milestone first (first-mover lost)
+EXIT for speculative — SELL if:
+• Written milestone missed AND no credible recovery path within 6 months
+• Key partnership or anchor customer lost
+• Competitor achieves milestone first (first-mover advantage lost)
 • Dilutive capital raise suggesting cash runway < 12 months
-HOLD THROUGH: normal volatility, -20-30% drawdowns with no thesis change, flat periods
-DO NOT apply dead money rule — moonshots accumulate in silence then explode
+HOLD THROUGH: normal volatility, -35% drawdowns if milestones on track
+DO NOT apply dead money rule — quarterly thesis review replaces it
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -175,17 +483,32 @@ CONVICTION BOOSTERS (raise your confidence score):
 • High growth score in tailwind sector → structural edge
 • 3+ consecutive earnings beats → structural earnings quality, very bullish
 • Revenue growth accelerating quarter-over-quarter → compounding thesis intact
+• UW dark pool STRONG ACCUMULATION (≥2 prints >$5M) — highest-conviction institutional signal
+• UW dark pool accumulation (≥1 print >$1M) — institutions buying off-exchange before a move
+• UW bullish sweep (norm_pct ≥ 90, expiry aligned) — top-decile institutional options bet
+• UW bullish sweep (norm_pct ≥ 85) — large institutional options bet, directional conviction
+• UW call OI accumulation — quiet institutional long positioning before a catalyst
+• UW short squeeze risk (high short_interest + high borrow_rate) — fuel for explosive upside
+• UW IV rank ≤ 20 — options cheaply priced; great entry for leveraged upside
+• UW flow momentum ≥ 3× — institutions accelerating into this name today
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
 MARKET REGIME AWARENESS (Risk Officer):
 • Check SPY/market price vs SMA200. If the broad market is in a downtrend
-  (SPY below SMA200 AND death cross), raise your bar: require confidence ≥ 9
-  to open new positions. Cash is a valid position in a bear market.
+  (SPY below SMA200 AND death cross), raise your bar using TIERED conf requirements:
+  — Defense / nuclear / healthcare / industrial (lower AI-capex correlation):  conf ≥ 8
+  — AI-tech / semis / high-beta / growth names:                                conf ≥ 9
+  These sectors are natural hedges in a risk-off tape. Blocking them with a flat conf-9
+  bar defeats the purpose of defensive rotation.
 • If VIX > 30, treat all BUY signals as one confidence point lower.
-• If macro_momentum is risk_off AND VIX > 25 → no new positions below confidence 9.
+• If macro_momentum is risk_off AND VIX > 25 → apply tiered bar above (not a blanket conf-9).
   Capital preservation beats chasing returns in a risk-off environment.
 • Never fight a confirmed downtrend with new buys. Wait for the regime to flip.
+• CASH DEPLOYMENT TRIGGER: if VIX < 22 AND macro_momentum ≥ −0.10 for 5 consecutive
+  trading days, the risk-off bar drops back to standard (conf ≥ 7). When this trigger
+  fires, require at least 1 new deployment per 5 trading days — do not use the framework
+  as an excuse to hold 50%+ cash indefinitely when conditions are normalising.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -197,7 +520,7 @@ QUALITY FILTERS (enforced by risk manager — do not override):
 
 ═══════════════════════════════════════════════════════
 EXIT SIGNALS — sell on real signals, not arbitrary targets:
-• Hard stop loss by tier (risk manager): mega −6% | large_growth −8% | mid_growth −10% | speculative −15%
+• Hard stop loss by tier (risk manager): mega −6% | large_growth −8% | mid_growth −10% | speculative −20%
 • Trailing stop: if position is up ≥20% and 1-month return ≤ −8% → SELL
   (the stock has reversed — protect the gain, don't give it back)
 • Dead money: held > 90 days AND profit < +3% → SELL (NOT applied to speculative/moonshot tier)
@@ -238,6 +561,56 @@ Trend matters too:
 
 If earnings_momentum label is bearish or strong_bearish AND you hold the position → SELL.
 If earnings_momentum label is strong_bullish → treat like a conviction booster (+1 confidence).
+
+POST-EARNINGS T+2 CONTINUATION REVIEW:
+When a stock reports a strong_beat AND the gap holds (price remains above the day-1 close
+two days later), this is a high-quality continuation setup. At T+2:
+• Gap held + volume still elevated → valid medium-term entry if not already positioned
+• Gap filled in T+2 close → wait; the market is testing the move, not confirming it
+• This is one of the highest win-rate setups in the playbook — do not skip it.
+CCO: no binary-event risk applies at T+2; earnings are behind us.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+UNUSUAL WHALES SIGNALS — now available for ALL LT and MT stocks, not just options plays.
+These signals reveal what institutional money is doing in the options market and dark pools.
+Use them for every ticker in the synthesis, not just the ones explicitly trading options.
+
+options_flow signals:
+• bullish_sweep (norm_pct ≥ 90, expiry_score = 1.0) → HIGH-CONVICTION +0.5 bonus (live) or logged (shadow).
+  Top-decile premium + aligned expiry = institutions making a large, precise directional bet. Strongest signal.
+• bullish_sweep (norm_pct ≥ 85) → standard +0.5 bonus. Still a significant institutional bet.
+• bearish_sweep (norm_pct ≥ 70) → -0.5 conviction penalty, always live.
+  Large put buying ahead of a move down. Treat as an institutional sell signal.
+• bullish_lean / call_accumulation OI → mild positive; institutions are building quietly
+• bearish_lean / put_accumulation OI → mild negative; institutional hedging or directional short
+
+darkpool signals:
+• strong_accumulation (≥2 prints >$5M in 3 days) → highest-conviction institutional signal (+2).
+  Repeated large block trades off-exchange = coordinated institutional positioning. Weight heavily.
+• accumulation (≥1 print >$1M in 3 days) → standard institutional block trade (+1).
+  Precedes a 3-10 day upward move. Weight as institutional accumulation.
+• quiet / no_data → no institutional block activity detected
+
+Short interest (changes slowly — use as structural context):
+• high squeeze risk (short_pct >25%, borrow >30%) → powerful UPSIDE fuel if thesis is confirmed
+• elevated short interest alone → double-edged: fuel for squeeze OR downside amplifier if thesis breaks
+• low short interest → stock is not contested; less squeeze potential but also less downside reflexivity
+
+IV rank (0-100):
+• ≥ 80 → options expensive; market pricing a large move. Be cautious of entry — wait for clarity.
+• ≤ 20 → options cheap; low fear priced in. Great time to enter before the market recognises the thesis.
+• implied_move_pct → expected ±% move from ATM straddle; context for position sizing and stop placement
+
+UW market-wide context (market_tide, sector_flows):
+• market_tide = bullish → net call premium dominates; institutional money is risk-on overall
+• market_tide = bearish → net put flow; institutions are hedging or rotating to defence
+• sector_flows → tells you whether the SECTOR is in institutional favour, not just the stock
+  A bullish stock in a bearish sector = going against the institutional flow; reduce conviction.
+  A bullish stock in a bullish sector = thesis confirmed at the sector level; increase conviction.
+
+Shadow mode: bullish sweep +0.5 bonus gated until 20 validated signals with ≥55% hit rate.
+Bearish penalty (-0.5) is ALWAYS live regardless of shadow mode.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -271,10 +644,11 @@ POSITION SIZING (tier-based — risk manager enforces, your confidence drives it
 Mega caps:      conf 7→5% | 8→6% | 9→7% | 10→8%
 Large growth:   conf 7→4% | 8→5% | 9→6% | 10→7%
 Mid growth:     conf 7→3% | 8→4% | 9→4.5% | 10→5%
-Speculative:    conf 7→1.5% | 8→2% | 9→2.5% | 10→3%  (moonshots — size small!)
+Speculative:    conf 7→1.5% | 8→2% | 9→2.5% | 10→3%  (min conf 7 — no conf-6 entries; ASTS hard cap 1%)
 • Congress buying bonus: +2% | Insider buying bonus: +1%
 • Hard cap: 8% per position | Max 20 open positions
 • Max 5 speculative positions | Max 10% portfolio in speculative tier
+• Spec tier kill switch: if spec tier down >40% from peak → halve all spec sizes, freeze new entries 90 days
 • Max 25% portfolio in any single sector
 • Max 20% crypto, 20% options
 ═══════════════════════════════════════════════════════
@@ -286,22 +660,36 @@ You will respond AS all 6 agents sequentially within one JSON output per candida
 [CIO] Idea & Thesis: identify upside opportunity, growth narrative, narrative drift
   (compare tone of last 2 quarters: growth→cost-cutting = -3 conf; cost-cutting→growth = +1)
   Relative Strength: outperforming sector peers (90-day return) = +1; underperforming = -1
-  Output: decision (Buy/Avoid/Hold), confidence (1-10), narrative_drift, rel_strength, reason
+  Growth Runway: assess TAM trend, company position, runway_assessment from future_growth data
+  Narrative Stage: identify if this is an Early/Consensus/Late narrative
+  Output: decision (Buy/Avoid/Hold/Bucket), confidence (1-10), narrative_drift, rel_strength,
+          narrative_stage (Early/Consensus/Late), runway_assessment (Strong/Neutral/Weak), reason
 
 [QUANT] Technical confirmation: RSI, MACD, SMA cross, BB, volume ratio
   HARD BLOCK if: RSI < 25 or > 78 | Death cross active | BB upper + MACD bearish simultaneously
   Output: decision (Strongly_Bullish/Bullish/Neutral/Bearish/Block), signal (1 sentence)
 
-[CRO] Risk control: volatility, correlation, ADV liquidity, sector concentration
+[CRO] Risk control: volatility, correlation, ADV liquidity, sector concentration, valuation risk
   If correlation with existing holdings > 0.7 → Caution (NOT Block); if extreme downside → Block
-  Output: decision (Approve/Caution/Block), adv_ok (bool), top_risk (1 sentence)
+  Valuation risk flag: P/E > 120 (non-high-growth) = Extreme | P/E 60–120 = Elevated | else Low
+  Output: decision (Approve/Caution/Block), adv_ok (bool), valuation_risk (Low/Elevated/Extreme),
+          top_risk (1 sentence)
 
 [CCO] Compliance gate — binary only:
   REJECT if: earnings ≤ 3 days | F&G < 15 | congress selling + neg sentiment | price < $3
-  Output: decision (Approve/Reject), reason
+    Exception: pre-earnings green-light (T-4 to T-10, consistent_beats + UW bullish + conf ≥8)
+               → APPROVE with note "pre-earnings tranche-1 only"
+  RE-ENTRY GATE: if ticker had a recent stop-loss exit (<20 trading days ago) without new catalyst → Reject
+  FALSIFICATION GATE: every BUY must include specific quantitative thesis-break triggers.
+    State them explicitly: "thesis breaks if [metric] falls below [value] or [event] occurs."
+    If you cannot define falsifiable break criteria → cap conviction at 6, output BUCKET not BUY.
+  BUCKET EXPIRY: if a ticker appears in BUCKET for the 3rd consecutive cycle, output Reject with
+    reason "BUCKET expired — promote or remove" to force a decision.
+  Output: decision (Approve/Reject), reason, thesis_break_criteria (one sentence for BUYs)
 
 [DEVIL] Bear case: ONE sharp argument, probability estimate, severity
   Severity: Low (downside <15%), Medium (15-30%, thesis at risk), High (>30% or thesis-killer)
+  Thesis-break triggers: earnings miss + guidance cut | revenue deceleration 2Q | key partner loss
   Output: bear_case, probability (0-100 integer), severity (Low/Medium/High)
 
 [PM] Final allocation — applies confidence modifiers first:
@@ -309,13 +697,36 @@ You will respond AS all 6 agents sequentially within one JSON output per candida
     -1 if CRO=Caution | -2 if DA severity=High | -1 if DA severity=Medium
     -1 if QUANT=Bearish | +1 if QUANT=Strongly_Bullish
   Sizing (standard stocks): conf 9-10→8-15% | conf 7-8→5-8% | conf 5-6→2-4%
-  Moonshots: max 5% regardless of confidence
+  Speculative: conf 7→1.5% | conf 8→2% | conf 9→2.5% | conf 10→3% (ASTS hard cap 1%; min conf 7)
   TRANCHE RULE: allocation_pct = 50% of target (enter at half size, scale in on confirmation)
   target_pct = full position (reached after 2 independent confirmations)
-  Output: action, allocation_pct, target_pct, asset_type, option_direction, rationale
+
+  BUCKET: Stock has strong runway and intact thesis but entry timing is wrong, valuation is
+  elevated, or conviction is 5-6. Output BUCKET instead of HOLD/Avoid so the committee
+  keeps it on the watchlist for the next cycle. allocation_pct=0, target_pct=0.
+  Use BUCKET when: conviction 5-6 | good company but not yet the right entry point | narrative Late.
+  BUCKET is NOT a rejection — it is a "we like this, not now."
+
+  ANTI-PROCRASTINATION RULE: Any name in BUCKET for >2 consecutive cycles MUST be either
+  promoted to BUY (if conditions have improved) or removed from the watchlist entirely.
+  Permanent BUCKET purgatory is not permitted — it wastes committee bandwidth and masks
+  broken theses. If a stock has been BUCKET'd twice in a row and nothing has changed,
+  the default is REMOVE (not another BUCKET).
+
+  PERMANENT REMOVE flag: When the investment thesis is broken with no credible path to
+  re-entry within 12 months, output action=BUCKET with rationale beginning "PERMANENT REMOVE:"
+  (e.g., market share structurally lost, foundry economics broken, key moat destroyed).
+  PM escalates PERMANENT REMOVE outputs to the basket cleanup process.
+  Example: INTC — foundry losing money, losing share to TSM/AMD, no timeline to recovery.
+
+  Output: action (BUY/SELL/TRIM/HOLD/BUCKET), allocation_pct, target_pct, asset_type,
+          option_direction, rationale
+
+  TRIM: reduce a held position by 33% when thesis is weakening OR risk is elevated.
+        The agent executes the sell automatically. Set allocation_pct=0 for TRIM.
 
 GATE: Execute ONLY if CIO=Buy AND CRO≠Block AND CCO=Approve
-If gate fails → action=HOLD, allocation_pct=0, target_pct=0
+If gate fails → action=BUCKET (if thesis intact) or HOLD (if already held), allocation_pct=0
 ═══════════════════════════════════════════════════════
 
 HOLD is ALWAYS the safe default. Only BUY when multiple signals clearly agree.
@@ -451,6 +862,33 @@ def _build_synthesis(symbol: str, signals: dict) -> str:
             except (ValueError, TypeError):
                 pass
 
+    # ── Growth Runway ─────────────────────────────────────────────────────────
+    tam  = growth.get("tam_trend")
+    pos  = growth.get("company_position")
+    run  = growth.get("runway_assessment")
+    if tam and pos and run:
+        runway_str = f"TAM:{tam} | Position:{pos} → Runway:{run}"
+        if run == "Strong":
+            bull.append(f"growth runway strong: {runway_str}")
+        elif run == "Weak":
+            bear.append(f"growth runway weak: {runway_str}")
+        else:
+            bull.append(f"growth runway: {runway_str}")
+
+    ns = growth.get("narrative_stage")
+    if ns == "Early":
+        bull.append("narrative stage: EARLY — asymmetric entry, low analyst coverage")
+    elif ns == "Late":
+        bear.append("narrative stage: LATE — crowded consensus trade, upside compressed")
+
+    # ── Valuation Risk ────────────────────────────────────────────────────────
+    pe_val = fund.get("pe_ratio")
+    if pe_val and pe_val > 0 and g_score < 70:
+        if pe_val > config.VALUATION_PE_EXTREME:
+            risks.append(f"EXTREME valuation risk: P/E={pe_val:.0f} — size small, tight stop")
+        elif pe_val > config.VALUATION_PE_ELEVATED:
+            risks.append(f"Elevated valuation risk: P/E={pe_val:.0f} — require momentum confirmation")
+
     # ── Future Growth Score ───────────────────────────────────────────────────
     if g_score >= 70:
         g_cls = growth.get("classification", "").replace("_", " ")
@@ -538,6 +976,143 @@ def _build_synthesis(symbol: str, signals: dict) -> str:
     elif tier == "mid_growth":
         # Soften P/E penalty — high P/E is normal for fast growers
         bear = [b for b in bear if "expensive P/E" not in b or g_score >= 60]
+
+    # ── Unusual Whales — full signal suite ───────────────────────────────────
+    uw        = signals.get("options_flow") or {}
+    uw_signal = uw.get("flow_signal", "no_data")
+    uw_pct    = uw.get("normalized_prem_pct", 0)
+    uw_cp     = uw.get("call_put_ratio", 1.0)
+    uw_exp    = uw.get("expiry_alignment_score", 0)
+    uw_shadow = uw.get("is_shadow_mode", True)
+    net_flow  = uw.get("net_flow_prem")
+
+    # Options flow signal
+    if uw_signal == "bullish_sweep" and uw_pct >= 85:
+        bonus_note = "(+0.5 conviction)" if not uw_shadow else "(shadow — logged only)"
+        bull.append(f"UW options flow: BULLISH SWEEP — norm_pct={uw_pct}, C/P={uw_cp:.1f}, "
+                    f"expiry_score={uw_exp} {bonus_note}")
+    elif uw_signal == "bearish_sweep" and uw_pct >= 70:
+        bear.append(f"UW options flow: BEARISH SWEEP — norm_pct={uw_pct}, C/P={uw_cp:.1f}, "
+                    f"expiry_score={uw_exp} (-0.5 conviction, BEARISH_FLOW_ALERT)")
+    elif uw_signal == "bullish_lean" and uw_pct >= 60:
+        bull.append(f"UW options flow: bullish lean — C/P={uw_cp:.1f}, net_flow=${net_flow:+,.0f}" if net_flow else f"UW options flow: bullish lean — C/P={uw_cp:.1f}")
+    elif uw_signal == "bearish_lean" and uw_pct >= 60:
+        bear.append(f"UW options flow: bearish lean — C/P={uw_cp:.1f}, net_flow=${net_flow:+,.0f}" if net_flow else f"UW options flow: bearish lean — C/P={uw_cp:.1f}")
+
+    # Net premium flow (directional conviction size)
+    if net_flow is not None and abs(net_flow) >= 500_000:
+        if net_flow > 0:
+            bull.append(f"UW net flow: +${net_flow/1e6:.1f}M call premium over puts — institutional directional bet")
+        else:
+            bear.append(f"UW net flow: ${net_flow/1e6:.1f}M put premium over calls — institutional bearish positioning")
+
+    # Flow momentum: today vs 7-day daily average
+    fm = uw.get("flow_momentum")
+    if fm is not None:
+        if fm >= 3.0:
+            bull.append(f"UW flow MOMENTUM: {fm:.1f}x spike — today's flow is {fm:.1f}x the 7-day average (institutions accelerating)")
+        elif fm >= 2.0:
+            bull.append(f"UW flow building: {fm:.1f}x above 7-day average (activity rising)")
+
+    # OI changes: quiet institutional accumulation
+    oi_data = uw.get("oi_changes") or {}
+    oi_sig  = oi_data.get("oi_change_signal", "no_data")
+    net_oi  = oi_data.get("net_oi_change")
+    if oi_sig == "call_accumulation" and net_oi:
+        bull.append(f"UW OI: CALL ACCUMULATION — +{net_oi:,.0f} net new call contracts "
+                    f"(institutions quietly building long exposure)")
+    elif oi_sig == "put_accumulation" and net_oi:
+        bear.append(f"UW OI: PUT ACCUMULATION — {net_oi:,.0f} net new put contracts "
+                    f"(hedging or directional bearish positioning)")
+
+    # Expiry distribution: LEAPS = long-thesis conviction; near-term = event only
+    exp_dist  = uw.get("flow_by_expiry") or {}
+    leaps_pct = exp_dist.get("leaps_pct", 0)
+    near_pct  = exp_dist.get("near_pct", 0)
+    if leaps_pct >= 30:
+        bull.append(f"UW expiry: {leaps_pct}% LEAPS flow (>10 weeks) — "
+                    f"institutional long-term conviction, not just event play")
+    if near_pct >= 60:
+        risks.append(f"UW expiry: {near_pct}% near-term (≤2w) flow — "
+                     f"event-driven positioning, not structural trend signal")
+
+    # Dark pool: institutional accumulation signal
+    dp       = uw.get("darkpool") or {}
+    dp_sig   = dp.get("darkpool_signal", "no_data")
+    dp_large = dp.get("large_print_count", 0)
+    dp_5m    = dp.get("large_print_5m_count", 0)
+    dp_notl  = dp.get("total_notional_3d", 0)
+    if dp_sig == "strong_accumulation":
+        notl_str = f", ${dp_notl/1e6:.1f}M total notional" if dp_notl >= 1_000_000 else ""
+        bull.append(f"UW dark pool: STRONG ACCUMULATION — {dp_5m} print(s) >$5M in last 3 days"
+                    f"{notl_str} — highest-conviction institutional positioning (+2 signal)")
+    elif dp_sig == "accumulation":
+        notl_str = f", ${dp_notl/1e6:.1f}M total notional" if dp_notl >= 1_000_000 else ""
+        bull.append(f"UW dark pool: INSTITUTIONAL ACCUMULATION — {dp_large} large print(s) "
+                    f"(>$1M) in last 3 days{notl_str} — quiet institutional buying")
+
+    # Short interest + squeeze potential
+    si_pct   = uw.get("short_interest_pct")
+    borrow   = uw.get("borrow_rate")
+    squeeze  = uw.get("short_squeeze_score", "no_data")
+    if si_pct is not None:
+        si_str = f"short interest {si_pct:.1f}% of float"
+        if borrow is not None:
+            si_str += f", borrow rate {borrow:.1f}%"
+        if squeeze == "high":
+            bull.append(f"UW short data: HIGH SQUEEZE RISK — {si_str} (crowded short, expensive borrow)")
+        elif squeeze == "moderate" and si_pct >= 15:
+            bull.append(f"UW short data: elevated short interest — {si_str}")
+        elif si_pct >= 20:
+            risks.append(f"UW short data: {si_str} — downside amplifier if thesis breaks")
+
+    # IV rank — context for entry timing and earnings risk
+    iv_rank  = uw.get("iv_rank")
+    iv_move  = uw.get("implied_move_pct")
+    if iv_rank is not None:
+        if iv_rank >= 80:
+            risks.append(f"UW IV rank {iv_rank}/100 — options pricing in large move; expensive to hedge"
+                         + (f", implied ±{iv_move:.1f}%" if iv_move else ""))
+        elif iv_rank <= 20:
+            bull.append(f"UW IV rank {iv_rank}/100 — options cheap; low fear priced in"
+                        + (f", implied ±{iv_move:.1f}%" if iv_move else ""))
+
+    # ── UW market-wide context (tide + sector flows) ──────────────────────────
+    uw_mkt     = signals.get("uw_market") or {}
+    uw_tide    = uw_mkt.get("market_tide", "no_data")
+    if uw_tide == "bullish":
+        bull.append("UW market tide: BULLISH — net call premium dominates market-wide flow")
+    elif uw_tide == "bearish":
+        bear.append("UW market tide: BEARISH — net put premium dominates market-wide flow")
+
+    # Sector flow context — show any sector relevant to this ticker
+    sector_flows = uw_mkt.get("sector_flows") or {}
+    _sector_map = {
+        "semis":    {"AMD", "AVGO", "ARM", "MRVL", "TSM", "INTC", "NVDA", "MU", "AMAT", "LRCX", "KLAC", "SNPS", "KEYS"},
+        "ai_tech":  {"MSFT", "GOOGL", "META", "AMZN", "PLTR", "CRM", "NOW", "AI", "ANET", "ORCL", "SNOW", "PSTG", "DDOG", "MDB", "NET"},
+        "cyber":    {"CRWD", "PANW", "ZS", "FTNT", "OKTA", "CYBR", "S"},
+        "defense":  {"LMT", "RTX", "NOC", "GD", "AXON", "KTOS", "GE", "CACI", "HII", "DRS", "LDOS", "SAIC", "BAH"},
+        "nuclear":  {"CCJ", "CEG", "BWXT", "SMR", "OKLO", "NNE"},
+        "fintech":  {"HOOD", "COIN", "MELI", "NU", "MA", "MSCI", "SHOP", "UBER", "SQ", "PYPL", "AFRM", "SOFI"},
+        "robotics": {"ABB", "SYM", "TRMB", "ISRG", "PATH"},
+        "biotech":  {"LLY", "DXCM", "VEEV", "RXRX", "MRNA", "BNTX", "REGN", "VRTX"},
+        "quantum":  {"IONQ", "RGTI", "QBTS", "IBM"},
+        "space":    {"RKLB", "ASTS", "LUNR"},
+        "energy":   {"FANG", "COP", "WMB", "FCX", "RGLD", "XOM", "CVX", "OXY"},
+    }
+    for sector, members in _sector_map.items():
+        if symbol in members:
+            flow = sector_flows.get(sector)
+            if flow == "bullish":
+                bull.append(f"UW sector: {sector} SECTOR FLOW BULLISH — ETF options showing institutional buying")
+            elif flow == "bearish":
+                bear.append(f"UW sector: {sector} SECTOR FLOW BEARISH — ETF options showing institutional selling/hedging")
+
+    # ── VIX term structure risk flag ──────────────────────────────────────────
+    vts = (mkt.get("vix_term_structure") or {})
+    if vts.get("inverted"):
+        risks.append(f"⚠️  VIX TERM STRUCTURE INVERTED: spot={vts['vix_spot']} vs 3m={vts['vix_3m']} "
+                     f"(spread={vts['spread']:+.1f}) — acute fear signal, 25% gross exposure reduction rule triggered")
 
     # ── Build output ──────────────────────────────────────────────────────────
     lines = [f"=== HOLISTIC SYNTHESIS: {symbol} ==="]
@@ -698,6 +1273,73 @@ def _format_raw_signals(signals: dict) -> str:
             em_parts.append("headline: " + news["top_headlines"][0][:100])
         parts.append("EarningsMomentum: " + " | ".join(em_parts))
 
+    # Unusual Whales — full data block
+    uw_raw = signals.get("options_flow") or {}
+    if uw_raw.get("flow_signal") and uw_raw["flow_signal"] != "no_data":
+        uw_parts = [
+            f"flow={uw_raw['flow_signal']}",
+            f"norm_pct={uw_raw.get('normalized_prem_pct',0)}",
+            f"C/P={uw_raw.get('call_put_ratio',1.0):.1f}",
+            f"expiry_score={uw_raw.get('expiry_alignment_score',0)}",
+            f"sweeps_7d={uw_raw.get('sweep_count_7d',0)}",
+            f"shadow={'yes' if uw_raw.get('is_shadow_mode') else 'no'}",
+        ]
+        nf = uw_raw.get("net_flow_prem")
+        if nf is not None:
+            uw_parts.append(f"net_flow=${nf/1e6:.2f}M")
+        # Flow momentum
+        fm = uw_raw.get("flow_momentum")
+        if fm is not None:
+            uw_parts.append(f"flow_momentum={fm:.1f}x")
+        # Expiry distribution
+        exp_d = uw_raw.get("flow_by_expiry") or {}
+        if exp_d:
+            uw_parts.append(
+                f"expiry=near{exp_d.get('near_pct',0)}%"
+                f"/sweet{exp_d.get('sweet_pct',0)}%"
+                f"/mid{exp_d.get('mid_pct',0)}%"
+                f"/leaps{exp_d.get('leaps_pct',0)}%"
+            )
+        # OI changes
+        oi_r = uw_raw.get("oi_changes") or {}
+        if oi_r.get("oi_change_signal") not in (None, "no_data", "quiet"):
+            net_oi = oi_r.get("net_oi_change", 0) or 0
+            uw_parts.append(f"oi_change={oi_r['oi_change_signal']}(net={net_oi:+,.0f})")
+        # Dark pool
+        dp_raw = uw_raw.get("darkpool") or {}
+        if dp_raw.get("darkpool_signal") not in (None, "no_data"):
+            dp_notl = dp_raw.get("total_notional_3d", 0) or 0
+            notl_str = f"_${dp_notl/1e6:.1f}M" if dp_notl >= 1_000_000 else ""
+            uw_parts.append(f"darkpool={dp_raw['darkpool_signal']}({dp_raw.get('large_print_count',0)} prints{notl_str})")
+        si = uw_raw.get("short_interest_pct")
+        br = uw_raw.get("borrow_rate")
+        sq = uw_raw.get("short_squeeze_score", "no_data")
+        if si is not None:
+            uw_parts.append(f"short_int={si:.1f}%_float" + (f"_borrow={br:.0f}%" if br else "") + f"_squeeze={sq}")
+        ivr = uw_raw.get("iv_rank")
+        ivm = uw_raw.get("implied_move_pct")
+        if ivr is not None:
+            uw_parts.append(f"iv_rank={ivr}" + (f"_implied_move=±{ivm:.1f}%" if ivm else ""))
+        parts.append("UnusualWhales: " + " | ".join(uw_parts))
+
+    # UW market-wide context
+    uw_mkt_raw = signals.get("uw_market") or {}
+    if uw_mkt_raw.get("market_tide") and uw_mkt_raw["market_tide"] != "no_data":
+        um_parts = [f"tide={uw_mkt_raw['market_tide']}"]
+        pc = uw_mkt_raw.get("market_put_call_ratio")
+        if pc is not None:
+            um_parts.append(f"P/C={pc:.3f}")
+        um_parts.append(f"SPY={uw_mkt_raw.get('spy_flow','?')} QQQ={uw_mkt_raw.get('qqq_flow','?')}")
+        sf = uw_mkt_raw.get("sector_flows") or {}
+        if sf:
+            active = [f"{k}={v[0].upper()}" for k, v in sf.items() if v in ("bullish", "bearish")]
+            if active:
+                um_parts.append("sectors: " + " ".join(active[:6]))
+        vts_r = uw_mkt_raw.get("vix_term_structure") or {}
+        if vts_r.get("inverted") is not None:
+            um_parts.append(f"VTS={'INVERTED⚠️' if vts_r['inverted'] else 'normal'}({vts_r.get('vix_spot','?')}/{vts_r.get('vix_3m','?')})")
+        parts.append("UW_Market: " + " | ".join(um_parts))
+
     # Research snippets
     snips = (signals.get("research") or {}).get("snippets", [])
     if snips:
@@ -731,7 +1373,7 @@ def decide(symbol: str, signals: dict, portfolio: dict) -> dict:
     prompt = f"""
 Ticker: {symbol}
 Portfolio: equity=${portfolio.get('equity', 0):,.2f}  cash=${portfolio.get('cash', 0):,.2f}
-Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS}
+Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS} (concentration target: top 5 drive returns)
 Options exposure: {portfolio.get('options_pct', 0):.1f}% / {config.MAX_OPTIONS_PCT}%
 Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT}%
 Speculative tier: {portfolio.get('speculative_count', 0)} positions / {portfolio.get('speculative_pct', 0):.1f}% (max {config.MAX_SPECULATIVE_PCT}%)
@@ -779,13 +1421,21 @@ Core signal detail:
 
 def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
     """
-    One Claude Haiku call running all candidates through the 6-agent committee chain.
+    One Claude call running all candidates through the 6-agent committee chain.
     CIO → QUANT → CRO → CCO → DEVIL → PM, with confidence aggregation formula.
     Each candidate gets a rich structured output; tranche sizing is baked in.
     Falls back to individual decide() calls on parse failure.
+    Learning context from recent trade outcomes is injected into the prompt.
     """
     if not candidates:
         return []
+
+    # ── Learning context (what worked / didn't in last 30 days) ──────────────
+    try:
+        from database.learning import get_learning_context
+        learning_block = get_learning_context(lookback_days=30)
+    except Exception:
+        learning_block = ""
 
     # ── Macro / geo risk block ────────────────────────────────────────────────
     macro    = mkt_ctx.get("macro_momentum") or {}
@@ -796,6 +1446,7 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
     fg_score = (mkt_ctx.get("fear_and_greed") or {}).get("score", "?")
     vix_val  = (mkt_ctx.get("vix") or {}).get("vix", "?")
 
+    vts_ctx  = mkt_ctx.get("vix_term_structure") or {}
     geo_warnings = []
     if m_label == "risk_off":
         geo_warnings.append("⚠️  RISK-OFF: CIO confidence must be ≥ 9 for any BUY")
@@ -803,6 +1454,12 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
         geo_warnings.append(f"⚠️  VIX={vix_val} > 30: QUANT should output Bearish (applies -1 to final confidence)")
     if isinstance(vix_val, (int, float)) and vix_val > 25 and m_label == "risk_off":
         geo_warnings.append("⚠️  VIX > 25 + risk_off: CCO should Reject all new positions below confidence 9")
+    if vts_ctx.get("inverted"):
+        geo_warnings.append(
+            f"⚠️  VIX TERM STRUCTURE INVERTED: spot={vts_ctx.get('vix_spot','?')} "
+            f"vs 3m={vts_ctx.get('vix_3m','?')} (spread={vts_ctx.get('spread','?')}) — "
+            f"system rule: PM must apply 25% gross exposure reduction to all new positions"
+        )
     warn_str = "\n".join(geo_warnings) if geo_warnings else "No active warnings."
 
     geo_block = (
@@ -828,11 +1485,20 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
             f"{k}={v:.1f}%" for k, v in sorted(sector_pcts.items(), key=lambda x: -x[1])[:5]
         )
 
+    lt_pct  = port_ctx.get("long_term_pct",    0)
+    mt_pct  = port_ctx.get("medium_term_pct",  0)
+    lt_cnt  = port_ctx.get("long_term_count",  0)
+    mt_cnt  = port_ctx.get("medium_term_count", 0)
+
     port_block = (
         f"=== PORTFOLIO STATUS ===\n"
         f"Equity=${port_ctx.get('equity', 0):,.0f}  "
         f"Cash=${port_ctx.get('cash', 0):,.0f}  "
         f"Positions={port_ctx.get('position_count', 0)}/{config.MAX_POSITIONS}\n"
+        f"SLEEVES: Long-term={lt_pct:.1f}%/{config.LONG_TERM_PCT_CAP}% "
+        f"({lt_cnt}/{config.MAX_POSITIONS_LONG_TERM} slots)  |  "
+        f"Medium-term={mt_pct:.1f}%/{config.MEDIUM_TERM_PCT_CAP}% "
+        f"({mt_cnt}/{config.MAX_POSITIONS_MEDIUM_TERM} slots)\n"
         f"Speculative={port_ctx.get('speculative_count', 0)} pos / "
         f"{port_ctx.get('speculative_pct', 0):.1f}% (max {config.MAX_SPECULATIVE_PCT}%)"
         f"{held_str}{sect_str}"
@@ -852,7 +1518,15 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
         if sym in held_syms:
             held = next((h for h in holdings if h["symbol"] == sym), None)
             if held:
-                flags.append(f"⚠️ ALREADY HELD: {held['pct']:.1f}% ({held['pl_pct']:+.1f}%) — only add if high conviction")
+                pct = held["pct"]
+                if pct > config.MAX_POSITION_PCT:
+                    flags.append(
+                        f"🚨 OVERSIZED: {pct:.1f}% EXCEEDS {config.MAX_POSITION_PCT}% hard cap "
+                        f"({held['pl_pct']:+.1f}%) — hard cap trim fires automatically; "
+                        f"if thesis deteriorating output TRIM or SELL"
+                    )
+                else:
+                    flags.append(f"⚠️ ALREADY HELD: {pct:.1f}% ({held['pl_pct']:+.1f}%) — only add if high conviction")
         if cong.get("net_signal") == "bullish":
             flags.append(f"*** CONGRESS NET BUYING: {cong.get('buys',0)}B vs {cong.get('sells',0)}S (60d) ***")
         elif cong.get("net_signal") == "bearish":
@@ -879,39 +1553,65 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
         f"-2 if DA.severity=High, -1 if DA.severity=Medium, -1 if QUANT=Bearish, "
         f"+1 if QUANT=Strongly_Bullish.\n"
         f"GATE: action=BUY only if CIO=Buy AND CRO≠Block AND CCO=Approve.\n"
+        f"If gate fails but thesis is intact → action=BUCKET (watchlist, no capital deployed).\n"
         f"TRANCHE: allocation_pct = 50% of target_pct (half-size entry; scale in later).\n"
         f"Return ONLY a JSON array with exactly {n} objects in candidate order:\n"
         f'[{{\n'
         f'  "symbol":"<ticker>",\n'
-        f'  "cio":{{"decision":"Buy"|"Avoid"|"Hold","confidence":<1-10>,"narrative_drift":"none"|"positive"|"negative","rel_strength":"outperforming"|"inline"|"underperforming","reason":"<one sentence>"}},\n'
+        f'  "cio":{{"decision":"Buy"|"Avoid"|"Hold"|"Bucket","confidence":<1-10>,"narrative_drift":"none"|"positive"|"negative","rel_strength":"outperforming"|"inline"|"underperforming","narrative_stage":"Early"|"Consensus"|"Late","runway_assessment":"Strong"|"Neutral"|"Weak","reason":"<one sentence>"}},\n'
         f'  "quant":{{"decision":"Strongly_Bullish"|"Bullish"|"Neutral"|"Bearish"|"Block","signal":"<one sentence>"}},\n'
-        f'  "cro":{{"decision":"Approve"|"Caution"|"Block","adv_ok":true|false,"top_risk":"<one sentence>"}},\n'
-        f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>"}},\n'
+        f'  "cro":{{"decision":"Approve"|"Caution"|"Block","adv_ok":true|false,"valuation_risk":"Low"|"Elevated"|"Extreme","top_risk":"<one sentence>"}},\n'
+        f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>","thesis_break_criteria":"<quantitative break triggers or N/A>"}},\n'
         f'  "devil":{{"bear_case":"<one sentence>","probability":<0-100>,"severity":"Low"|"Medium"|"High"}},\n'
         f'  "final_confidence":<1-10>,\n'
-        f'  "action":"BUY"|"SELL"|"HOLD",\n'
-        f'  "allocation_pct":<0.0-8.0>,\n'
+        f'  "action":"BUY"|"SELL"|"TRIM"|"HOLD"|"BUCKET",\n'
+        f'  "bucket":"long_term"|"medium_term",\n'
+        f'  "catalyst_note":"<specific catalyst + timeline for medium_term, or N/A for long_term>",\n'
+        f'  "allocation_pct":<0.0-8.0 long_term | 0.0-6.0 medium_term>,\n'
         f'  "target_pct":<0.0-15.0>,\n'
         f'  "asset_type":"stock"|"crypto"|"option",\n'
         f'  "option_direction":"call"|"put"|null,\n'
-        f'  "rationale":"<one sentence>"\n'
+        f'  "rationale":"<one sentence — for long_term BUY must include explicit alpha source vs SPY>"\n'
         f'}}]\n'
         f"No prose, no markdown fences — ONLY the JSON array."
     )
 
-    prompt = f"{geo_block}\n\n{port_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
+    # ── Standing agenda (open decisions requiring committee resolution) ────────
+    agenda_block = ""
+    try:
+        import json as _json, os as _os
+        _agenda_path = _os.path.join(_os.path.dirname(__file__), "..", "basket", "committee_agenda.json")
+        _agenda_path = _os.path.normpath(_agenda_path)
+        if _os.path.exists(_agenda_path):
+            _agenda = _json.load(open(_agenda_path))
+            _items = _agenda.get("items", [])
+            if _items:
+                _lines = ["=== STANDING COMMITTEE AGENDA ===",
+                          "The following open decisions require resolution this session.",
+                          "CIO and PM must output an explicit recommendation in their rationale.\n"]
+                for _it in _items:
+                    _lines.append(f"[{_it['id'].upper()}] {_it['title']}")
+                    _lines.append(f"  Context: {_it['context']}")
+                    _opts = _it.get("options", [])
+                    if _opts:
+                        for _j, _o in enumerate(_opts, 1):
+                            _lines.append(f"  Option {_j}: {_o}")
+                    _lines.append(f"  Owned by: {_it.get('owned_by','committee')} | Resolve by: {_it.get('resolve_by','this session')}\n")
+                agenda_block = "\n" + "\n".join(_lines)
+    except Exception:
+        pass
 
-    # thinking_budget: enough to reason through the 6-agent chain per candidate.
-    # max_tokens must exceed thinking_budget + expected output tokens.
-    _THINKING_BUDGET = 4000
-    _output_tokens   = 350 * n + 500
-    _max_tokens      = _THINKING_BUDGET + _output_tokens
+    learning_section = f"\n\n{learning_block}" if learning_block else ""
+    prompt = f"{geo_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
+
+    # max_tokens: room for adaptive thinking + structured JSON output per candidate.
+    _max_tokens = 350 * n + 6000
 
     try:
         response = _client.messages.create(
             model="claude-opus-4-7",
             max_tokens=_max_tokens,
-            thinking={"type": "enabled", "budget_tokens": _THINKING_BUDGET},
+            thinking={"type": "adaptive"},
             system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
@@ -966,11 +1666,26 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
 def _normalise_committee_decision(sym: str, d: dict) -> dict:
     """Extract and validate fields from a 6-agent committee JSON object."""
     cio    = d.get("cio", {})
+    cro    = d.get("cro", {})
     devil  = d.get("devil", {})
     action = d.get("action", "HOLD").upper()
     alloc  = float(d.get("allocation_pct", 0))
     target = float(d.get("target_pct", alloc * 2))  # fallback: double alloc
 
+    # BUCKET means watchlist — no capital deployed
+    if action == "BUCKET":
+        alloc  = 0.0
+        target = 0.0
+
+    # Enforce bucket rules: mega/speculative are always long_term
+    import config as _cfg
+    _tier   = _cfg.TICKER_TIERS.get(sym, "mid_growth")
+    bucket  = d.get("bucket", "long_term")
+    if _tier in ("mega", "speculative"):
+        bucket = "long_term"
+
+    cco = d.get("cco") or {}
+    quant = d.get("quant") or {}
     return {
         "symbol":           sym,
         "action":           action,
@@ -984,11 +1699,20 @@ def _normalise_committee_decision(sym: str, d: dict) -> dict:
         "da_severity":      devil.get("severity", "Low"),
         "da_bear_case":     devil.get("bear_case", ""),
         "da_probability":   int(devil.get("probability", 0)),
-        "quant_decision":   (d.get("quant") or {}).get("decision", "Neutral"),
-        "cro_decision":     (d.get("cro") or {}).get("decision", "Approve"),
-        "cco_decision":     (d.get("cco") or {}).get("decision", "Approve"),
-        "narrative_drift":  cio.get("narrative_drift", "none"),
-        "rel_strength":     cio.get("rel_strength", "inline"),
+        "quant_decision":   quant.get("decision", "Neutral"),
+        "quant_signal":     quant.get("signal", ""),
+        "cro_decision":     cro.get("decision", "Approve"),
+        "cro_top_risk":     cro.get("top_risk", ""),
+        "cco_decision":     cco.get("decision", "Approve"),
+        "cco_reason":       cco.get("reason", ""),
+        "narrative_drift":       cio.get("narrative_drift", "none"),
+        "rel_strength":          cio.get("rel_strength", "inline"),
+        "narrative_stage":       cio.get("narrative_stage", "Consensus"),
+        "runway_assessment":     cio.get("runway_assessment", "Neutral"),
+        "valuation_risk":        cro.get("valuation_risk", "Low"),
+        "thesis_break_criteria": cco.get("thesis_break_criteria", ""),
+        "bucket":                bucket,
+        "catalyst_note":         d.get("catalyst_note", "N/A"),
     }
 
 
@@ -1001,4 +1725,7 @@ def _hold_decision(sym: str, reason: str) -> dict:
         "da_probability": 0, "quant_decision": "Neutral",
         "cro_decision": "Approve", "cco_decision": "Approve",
         "narrative_drift": "none", "rel_strength": "inline",
+        "narrative_stage": "Consensus", "runway_assessment": "Neutral",
+        "valuation_risk": "Low", "thesis_break_criteria": "",
+        "bucket": "long_term", "catalyst_note": "N/A",
     }

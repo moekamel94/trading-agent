@@ -61,6 +61,7 @@ def _get_yf_metrics(symbol: str) -> dict:
             "target_upside":     round((target - price) / price * 100, 1) if target and price else None,
             "sector":            info.get("sector"),
             "industry":          info.get("industry"),
+            "beta":              info.get("beta"),
         }
     except Exception:
         return {}
@@ -100,6 +101,58 @@ def _get_earnings_history(symbol: str) -> dict:
         }
     except Exception:
         return {}
+
+
+def _assess_runway(scored: dict, tailwinds: list) -> dict:
+    """Classify TAM trend, company market position, and growth runway strength."""
+    rev_g = scored.get("revenue_growth") or 0  # already in % (e.g. 25.0 = 25%)
+
+    if tailwinds and rev_g > 15:
+        tam_trend = "Expanding"
+    elif rev_g > 0:
+        tam_trend = "Stable"
+    else:
+        tam_trend = "Shrinking"
+
+    if rev_g > 25:
+        company_position = "Gaining"
+    elif rev_g > 0:
+        company_position = "Holding"
+    else:
+        company_position = "Losing"
+
+    if tam_trend == "Expanding" and company_position in ("Gaining", "Holding"):
+        runway_assessment = "Strong"
+    elif tam_trend == "Shrinking" or company_position == "Losing":
+        runway_assessment = "Weak"
+    else:
+        runway_assessment = "Neutral"
+
+    return {
+        "tam_trend":         tam_trend,
+        "company_position":  company_position,
+        "runway_assessment": runway_assessment,
+    }
+
+
+def _assess_narrative_stage(metrics: dict, tailwinds: list) -> str:
+    """Detect whether the stock is early, at peak consensus, or late in its narrative."""
+    n_analysts = metrics.get("analyst_count") or 0
+    upside     = metrics.get("target_upside")
+    rec        = metrics.get("rec_mean")  # 1=strong buy, 5=sell
+
+    # Late: heavily covered, consensus buy, analyst upside has compressed
+    if n_analysts > 25 and rec and rec <= 2.0 and upside is not None and upside < 10:
+        return "Late"
+
+    # Early: in a tailwind sector but few analysts have initiated coverage yet
+    if tailwinds and n_analysts < 10:
+        return "Early"
+
+    if n_analysts < 6:
+        return "Early"
+
+    return "Consensus"
 
 
 def _detect_tailwinds(symbol: str, sector: str, industry: str) -> list[str]:
@@ -148,6 +201,11 @@ def _score(metrics: dict, earnings: dict) -> dict:
 
     fpe = metrics.get("forward_pe")
     tpe = metrics.get("trailing_pe")
+    try:
+        fpe = float(fpe) if fpe is not None else None
+        tpe = float(tpe) if tpe is not None else None
+    except (ValueError, TypeError):
+        fpe = tpe = None
     if fpe and tpe and fpe < tpe:
         growth_pts += 4  # market expects earnings to grow into valuation
 
@@ -277,5 +335,10 @@ def compute(symbol: str) -> dict:
     scored["industry"]    = metrics.get("industry")
     scored["gross_margin"]= round((metrics.get("gross_margin") or 0) * 100, 1)
     scored["rec_mean"]    = metrics.get("rec_mean")
+    scored["beta"]        = metrics.get("beta")
+
+    runway = _assess_runway(scored, tailwinds)
+    scored.update(runway)
+    scored["narrative_stage"] = _assess_narrative_stage(metrics, tailwinds)
 
     return scored

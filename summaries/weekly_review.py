@@ -107,6 +107,15 @@ def run():
     spec_pct = sum(p["pct"] for p in pos_data if p["tier"] == "speculative")
     spec_count = sum(1 for p in pos_data if p["tier"] == "speculative")
 
+    # Factor cluster concentrations
+    cluster_pcts: dict = {}
+    for p in pos_data:
+        sym = p["sym"]
+        for cluster, tickers in config.FACTOR_CLUSTERS.items():
+            if sym in tickers:
+                cluster_pcts[cluster] = cluster_pcts.get(cluster, 0) + p["pct"]
+    cluster_breaches = {k: v for k, v in cluster_pcts.items() if v >= config.FACTOR_CLUSTER_CAP * 100}
+
     prompt = f"""You are Kimmy's investment committee doing a weekly portfolio review.
 Today is a Sunday review — market opens Monday. Your job is to review every position
 and give clear, actionable recommendations before the week begins.
@@ -120,18 +129,27 @@ PORTFOLIO OVERVIEW:
 SECTOR CONCENTRATION:
 {json.dumps(sector_pcts, indent=2)}
 
+FACTOR CLUSTER CONCENTRATION (max 40% per cluster):
+{json.dumps({k: f"{v:.1f}%" for k, v in sorted(cluster_pcts.items(), key=lambda x: -x[1]) if v > 0}, indent=2)}
+{"⚠️ CLUSTER BREACHES: " + ", ".join(f"{k}={v:.1f}%" for k,v in cluster_breaches.items()) if cluster_breaches else "No cluster breaches."}
+
 POSITION DETAILS:
 {json.dumps(pos_data, indent=2, default=str)}
 
 LIMITS TO ENFORCE:
   - Max 8% per position
   - Max 10% total in speculative tier (max 5 positions)
-  - Max 25% in any single sector
+  - Max 25% in any single sector | Max 40% in any single factor cluster
+  - TRIM RULE: flag any position ≥ 1.4× its target tier allocation OR up >50% in <30 days → TRIM 33%
   - Dead money rule: if held >90 days AND profit <3% → recommend exit (NOT for speculative)
   - Speculative: hold through volatility unless technology thesis broken
+  - BENCHMARK: we target 2× SPY return (positive years) / beat SPY (negative years).
+    Flag any position that is underperforming SPY by >10% over 90 days with no catalyst.
 
 KIMMY'S THESIS: AI/semis, cybersecurity, defense, nuclear energy, space, healthcare AI,
-fintech, energy/commodities tied to AI. 25% annual return target.
+fintech, energy/commodities tied to AI.
+RETURN TARGET: 2× SPY annual return. If SPY is up 15% YTD, we need +30%. Benchmark everything against this.
+A position that tracks SPY is a failure — we need names that materially outperform.
 
 REVIEW EACH POSITION AND ANSWER:
 1. Is the position sized correctly? Flag any over/underweight.
