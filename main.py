@@ -1233,9 +1233,12 @@ def run_cycle(dry_run: bool = False):
             fresh_death_cross = death_cross and (death_cross_days == 0 or death_cross_days <= 60)
             if below_sma200 and fresh_death_cross and not golden_cross:
                 print(f"  [{symbol}] -> SKIP | Quick filter: below SMA200 + death cross ({death_cross_days}d old)")
+                db.log_audit("prelim_drop_techfilter", symbol,
+                             f"below_sma200 + fresh_death_cross ({death_cross_days}d old)")
                 continue
             if at_bb_upper and below_sma50:
                 print(f"  [{symbol}] -> SKIP | Quick filter: overextended + below SMA50")
+                db.log_audit("prelim_drop_techfilter", symbol, "at_bb_upper + below_sma50")
                 continue
 
         scanned_count += 1
@@ -1284,6 +1287,7 @@ def run_cycle(dry_run: bool = False):
         passes, criteria_reason = manager.check_entry_criteria(signals)
         if not passes and not _is_held and not _is_directive:
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
+            db.log_audit("prelim_drop_criteria", symbol, criteria_reason)
             _drop_criteria += 1
             continue
 
@@ -1298,6 +1302,7 @@ def run_cycle(dry_run: bool = False):
                     dte = live_earn.get("days_to_earnings")
             if dte is not None and 0 <= dte <= config.CRITERIA_EARNINGS_DAYS:
                 print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk")
+                db.log_audit("prelim_drop_earnings", symbol, f"earnings in {dte}d")
                 _drop_earnings += 1
                 continue
 
@@ -1345,10 +1350,13 @@ def run_cycle(dry_run: bool = False):
                     prelim_score += 2
                 elif _uw_sig == "bullish_sweep":      prelim_score += 1
                 if _uw_sig == "bearish_sweep":        prelim_score -= 2
-                threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 3
+                threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 1
                 if prelim_score < threshold:
                     print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} "
                           f"(tier={tier}, need {threshold}, dc_age={dc_days}d)")
+                    db.log_audit("prelim_drop_score", symbol,
+                                 f"prelim={prelim_score} threshold={threshold} tier={tier} "
+                                 f"eps={eps} rev={rev} r1m={r1m} r3m={r3m} gc={gc} dc={dc} dc_days={dc_days}")
                     _drop_prelim += 1
                     continue
 
@@ -1392,10 +1400,12 @@ def run_cycle(dry_run: bool = False):
                     print(f"  [{symbol}] on-demand warmup done")
                 except Exception as _warm_err:
                     print(f"  [{symbol}] -> SKIP | On-demand warmup failed: {_warm_err}")
+                    db.log_audit("prelim_drop_cache", symbol, f"warmup_error: {type(_warm_err).__name__}: {str(_warm_err)[:200]}")
                     _drop_cache += 1
                     continue
             if not cached:
                 print(f"  [{symbol}] -> SKIP | Cache still empty after on-demand warmup")
+                db.log_audit("prelim_drop_cache", symbol, "cache_empty_after_warmup")
                 _drop_cache += 1
                 continue
             earnings_data = cached.get("earnings_data") or {}

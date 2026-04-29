@@ -136,12 +136,12 @@ CLOSE_SUMMARY_HOUR       = 16
 CLOSE_SUMMARY_MINUTE     = 5   # 4:05 PM — just after close
 
 # --- Tier-specific entry criteria ---
-MID_GROWTH_FUNDAMENTALS_NEEDED   = 2      # relaxed from 3
-MID_GROWTH_MOMENTUM_NEEDED       = 2
+MID_GROWTH_FUNDAMENTALS_NEEDED   = 1      # committee decides — gate blocks only junk
+MID_GROWTH_MOMENTUM_NEEDED       = 1      # one positive signal sufficient; committee has full picture
 MID_GROWTH_TECHNICAL_NEEDED      = 1      # just avoid confirmed death+downtrend
 MID_GROWTH_PE_MAX                = 200    # high-growth stocks can carry high P/E
 MID_GROWTH_MARGIN_MIN            = -5.0   # thin/slightly negative margin OK
-MID_GROWTH_PRELIM_MIN            = 2      # need at least 2 positive signals before calling Claude
+MID_GROWTH_PRELIM_MIN            = 0      # only block if actively negative (death cross + all signals bad)
 MID_GROWTH_DEAD_MONEY_REV_EXEMPT = 0.25  # skip dead money if revenue growing >25%
 
 SPEC_GROWTH_SCORE_MIN         = 35    # minimum future_growth score for speculative
@@ -173,8 +173,8 @@ CRITERIA_EARNINGS_DAYS   = 3    # skip if earnings within this many days
 
 # --- Entry Criteria: Scoring Thresholds ---
 CRITERIA_FUNDAMENTALS_NEEDED  = 3    # need 3 of 5 fundamental checks
-CRITERIA_MOMENTUM_NEEDED      = 2    # need 2 of 4 momentum checks
-CRITERIA_TECHNICAL_NEEDED     = 2    # need 2 of 3 technical checks
+CRITERIA_MOMENTUM_NEEDED      = 1    # need 1 of 4 — lets healthy pullbacks through; committee decides
+CRITERIA_TECHNICAL_NEEDED     = 1    # need 1 of 3 — avoid confirmed breakdowns, not normal weakness
 CRITERIA_EPS_GROWTH_MIN       = 0.0  # any positive EPS growth
 CRITERIA_REVENUE_GROWTH_MIN   = 0.0  # any positive revenue growth
 CRITERIA_PROFIT_MARGIN_MIN    = 0.05 # 5% margin

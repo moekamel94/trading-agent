@@ -69,13 +69,13 @@ def _check_standard_entry(signals: dict) -> tuple[bool, str]:
     if fg_score is not None and fg_score < config.CRITERIA_FG_PANIC:
         return False, f"Market extreme fear (F&G={fg_score:.0f}) — pausing new buys"
 
-    # ── Bear market override: VIX > 30 in fear regime → only mega allowed ─
+    # ── Bear market override: true panic only → only mega allowed ─
     vix_val     = (mkt.get("vix") or {}).get("vix", 0)
     market_risk = mkt.get("market_risk", "unknown")
-    if vix_val and vix_val > 30 and market_risk in ("extreme_fear", "fear"):
+    if vix_val and vix_val > 40 and market_risk == "extreme_fear":
         tier = config.TICKER_TIERS.get(signals.get("_symbol", ""), "mid_growth")
         if tier != "mega":
-            return False, f"Bear market mode (VIX={vix_val:.0f}, {market_risk}) — only mega-caps in confirmed fear regime"
+            return False, f"Panic mode (VIX={vix_val:.0f}, extreme_fear) — only mega-caps during market panic"
 
     # ── Hard Block 2: RSI extremes ─────────────────────────────────────────
     rsi = tech.get("rsi")
@@ -214,8 +214,8 @@ def _check_mid_growth_entry(signals: dict) -> tuple[bool, str]:
 
     vix_val     = (mkt.get("vix") or {}).get("vix", 0)
     market_risk = mkt.get("market_risk", "unknown")
-    if vix_val and vix_val > 30 and market_risk in ("extreme_fear", "fear"):
-        return False, f"Bear market mode (VIX={vix_val:.0f}) — mid_growth blocked in fear regime"
+    if vix_val and vix_val > 40 and market_risk == "extreme_fear":
+        return False, f"Panic mode (VIX={vix_val:.0f}) — mid_growth blocked during market panic"
 
     rsi = tech.get("rsi")
     if rsi is not None:
@@ -481,7 +481,7 @@ def _check_medium_term_entry(signals: dict) -> tuple[bool, str]:
 
     return True, (
         f"medium_term passed: catalyst={'earnings ' + str(dte) + 'd' if has_earnings_catalyst else 'sentiment'}, "
-        f"mom={mom_score}/5, uptrend={'SMA20' if above_sma20 else 'SMA50'}"
+        f"conf={conf_score}/3, uptrend={'SMA20' if above_sma20 else 'SMA50'}"
     )
 
 
@@ -802,16 +802,6 @@ def validate(decision: dict, portfolio: dict) -> dict:
         _db.log_audit("rule_breach", symbol, reason)
         return _hold(decision, reason)
 
-    # Conviction cap-at-6: no quantifiable thesis-break criteria → cap confidence at 6
-    if action == "BUY":
-        tbc = (decision.get("thesis_break_criteria") or "").strip().upper()
-        if not tbc or tbc in ("N/A", "NA", "NONE", ""):
-            if confidence > 6:
-                _db.log_audit("conviction_override", symbol,
-                              f"cap-at-6: no thesis_break_criteria (was conf={confidence})")
-                confidence = 6
-                decision = {**decision, "confidence": confidence}
-
     if action == "BUY":
         if portfolio.get("position_count", 0) >= config.MAX_POSITIONS:
             reason = "max open positions reached"
@@ -997,7 +987,7 @@ def apply_conviction_bonuses(decision: dict, signals: dict) -> dict:
     mkt         = signals.get("market_context", {})
     market_risk = mkt.get("market_risk", "unknown")
     vix_val     = (mkt.get("vix") or {}).get("vix", 0) or 0
-    bear_market = market_risk in ("extreme_fear", "fear") or vix_val > 30
+    bear_market = market_risk == "extreme_fear" or vix_val > 40
 
     return {**decision, "_congress_bonus": congress_bonus,
             "_insider_bonus": insider_bonus, "_adv_30d": adv_30d,
