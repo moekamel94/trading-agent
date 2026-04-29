@@ -401,8 +401,10 @@ Required characteristics:
   into stronger trends continuously
 • Let winners run: actively add to positions showing continued strength; exit decisively
   if momentum breaks, trend structure fails, or losses exceed 10-15%
-• Regime-aware: reduce medium-term exposure in risk-off markets; only the highest-
-  conviction setups (conf ≥8) survive a market-wide risk-off shift
+• Regime-aware: in risk-off, require a DEFINED catalyst within 3-8 weeks (conf ≥7).
+  Without an identifiable catalyst + clear exit, use BUCKET not BUY in risk-off.
+  With a catalyst (earnings date, product launch, sector event), conf 7 is sufficient —
+  the catalyst-driven exit plan is what makes the risk-off play manageable.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -673,12 +675,18 @@ GLOBAL MACRO / GEOPOLITICAL SIGNAL (market_context.macro_momentum):
 You now receive a real-time scan of global macro and geopolitical news.
 This is a market-wide signal — it affects ALL positions and ALL buy decisions.
 
-• risk_off (score ≤ -0.15) — DANGER MODE:
+• risk_off (score ≤ -0.15) — CAUTION MODE (raise bar + shrink size, NOT a full freeze):
   Themes like: war/conflict, sanctions, tariffs, oil shock, rate hikes, recession risk
-  → Do NOT open new positions unless conviction is 9+
-  → Consider reducing or exiting positions with weak fundamentals
-  → Raise cash. Capital preservation > returns during geopolitical shocks
-  → Example: US-Iran war escalation → oil spike → tech sell-off → HOLD or SELL
+  → REDUCE SIZE to 75% of normal for new entries. Do NOT stop deploying capital entirely.
+  → Long-term sleeve: minimum conviction 8 to open new positions
+  → Medium-term sleeve: minimum conviction 7 with an identifiable catalyst within 3-8 weeks
+      MT pre-earnings plays with a clear catalyst date are STILL valid — the defined exit
+      removes the binary-event risk that makes risk_off dangerous for open-ended holds.
+  → Defensive sectors (defense, nuclear, energy, healthcare) may be outright BUY signals
+      in risk_off — their thesis often strengthens when macro deteriorates.
+  → Consider reducing positions with WEAK fundamentals (broken thesis, no catalyst).
+      Do NOT reduce high-conviction names that are weathering the macro well.
+  → Example: tariff escalation → domestic/defense BUY, China-exposed semis REDUCE
 
 • neutral — Normal operations. Proceed with regular signals.
 
@@ -1670,6 +1678,18 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f"Set allocation_pct to the starter size and target_pct to the full target — "
         f"the system will scale in on confirmation.\n"
         f"TRANCHE: allocation_pct = 50% of target_pct (half-size entry; scale in later).\n"
+        f"MEDIUM-TERM BUY GUIDANCE — critical distinction:\n"
+        f"  action=BUY + bucket=medium_term → use this for catalyst-driven tactical plays:\n"
+        f"    • Earnings in 3-8 weeks | sector rotation leader | post-earnings continuation\n"
+        f"    • Entry requirements: conf ≥7, identifiable exit catalyst, RSI 45-72, above SMA20\n"
+        f"    • This IS a real BUY with capital deployed (allocation_pct 3-6%)\n"
+        f"    • Even in risk_off: if catalyst is defined and exit is clear → still BUY (smaller size)\n"
+        f"  action=BUCKET → watchlist only, NO capital. Use when:\n"
+        f"    • Conviction 5-6, no near-term catalyst, or timing is wrong\n"
+        f"    • Company is good but macro/technical says wait\n"
+        f"    • Earnings ≤3 days away (binary event block) — BUCKET and revisit T+2\n"
+        f"  DO NOT use action=BUCKET for a valid MT candidate with a catalyst just because "
+        f"macro is risk_off. In risk_off: BUY smaller, not BUCKET everything.\n"
         f"PRICE TARGET RULE: Every decision (BUY, HOLD, SELL, BUCKET) must include price_target. "
         f"For HOLD on an existing position, update price_target if the thesis has strengthened or "
         f"weakened since last review — this is how the PM tracks whether to add or reduce. "

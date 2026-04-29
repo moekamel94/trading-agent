@@ -710,6 +710,24 @@ def run_weekly_basket_review():
     tg.send(msg)
 
 
+def run_daily_basket_review():
+    """
+    Daily MT basket review — Mon-Fri 16:15 ET.
+    Evaluates each MT position for momentum, thesis validity, and TTL.
+    Removes broken/expired slots and sources 1:1 replacements.
+    """
+    print(f"\n{'='*60}")
+    print(f"DAILY BASKET REVIEW started at {datetime.now(timezone.utc).isoformat()}")
+    print('='*60)
+    db.init()
+
+    lt_basket = [s for s in basket_mgr.load() if not _is_crypto(s)]
+    updated_tickers, updated_meta, discord_msg = basket_curation.run_daily_basket_review(lt_basket)
+
+    if discord_msg:
+        tg.send(discord_msg)
+
+
 def run_basket_intelligence(mkt_ctx: dict, macro_regime: dict, uw_mkt_ctx: dict,
                             current_basket: list[str]) -> None:
     """
@@ -1849,6 +1867,52 @@ def run_cycle(dry_run: bool = False):
     except Exception as _e:
         print(f"  [OptionsMonitor] Phase 5 error: {_e}")
 
+    # =========================================================
+    # PHASE 5b: Monitor LIVE (manually placed) option positions
+    # Auto-close when option premium reaches the user's target
+    # =========================================================
+    try:
+        _live_trades = op_db.get_active_live_trades()
+        for _lt in _live_trades:
+            _ct_sym   = _lt["contract_symbol"]
+            _lt_id    = _lt["id"]
+            _lt_sym   = _lt["symbol"]
+            _lt_dirn  = _lt["direction"]
+            _lt_qty   = _lt["qty"]
+            _lt_entry = _lt["entry_price"]
+            _lt_tgt   = _lt["target_price"]
+            _lt_expiry = _lt["expiry"]
+
+            _curr_px = alpaca.get_option_last_price(_ct_sym)
+            if _curr_px is None:
+                print(f"  [LiveOptions] {_ct_sym}: no quote available")
+                continue
+
+            _pct_vs_entry = round((_curr_px - _lt_entry) / _lt_entry * 100, 1) if _lt_entry else 0
+            print(f"  [LiveOptions] {_ct_sym}: last=${_curr_px:.2f} target=${_lt_tgt:.2f} ({_pct_vs_entry:+.1f}%)")
+
+            if _curr_px >= _lt_tgt:
+                # Place limit sell at target (slightly below to ensure fill)
+                _sell_px = round(_lt_tgt * 0.99, 2)
+                try:
+                    alpaca.place_option_limit_order(_ct_sym, _lt_qty, "SELL", _sell_px)
+                    _close_reason = f"target hit: last=${_curr_px:.2f} >= target=${_lt_tgt:.2f}"
+                    op_db.close_live_trade(_lt_id, _close_reason, _curr_px)
+                    _pnl_pct = round((_curr_px - _lt_entry) / _lt_entry * 100, 1)
+                    _pnl_usd = round((_curr_px - _lt_entry) * _lt_qty * 100, 2)
+                    tg.send(
+                        f"✅ OPTIONS TARGET HIT — {_lt_sym} {_lt_dirn.upper()}\n"
+                        f"Contract: {_ct_sym}\n"
+                        f"Entry: ${_lt_entry:.2f} → Now: ${_curr_px:.2f} | Target was: ${_lt_tgt:.2f}\n"
+                        f"P&L: +${_pnl_usd:,.2f} (+{_pnl_pct:.1f}%) on {_lt_qty} contract(s)\n"
+                        f"Sell limit order placed at ${_sell_px:.2f}. Expires: {_lt_expiry}"
+                    )
+                    print(f"  [LiveOptions] TARGET HIT {_ct_sym} — sell order placed at ${_sell_px:.2f}")
+                except Exception as _se:
+                    print(f"  [LiveOptions] sell order failed for {_ct_sym}: {_se}")
+    except Exception as _e5b:
+        print(f"  [LiveOptions] Phase 5b error: {_e5b}")
+
     # --- Snapshot ---
     portfolio_final = alpaca.get_portfolio()
     positions_final = alpaca.get_positions()
@@ -2213,6 +2277,15 @@ def main():
                 try: tg.send(msg)
                 except Exception: pass
 
+        def _safe_daily_basket_review():
+            try:
+                run_daily_basket_review()
+            except Exception as e:
+                msg = f"❌ Daily basket review crashed: {e}"
+                print(msg)
+                try: tg.send(msg)
+                except Exception: pass
+
         def _safe_gap_scan():
             try:
                 run_gap_scan()
@@ -2336,6 +2409,13 @@ def main():
             id="close_summary",
             misfire_grace_time=GRACE,
         )
+        # Daily MT basket review: Mon-Thu 16:15 ET (after close summary; Fri uses weekly refresh)
+        scheduler.add_job(
+            _safe_daily_basket_review,
+            CronTrigger(day_of_week="mon-thu", hour=16, minute=15),
+            id="daily_basket_review",
+            misfire_grace_time=GRACE,
+        )
         # Weekly basket review: Friday 16:30 ET (moved from Saturday)
         scheduler.add_job(
             _safe_weekly_basket,
@@ -2382,7 +2462,8 @@ def main():
             f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d} ET (no Claude)\n"
             f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
             f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET\n"
-            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (moved from Saturday)\n"
+            f"  Daily MT basket review: Mon-Thu 16:15 ET (Haiku; removes broken, adds 1:1)\n"
+            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (full weekly refresh)\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly, spec tier only)\n"
             f"  Weekly portfolio review: Sunday 18:00 ET"
         )

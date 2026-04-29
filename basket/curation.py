@@ -966,3 +966,228 @@ def run_mt_weekly(lt_basket: list[str]) -> tuple[list[str], dict, str]:
     print(f"  [MT Curation] Reasoning: {reasoning[:200]}")
 
     return final_tickers, final_meta, reasoning
+
+
+def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]:
+    """
+    Daily MT basket review — runs Mon-Fri after close (~16:15 ET).
+
+    For each position in the MT basket, evaluates momentum, thesis validity, TTL,
+    and catalyst status. Removes broken/expired positions and sources 1:1 replacements
+    from the same four pipelines (congress, sector rotation, UW discoveries).
+    Earnings catalysts are skipped for speed (they're covered by the weekly refresh).
+
+    Returns (updated_tickers, updated_metadata, discord_summary_string).
+    """
+    from basket.manager import load_mt, load_mt_metadata, save_mt
+
+    print("\n  [Daily Basket Review] Starting MT basket daily review...")
+
+    existing_tickers = load_mt()
+    existing_meta    = load_mt_metadata()
+
+    if not existing_tickers:
+        print("  [Daily Basket Review] MT basket is empty — skipping")
+        return [], {}, ""
+
+    today = date.today()
+
+    # ── Step 1: Gather current data for each position ────────────────────────
+    position_data = []
+    for sym in existing_tickers:
+        meta           = existing_meta.get(sym, {})
+        added_str      = meta.get("added", "")
+        catalyst_str   = meta.get("catalyst_date", "")
+        source         = meta.get("source", "unknown")
+
+        try:
+            added_dt  = date.fromisoformat(added_str[:10])
+            days_held = (today - added_dt).days
+        except Exception:
+            days_held = 0
+
+        try:
+            expires_str   = meta.get("expires", "")
+            expires_dt    = date.fromisoformat(expires_str[:10])
+            ttl_remaining = (expires_dt - today).days
+        except Exception:
+            ttl_remaining = 30
+
+        catalyst_passed = False
+        days_past_cat   = 0
+        if catalyst_str:
+            try:
+                cat_dt           = date.fromisoformat(catalyst_str[:10])
+                days_past_cat    = (today - cat_dt).days
+                catalyst_passed  = days_past_cat > 0
+            except Exception:
+                pass
+
+        try:
+            hist  = yf.Ticker(sym).history(period="3mo")
+            close = hist["Close"]
+            if len(close) < 20:
+                raise ValueError("not enough data")
+
+            current_price = float(close.iloc[-1])
+            sma20         = float(close.tail(20).mean())
+            above_sma20   = current_price > sma20
+
+            lookback  = min(max(days_held, 5), len(close) - 1)
+            past_price = float(close.iloc[-lookback - 1])
+            pct_change = (current_price - past_price) / past_price * 100 if past_price else 0
+
+            delta = close.diff()
+            gain  = delta.clip(lower=0).tail(14).mean()
+            loss  = (-delta.clip(upper=0)).tail(14).mean()
+            rsi   = 100 - (100 / (1 + gain / loss)) if loss > 0 else 100
+
+            if rsi >= 75:
+                momentum = "overbought"
+            elif rsi <= 35:
+                momentum = "oversold"
+            elif above_sma20 and pct_change > 2:
+                momentum = "bullish"
+            elif not above_sma20 and pct_change < -5:
+                momentum = "bearish"
+            else:
+                momentum = "neutral"
+        except Exception:
+            pct_change  = 0
+            rsi         = 50
+            above_sma20 = True
+            momentum    = "unknown"
+
+        position_data.append({
+            "symbol":           sym,
+            "source":           source,
+            "days_held":        days_held,
+            "ttl_remaining":    ttl_remaining,
+            "pct_change":       round(pct_change, 1),
+            "rsi":              round(float(rsi), 1),
+            "above_sma20":      above_sma20,
+            "momentum":         momentum,
+            "catalyst_date":    catalyst_str,
+            "catalyst_passed":  catalyst_passed,
+            "days_past_cat":    days_past_cat,
+            "note":             meta.get("note", ""),
+        })
+
+    # ── Step 2: Haiku evaluates each position ────────────────────────────────
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    prompt = f"""Daily MT basket review. Today: {today.isoformat()}
+
+Current positions ({len(existing_tickers)} tickers, max {config.MT_BASKET_MAX}):
+{json.dumps(position_data, indent=2)}
+
+Decision rules — REMOVE if ANY applies:
+1. momentum="bearish" AND pct_change < -10 (thesis broken)
+2. rsi >= 75 (overbought; catalyst likely priced in or exhausted)
+3. catalyst_passed=true AND pct_change < 5 AND days_past_cat > 7 (catalyst fizzled; dead money)
+4. ttl_remaining <= 0 (TTL expired)
+5. ttl_remaining <= 3 AND pct_change < 3 (barely moved and expiring soon)
+6. momentum="oversold" AND days_held > 21 (sustained downtrend for 3+ weeks)
+7. above_sma20=false AND pct_change < -12 (broken below trend significantly)
+
+KEEP if ANY applies:
+• catalyst_passed=false AND ttl_remaining > 7 (catalyst still upcoming — thesis live)
+• pct_change > 12 (winning; let it run)
+• momentum="bullish" AND above_sma20=true (healthy trend)
+• source="congress_buy" AND days_held < 25 (congressional alpha window still open)
+• pct_change > 0 AND above_sma20=true (positive, respect the trend)
+
+Default to KEEP unless a REMOVE rule clearly fires. Prefer 0 removals over spurious removals.
+
+Output ONLY valid JSON:
+{{"decisions": [{{"symbol": "TICK", "action": "KEEP", "reason": "brief"}}], "summary": "1-2 sentence overall assessment"}}"""
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        review = json.loads(raw)
+    except Exception as e:
+        print(f"  [Daily Basket Review] Haiku error: {e}")
+        return existing_tickers, existing_meta, ""
+
+    decisions      = {d["symbol"]: d for d in review.get("decisions", [])}
+    to_remove      = [sym for sym, d in decisions.items() if d.get("action") == "REMOVE"]
+    removal_reasons = {sym: decisions[sym].get("reason", "") for sym in to_remove}
+
+    print(f"  [Daily Basket Review] Removals: {to_remove}")
+
+    # ── Step 3: Source 1:1 replacements ──────────────────────────────────────
+    replacements = []
+    if to_remove:
+        n_replace     = len(to_remove)
+        current_after = set(existing_tickers) - set(to_remove)
+
+        congress_cands = _mt_get_congress_buys(lt_basket)
+        uw_cands       = _mt_get_uw_discoveries()
+        try:
+            sector_cands = _mt_get_sector_rotation(lt_basket)[:4]
+        except Exception:
+            sector_cands = []
+
+        all_new = congress_cands + sector_cands + uw_cands
+        seen    = set()
+        for c in all_new:
+            if len(replacements) >= n_replace:
+                break
+            sym = c["symbol"]
+            if (sym not in current_after and sym not in set(lt_basket)
+                    and sym not in _ETHICAL_EXCLUSIONS and sym not in seen):
+                replacements.append(c)
+                seen.add(sym)
+
+        print(f"  [Daily Basket Review] Replacements sourced: {[c['symbol'] for c in replacements]}")
+
+    # ── Step 4: Apply changes and save ───────────────────────────────────────
+    final_tickers = [s for s in existing_tickers if s not in to_remove]
+    final_meta    = {s: existing_meta[s] for s in final_tickers if s in existing_meta}
+
+    today_str = today.isoformat()
+    for c in replacements:
+        sym = c["symbol"]
+        if sym not in set(final_tickers):
+            final_tickers.append(sym)
+        from datetime import timedelta as _td
+        exp_str = (today + _td(days=c.get("ttl_days", 30))).isoformat()
+        final_meta[sym] = {
+            "source":        c["source"],
+            "added":         today_str,
+            "expires":       exp_str,
+            "note":          c.get("note", ""),
+            "catalyst_date": c.get("catalyst_date", ""),
+        }
+
+    save_mt(final_tickers, final_meta)
+
+    # ── Step 5: Build Discord summary ────────────────────────────────────────
+    haiku_summary  = review.get("summary", "")
+    removal_lines  = [f"• ❌ {s}: {removal_reasons.get(s, '')}" for s in to_remove]
+    add_lines      = [f"• ✅ {c['symbol']} ({c['source']}): {c.get('note', '')[:80]}"
+                      for c in replacements]
+
+    parts = [f"📋 **Daily MT Basket Review** — {today_str}",
+             f"Basket: {len(final_tickers)}/{config.MT_BASKET_MAX} positions"]
+    if to_remove:
+        parts.append("**Removed:**\n" + "\n".join(removal_lines))
+    if replacements:
+        parts.append("**Added:**\n" + "\n".join(add_lines))
+    if not to_remove and not replacements:
+        parts.append(f"All {len(existing_tickers)} positions intact — no changes today.")
+    if haiku_summary:
+        parts.append(f"_{haiku_summary}_")
+
+    discord_msg = "\n\n".join(parts)
+    print(f"  [Daily Basket Review] Done — "
+          f"removed={to_remove}, added={[c['symbol'] for c in replacements]}")
+
+    return final_tickers, final_meta, discord_msg
