@@ -1848,117 +1848,127 @@ def run_cycle(dry_run: bool = False):
         except Exception as _bie:
             print(f"  [BasketIntel] skipped: {_bie}")
 
-    # Build positions P&L block
-    pos_lines = []
-    for p in sorted(positions_final, key=lambda x: abs(x.get("unrealized_pl") or 0), reverse=True)[:8]:
-        sym    = p["symbol"]
-        upl    = p.get("unrealized_pl") or 0
-        uplpct = p.get("unrealized_plpc", 0)
-        arrow  = "▲" if upl >= 0 else "▼"
-        pos_lines.append(f"  {sym:<6} {arrow} ${upl:+,.0f} ({uplpct:+.1f}%)")
-
-    # Build trade summary
-    trade_lines = []
+    # ── Trades executed this cycle ───────────────────────────────────────────
+    trade_parts: list[str] = []
     exit_syms = [e["symbol"] for e in exits] if exits else []
     if exit_syms:
-        trade_lines.append(f"🔴 Exits triggered: {', '.join(exit_syms)}")
-    if cycle_buys:
-        trade_lines.append(f"🟢 Bought: {', '.join(cycle_buys)}")
-    if cycle_sells:
-        trade_lines.append(f"🔴 Sold: {', '.join(cycle_sells)}")
-    if not trade_lines:
-        trade_lines.append("No trades — held positions, nothing met entry criteria")
+        for sym in exit_syms:
+            reason = next((e["reason"] for e in exits if e["symbol"] == sym), "stop triggered")
+            trade_parts.append(f"🔴 **SOLD {sym}** — {reason}")
+    for sym in [b.split("(")[0] for b in cycle_buys]:
+        d = next((x for x in decisions if x.get("symbol") == sym and x.get("action") == "BUY"), {})
+        alloc_b  = d.get("allocation_pct", 0)
+        target_b = d.get("target_pct", alloc_b)
+        conf_b   = d.get("confidence", 0)
+        rat_b    = d.get("rationale", "")
+        dollar_b = round(portfolio["equity"] * alloc_b / 100, 0)
+        trade_parts.append(
+            f"🟢 **BOUGHT {sym}** — {alloc_b:.0f}% (${dollar_b:,.0f}) → target {target_b:.0f}%  conf={conf_b}/10"
+        )
+        if rat_b:
+            trade_parts.append(f"   ↳ {rat_b}")
+    for sym in [s.split("(")[0] for s in cycle_sells if s not in exit_syms]:
+        d = next((x for x in decisions if x.get("symbol") == sym and x.get("action") == "SELL"), {})
+        rat_s = d.get("rationale", "")
+        trade_parts.append(f"🔴 **SOLD {sym}**" + (f" — {rat_s}" if rat_s else ""))
 
-    # Near-miss report: top 3 per sleeve when no buys/sells this cycle
-    near_miss_lines: list[str] = []
-    if not cycle_buys and not cycle_sells:
-        def _blocking_reasons(nm: dict) -> str:
-            parts = []
-            if nm.get("cco_decision") == "Reject":
-                reason = nm.get("cco_reason") or "compliance gate"
-                parts.append(f"CCO Reject — {reason}")
-            if nm.get("cro_decision") == "Block":
-                risk = nm.get("cro_top_risk") or "risk block"
-                parts.append(f"CRO Block — {risk}")
-            if nm.get("quant_decision") in ("Bearish", "Block"):
-                sig = nm.get("quant_signal") or "bearish technical"
-                parts.append(f"Technicals — {sig}")
-            if nm.get("valuation_risk") == "Extreme":
-                parts.append("extreme valuation (P/E >120)")
-            if nm.get("da_severity") == "High":
-                bear = nm.get("da_bear_case") or "high-severity bear case"
-                parts.append(f"Bear risk — {bear}")
-            conf = nm.get("confidence", 0)
-            if conf < 7 and not parts:
-                parts.append(f"conviction {conf}/10 — need ≥7 (thesis not strong enough yet)")
-            if not parts:
-                parts.append("entry timing / narrative Late — wait for better setup")
-            return "; ".join(parts)
+    # ── Near-buy watch: what needs to change ────────────────────────────────
+    def _blocking_reasons(nm: dict) -> str:
+        parts = []
+        if nm.get("cco_decision") == "Reject":
+            parts.append(f"CCO: {nm.get('cco_reason') or 'compliance gate'}")
+        if nm.get("crs_growth_gate") == "Fail":
+            parts.append("CRS: no compelling growth thesis yet")
+        if nm.get("cro_decision") == "Block":
+            parts.append(f"Risk: {nm.get('cro_top_risk') or 'risk block'}")
+        if nm.get("quant_decision") in ("Bearish", "Block"):
+            parts.append(f"Technicals: {nm.get('quant_signal') or 'bearish setup'}")
+        if nm.get("valuation_risk") == "Extreme":
+            parts.append("Valuation extreme — wait for pullback")
+        if nm.get("da_severity") == "High":
+            parts.append(f"Bear risk: {nm.get('da_bear_case') or 'high severity'}")
+        conf = nm.get("confidence", 0)
+        if conf < 7 and not parts:
+            parts.append(f"Conviction {conf}/10 — need ≥7")
+        if not parts:
+            parts.append("Timing — wait for better entry setup")
+        return " | ".join(parts)
 
-        def _fmt_near_miss(nm: dict, sleeve_label: str) -> str:
-            sym   = nm["symbol"]
-            conf  = nm["confidence"]
-            block = _blocking_reasons(nm)
-            cat   = nm.get("catalyst_note", "N/A")
-            cat_str = f" | catalyst: {cat}" if cat and cat != "N/A" else ""
-            return f"  {sym} (conf {conf}/10){cat_str}\n    ⚠ Need: {block}"
+    near_buy_parts: list[str] = []
+    all_near = sorted(near_miss_lt + near_miss_mt, key=lambda x: x["confidence"], reverse=True)[:5]
+    for nm in all_near:
+        sym   = nm["symbol"]
+        conf  = nm["confidence"]
+        block = _blocking_reasons(nm)
+        cat   = nm.get("catalyst_note", "")
+        sleeve = "LT" if nm in near_miss_lt else "MT"
+        line  = f"**{sym}** [{sleeve}] conf={conf}/10 — needs: {block}"
+        if cat and cat != "N/A":
+            line += f"\n   Catalyst: {cat}"
+        near_buy_parts.append(line)
 
-        top_lt = sorted(near_miss_lt, key=lambda x: x["confidence"], reverse=True)[:3]
-        top_mt = sorted(near_miss_mt, key=lambda x: x["confidence"], reverse=True)[:3]
+    # ── Positions approaching exit ───────────────────────────────────────────
+    exit_watch_parts: list[str] = []
+    tranche_map_scan = {t["symbol"]: t for t in db.get_all_tranches()}
+    for p in positions_final:
+        sym     = p["symbol"]
+        cur     = float(p.get("current_price", 0) or 0)
+        upl_pct = float(p.get("unrealized_plpc", 0) or 0)
+        tranche = tranche_map_scan.get(sym)
+        if not tranche or not cur:
+            continue
+        criteria = tranche.get("thesis_break_criteria") or ""
+        stop_str = None
+        for part in criteria.split("|"):
+            part = part.strip()
+            if part.lower().startswith("price_stop"):
+                stop_str = part.split(":", 1)[-1].strip()
+                break
+        # Flag if: deep loss (>-12%), or dead money (stop approaching)
+        if upl_pct < -10:
+            note = f"⚠️ {sym} down {upl_pct:.1f}%"
+            if stop_str:
+                note += f" — stop at {stop_str}"
+            exit_watch_parts.append(note)
+        elif stop_str:
+            try:
+                stop_val = float(stop_str.replace("$", "").replace(",", ""))
+                dist_pct = (cur - stop_val) / cur * 100
+                if dist_pct < 8:
+                    exit_watch_parts.append(
+                        f"⚠️ {sym} ${cur:.2f} — stop {stop_str} ({dist_pct:.1f}% away)"
+                    )
+            except Exception:
+                pass
 
-        if top_lt or top_mt:
-            near_miss_lines.append("📋 Closest to Buy — not yet (BUCKET):")
-        if top_lt:
-            near_miss_lines.append("  Long-Term:")
-            for nm in top_lt:
-                near_miss_lines.append(_fmt_near_miss(nm, "LT"))
-        if top_mt:
-            near_miss_lines.append("  Medium-Term:")
-            for nm in top_mt:
-                near_miss_lines.append(_fmt_near_miss(nm, "MT"))
-
+    # ── Assemble message ─────────────────────────────────────────────────────
     fg_score = mkt_ctx.get("fear_and_greed", {}).get("score", "?")
     fg_label = mkt_ctx.get("fear_and_greed", {}).get("label", "")
     vix_val  = mkt_ctx.get("vix", {}).get("vix", "?")
+    cash_pct_scan = cash / equity * 100 if equity else 0
 
     msg_parts = [
-        f"📊 Daily Scan — {time_label} | {day_label}",
-        f"Market: F&G={fg_score} ({fg_label}) | VIX={vix_val}",
-        f"Portfolio: ${equity:,.0f} equity | ${cash:,.0f} cash | {len(positions_final)} positions",
+        f"**📊 {time_label} Cycle — {day_label}**",
+        f"Market: F&G={fg_score} ({fg_label})  VIX={vix_val}  |  "
+        f"NAV ${equity:,.0f}  Cash {cash_pct_scan:.0f}%",
         "",
     ]
-    if pos_lines:
-        msg_parts.append("Open positions:")
-        msg_parts.extend(pos_lines)
+
+    if trade_parts:
+        msg_parts.append("**Trades**")
+        msg_parts.extend(trade_parts)
+    else:
+        msg_parts.append("**No trades this cycle**")
+
+    if near_buy_parts:
         msg_parts.append("")
-    stock_tickers = [s for s in watchlist if not _is_crypto(s)]
-    _cache_covered = sum(1 for s in stock_tickers if research_cache.load(s))
-    # Funnel breakdown: watchlist → quick tech filter → criteria/earnings/prelim gates → committee
-    _drop_total = _drop_criteria + _drop_earnings + _drop_prelim + _drop_cache
-    cache_line  = (
-        f"Scan funnel: {len(watchlist)} in watchlist → "
-        f"{scanned_count} passed quick tech filter → "
-        f"{len(candidates)} sent to committee"
-    )
-    if _drop_total:
-        cache_line += (
-            f" | Dropped: {_drop_criteria} hard-criteria, "
-            f"{_drop_earnings} earnings-block, "
-            f"{_drop_prelim} prelim-score, "
-            f"{_drop_cache} cache-miss"
-        )
-    cache_line += f" | Cache: {_cache_covered}/{len(stock_tickers)} stocks"
-    if _auto_warmed:
-        cache_line += f" ({_auto_warmed} warmed)"
-    if _still_uncached:
-        cache_line += f" ⚠ {_still_uncached} fallback on-demand warmup (check onboarding logs)"
-    msg_parts.append(cache_line)
-    if cycle_holds:
-        msg_parts.append(f"Held (reviewed): {', '.join(cycle_holds)}")
-    msg_parts.extend(trade_lines)
-    if near_miss_lines:
+        msg_parts.append("**👀 Watching — almost there**")
+        msg_parts.extend(near_buy_parts)
+
+    if exit_watch_parts:
         msg_parts.append("")
-        msg_parts.extend(near_miss_lines)
+        msg_parts.append("**🚨 Exit Watch**")
+        msg_parts.extend(exit_watch_parts)
 
     summary = "\n".join(msg_parts)
     print(summary)
