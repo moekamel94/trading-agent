@@ -364,18 +364,25 @@ def run_premarket(dry_run: bool = False):
             flag = "🚨" if dte <= 5 else "📅"
             earn_str = f"{flag}Earnings in {dte}d ({earn_date})"
 
-        # Tranche + stop + target
+        # Tranche + stop + upside target
         tranche = tranche_map.get(sym)
         stop_val = None
-        stop_str = target_str = tranche_str = ""
+        stop_str = upside_str = tranche_str = ""
         if tranche:
             stop_val = _parse_price_stop(tranche.get("thesis_break_criteria") or "")
-            if stop_val:
+            if stop_val and cur:
                 dist = (cur - stop_val) / cur * 100
-                stop_str = f"Stop:${stop_val:.0f} ({dist:.1f}% away)"
-            tgt = tranche.get("target_pct") or 0
-            if tgt:
-                target_str = f"Target:{tgt:.1f}% (${equity*tgt/100:,.0f})"
+                stop_str = f"🛑 Stop: ${stop_val:.0f} ({dist:.0f}% down)"
+
+            pt = tranche.get("price_target")
+            pt_basis = tranche.get("price_target_basis") or ""
+            if pt and cur:
+                upside_pct = (pt - cur) / cur * 100
+                arrow = "🎯" if upside_pct > 0 else "⚠️"
+                upside_str = f"{arrow} Target: ${pt:.0f} ({upside_pct:+.0f}%)"
+                if pt_basis:
+                    upside_str += f"  [{pt_basis[:60]}]"
+
             t_num = tranche.get("current_tranche", 1)
             tranche_str = f"T{t_num}/3"
 
@@ -399,9 +406,10 @@ def run_premarket(dry_run: bool = False):
         lines.append(header)
         if tech_parts or meta_parts:
             lines.append("  " + "  |  ".join(tech_parts + meta_parts))
-        detail_parts = [x for x in [stop_str, target_str] if x]
-        if detail_parts:
-            lines.append("  " + "  |  ".join(detail_parts))
+        if stop_str:
+            lines.append(f"  {stop_str}")
+        if upside_str:
+            lines.append(f"  {upside_str}")
         if earn_str:
             lines.append(f"  {earn_str}")
 

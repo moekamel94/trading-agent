@@ -1708,6 +1708,12 @@ def run_cycle(dry_run: bool = False):
                                 msg_lines.append(f"\n📋 **Summary**\n{thesis_summary}")
                             msg_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
                         msg_lines.append(f"📌 **Decision:** {rationale}")
+                        _pt     = decision.get("price_target")
+                        _pt_bas = decision.get("price_target_basis", "")
+                        if _pt:
+                            _pt_price = tech.get("price", 0) or price
+                            _upside   = (_pt - _pt_price) / _pt_price * 100 if _pt_price else 0
+                            msg_lines.append(f"🎯 **Price target:** ${_pt:.0f} ({_upside:+.0f}% upside)  [{_pt_bas}]")
                         if stop_criteria:
                             msg_lines.append(f"🛑 **Exit if:** {stop_criteria}")
                         if da_bear:
@@ -1791,7 +1797,23 @@ def run_cycle(dry_run: bool = False):
                     thesis_break_criteria=decision.get("thesis_break_criteria", ""),
                     bucket=decision.get("bucket", "long_term"),
                     catalyst_note=decision.get("catalyst_note", ""),
+                    price_target=decision.get("price_target"),
+                    price_target_basis=decision.get("price_target_basis", ""),
                 )
+
+    # Update price targets for HOLD decisions on held positions — committee
+    # re-evaluates the upside target on every review, so it stays current.
+    for decision in decisions:
+        sym = decision.get("symbol")
+        if decision.get("action") == "HOLD" and decision.get("price_target"):
+            try:
+                db.update_price_target(
+                    sym,
+                    decision["price_target"],
+                    decision.get("price_target_basis", ""),
+                )
+            except Exception:
+                pass
 
     # =========================================================
     # PHASE 4: Options advisory — propose high-conviction plays, never execute
@@ -1924,20 +1946,27 @@ def run_cycle(dry_run: bool = False):
             if part.lower().startswith("price_stop"):
                 stop_str = part.split(":", 1)[-1].strip()
                 break
-        # Flag if: deep loss (>-12%), or dead money (stop approaching)
+        pt_val = tranche.get("price_target")
+        pt_basis = tranche.get("price_target_basis") or ""
+
+        # Flag: deep loss or approaching stop
         if upl_pct < -10:
-            note = f"⚠️ {sym} down {upl_pct:.1f}%"
+            note = f"⚠️ **{sym}** down {upl_pct:.1f}%"
             if stop_str:
-                note += f" — stop at {stop_str}"
+                note += f" — 🛑 stop {stop_str}"
+            if pt_val and cur:
+                note += f"  |  🎯 target ${pt_val:.0f}"
             exit_watch_parts.append(note)
         elif stop_str:
             try:
-                stop_val = float(stop_str.replace("$", "").replace(",", ""))
-                dist_pct = (cur - stop_val) / cur * 100
+                stop_val_f = float(stop_str.replace("$", "").replace(",", ""))
+                dist_pct = (cur - stop_val_f) / cur * 100
                 if dist_pct < 8:
-                    exit_watch_parts.append(
-                        f"⚠️ {sym} ${cur:.2f} — stop ${stop_val:.0f} ({dist_pct:.1f}% away)"
-                    )
+                    note = f"⚠️ **{sym}** ${cur:.2f} — 🛑 stop ${stop_val_f:.0f} ({dist_pct:.1f}% away)"
+                    if pt_val and cur:
+                        upside = (pt_val - cur) / cur * 100
+                        note += f"  |  🎯 target ${pt_val:.0f} ({upside:+.0f}%)"
+                    exit_watch_parts.append(note)
             except Exception:
                 pass
 

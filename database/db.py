@@ -89,6 +89,8 @@ def init():
             ("uw_bearish_streak",        "INTEGER DEFAULT 0"),
             ("entry_day_low",            "REAL"),
             ("below_entry_low_streak",   "INTEGER DEFAULT 0"),
+            ("price_target",             "REAL"),
+            ("price_target_basis",       "TEXT"),
         ]:
             try:
                 c.execute(f"ALTER TABLE position_tranches ADD COLUMN {_col} {_defn}")
@@ -124,6 +126,15 @@ def get_uw_bearish_streak(symbol: str) -> int:
             "SELECT uw_bearish_streak FROM position_tranches WHERE symbol=?", (symbol,)
         ).fetchone()
         return row[0] if row and row[0] else 0
+
+
+def update_price_target(symbol: str, price_target: float, basis: str = ""):
+    """Update just the price target for an existing held position (HOLD review)."""
+    with _conn() as c:
+        c.execute(
+            "UPDATE position_tranches SET price_target=?, price_target_basis=? WHERE symbol=?",
+            (price_target, basis, symbol)
+        )
 
 
 def set_entry_day_low(symbol: str, low: float):
@@ -271,15 +282,17 @@ def get_today_trades():
 def set_tranche(symbol: str, target_pct: float, final_confidence: int,
                 cio_confidence: int, da_severity: str, thesis_break_criteria: str = "",
                 bucket: str = "long_term", catalyst_note: str = "",
-                expected_holding_weeks: int = None):
+                expected_holding_weeks: int = None,
+                price_target: float = None, price_target_basis: str = ""):
     """Record a new position entering tranche 1."""
     with _conn() as c:
         c.execute("""
             INSERT INTO position_tranches
                 (symbol, target_pct, current_tranche, tranche1_ts,
                  final_confidence, cio_confidence, da_severity, thesis_break_criteria,
-                 bucket, catalyst_note, expected_holding_weeks)
-            VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                 bucket, catalyst_note, expected_holding_weeks,
+                 price_target, price_target_basis)
+            VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(symbol) DO UPDATE SET
                 target_pct=excluded.target_pct,
                 current_tranche=1,
@@ -293,10 +306,13 @@ def set_tranche(symbol: str, target_pct: float, final_confidence: int,
                 bucket=excluded.bucket,
                 catalyst_note=excluded.catalyst_note,
                 expected_holding_weeks=excluded.expected_holding_weeks,
+                price_target=excluded.price_target,
+                price_target_basis=excluded.price_target_basis,
                 last_reunderwritten_date=NULL
         """, (symbol, target_pct, datetime.utcnow().isoformat(),
               final_confidence, cio_confidence, da_severity, thesis_break_criteria,
-              bucket, catalyst_note, expected_holding_weeks))
+              bucket, catalyst_note, expected_holding_weeks,
+              price_target, price_target_basis))
 
 
 def advance_tranche(symbol: str, trigger: str) -> int:
@@ -348,13 +364,15 @@ def get_all_tranches() -> list[dict]:
             "SELECT symbol, target_pct, current_tranche, tranche1_ts, tranche2_ts, "
             "tranche3_ts, tranche2_trigger, tranche3_trigger, final_confidence, "
             "cio_confidence, da_severity, bucket, last_reunderwritten_date, "
-            "catalyst_note, expected_holding_weeks "
+            "catalyst_note, expected_holding_weeks, "
+            "thesis_break_criteria, price_target, price_target_basis "
             "FROM position_tranches WHERE current_tranche < 3"
         ).fetchall()
     keys = ["symbol","target_pct","current_tranche","tranche1_ts","tranche2_ts",
             "tranche3_ts","tranche2_trigger","tranche3_trigger","final_confidence",
             "cio_confidence","da_severity","bucket","last_reunderwritten_date",
-            "catalyst_note","expected_holding_weeks"]
+            "catalyst_note","expected_holding_weeks",
+            "thesis_break_criteria","price_target","price_target_basis"]
     return [dict(zip(keys, r)) for r in rows]
 
 

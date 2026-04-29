@@ -1650,6 +1650,11 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f"Set allocation_pct to the starter size and target_pct to the full target — "
         f"the system will scale in on confirmation.\n"
         f"TRANCHE: allocation_pct = 50% of target_pct (half-size entry; scale in later).\n"
+        f"PRICE TARGET RULE: Every decision (BUY, HOLD, SELL, BUCKET) must include price_target. "
+        f"For HOLD on an existing position, update price_target if the thesis has strengthened or "
+        f"weakened since last review — this is how the PM tracks whether to add or reduce. "
+        f"Base price_target on: analyst median consensus target, or revenue/earnings multiple × forward estimate, "
+        f"or specific catalyst re-rate (e.g. contract win → +$X). Explain the basis in price_target_basis.\n"
         f"CCO STOP RULE: For any BUY decision, thesis_break_criteria MUST contain all three:\n"
         f"  1. price_stop — specific price level that triggers exit (e.g. 'exit below $X')\n"
         f"  2. fundamental_break — quantitative fundamental trigger (e.g. 'exit if rev growth <40% YoY')\n"
@@ -1679,6 +1684,8 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f'  "asset_type":"stock"|"crypto"|"option",\n'
         f'  "option_direction":"call"|"put"|null,\n'
         f'  "rationale":"<one sentence — for long_term BUY must include explicit alpha source vs SPY>",\n'
+        f'  "price_target":<float — PM price target based on analyst consensus + CRS thesis; the price at which full position should be trimmed/exited on the upside; update on every review including HOLD>,\n'
+        f'  "price_target_basis":"<one sentence — what drives this target: analyst median, DCF, revenue multiple, catalyst re-rate>",\n'
         f'  "thesis_summary":"<compiled CRS thesis for PM: combine market_outlook + competitive_edge + product_advantage + growth_catalyst + why_this_over_peers into one flowing paragraph — this is what the PM reads in Discord>"\n'
         f'}}]\n'
         f"No prose, no markdown fences — ONLY the JSON array."
@@ -1771,6 +1778,13 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         return result
 
 
+def _safe_float(val) -> float | None:
+    try:
+        return float(str(val).replace("$", "").replace(",", "")) if val is not None else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _normalise_committee_decision(sym: str, d: dict) -> dict:
     """Extract and validate fields from a 7-agent committee JSON object."""
     cio    = d.get("cio", {})
@@ -1842,6 +1856,8 @@ def _normalise_committee_decision(sym: str, d: dict) -> dict:
         "thesis_break_criteria": cco.get("thesis_break_criteria", ""),
         "bucket":                bucket,
         "catalyst_note":         d.get("catalyst_note", "N/A"),
+        "price_target":          _safe_float(d.get("price_target")),
+        "price_target_basis":    d.get("price_target_basis", ""),
     }
 
 
@@ -1857,4 +1873,9 @@ def _hold_decision(sym: str, reason: str) -> dict:
         "narrative_stage": "Consensus", "runway_assessment": "Neutral",
         "valuation_risk": "Low", "thesis_break_criteria": "",
         "bucket": "long_term", "catalyst_note": "N/A",
+        "price_target": None, "price_target_basis": "",
+        "thesis_summary": "", "crs_growth_gate": "Pass",
+        "crs_product_moat": "Moderate", "crs_market_outlook": "",
+        "crs_competitive_edge": "", "crs_product_advantage": "",
+        "crs_growth_catalyst": "", "crs_why_this_over_peers": "",
     }
