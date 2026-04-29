@@ -4,43 +4,50 @@ from datetime import datetime, timedelta
 _TIMEOUT = 20
 _HEADERS = {"User-Agent": "trading-agent/1.0"}
 
-# Session-level cache — fetched once per process, reused for all tickers
-_house_cache: list | None = None
-_senate_cache: list | None = None
+# Session-level cache — fetched once per process, reused across all tickers
+_uw_congress_cache: list | None = None
 
-_HOUSE_URL  = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
-_SENATE_URL = "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
+_UW_BASE = "https://api.unusualwhales.com"
 
 
-def _load_house() -> list:
-    global _house_cache
-    if _house_cache is not None:
-        return _house_cache
+def _uw_api_key() -> str:
     try:
-        r = requests.get(_HOUSE_URL, headers=_HEADERS, timeout=_TIMEOUT)
-        if r.status_code == 200:
-            _house_cache = r.json()
-            print(f"  [Congress] Loaded {len(_house_cache)} House trades")
-            return _house_cache
-    except Exception as e:
-        print(f"  [Congress] House load failed: {e}")
-    _house_cache = []
-    return []
+        import config
+        return config.UNUSUAL_WHALES_API_KEY or ""
+    except Exception:
+        return ""
 
 
-def _load_senate() -> list:
-    global _senate_cache
-    if _senate_cache is not None:
-        return _senate_cache
+def _load_uw_congress() -> list:
+    """
+    Fetch recent congress trades from Unusual Whales (primary source).
+    Returns list of normalised trade dicts with keys:
+      ticker, txn_type ('Buy'/'Sell'), transaction_date, name, member_type, amounts
+    """
+    global _uw_congress_cache
+    if _uw_congress_cache is not None:
+        return _uw_congress_cache
+
+    key = _uw_api_key()
+    if not key:
+        _uw_congress_cache = []
+        return []
+
     try:
-        r = requests.get(_SENATE_URL, headers=_HEADERS, timeout=_TIMEOUT)
+        r = requests.get(
+            f"{_UW_BASE}/api/congress/recent-trades",
+            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
         if r.status_code == 200:
-            _senate_cache = r.json()
-            print(f"  [Congress] Loaded {len(_senate_cache)} Senate trades")
-            return _senate_cache
+            _uw_congress_cache = r.json().get("data", [])
+            print(f"  [Congress] Loaded {len(_uw_congress_cache)} recent trades via UW")
+            return _uw_congress_cache
+        print(f"  [Congress] UW returned {r.status_code}")
     except Exception as e:
-        print(f"  [Congress] Senate load failed: {e}")
-    _senate_cache = []
+        print(f"  [Congress] UW load failed: {e}")
+
+    _uw_congress_cache = []
     return []
 
 
@@ -67,34 +74,20 @@ def compute(symbol: str, days: int = 60) -> dict:
     cutoff = datetime.utcnow() - timedelta(days=days)
     trades = []
 
-    for t in _load_house():
+    for t in _load_uw_congress():
         if (t.get("ticker") or "").strip().upper() != symbol:
             continue
-        d = _parse_date(t.get("transaction_date") or t.get("disclosure_date", ""))
+        d = _parse_date(t.get("transaction_date") or t.get("filed_at_date", ""))
         if d is None or d < cutoff:
             continue
+        action = t.get("txn_type", "")
         trades.append({
-            "politician": t.get("representative", "?"),
+            "politician": t.get("name", "?"),
             "party":      t.get("party", "?"),
             "date":       (t.get("transaction_date") or "")[:10],
-            "action":     t.get("type", "?"),
-            "amount":     t.get("amount", "?"),
-            "chamber":    "House",
-        })
-
-    for t in _load_senate():
-        if (t.get("ticker") or "").strip().upper() != symbol:
-            continue
-        d = _parse_date(t.get("transaction_date") or t.get("date", ""))
-        if d is None or d < cutoff:
-            continue
-        trades.append({
-            "politician": t.get("senator", "?"),
-            "party":      t.get("party", "?"),
-            "date":       (t.get("transaction_date") or "")[:10],
-            "action":     t.get("type", "?"),
-            "amount":     t.get("amount", "?"),
-            "chamber":    "Senate",
+            "action":     action,
+            "amount":     t.get("amounts", "?"),
+            "chamber":    t.get("member_type", "?").capitalize(),
         })
 
     buys  = sum(1 for t in trades if _is_buy(t["action"]))
@@ -111,19 +104,19 @@ def compute(symbol: str, days: int = 60) -> dict:
 
 
 def get_recent_buys(days: int = 45) -> list[str]:
-    """Return list of tickers with net congress buying — used by basket manager."""
+    """Return tickers with net congress buying — used by basket manager and daily discovery."""
     cutoff = datetime.utcnow() - timedelta(days=days)
     counts: dict[str, dict] = {}
 
-    for t in _load_house() + _load_senate():
+    for t in _load_uw_congress():
         sym = (t.get("ticker") or "").strip().upper()
         if not sym or len(sym) > 6 or not sym.isalpha():
             continue
-        d = _parse_date(t.get("transaction_date") or t.get("disclosure_date") or t.get("date", ""))
+        d = _parse_date(t.get("transaction_date") or t.get("filed_at_date", ""))
         if d is None or d < cutoff:
             continue
         rec = counts.setdefault(sym, {"buys": 0, "sells": 0})
-        action = t.get("type", "")
+        action = t.get("txn_type", "")
         if _is_buy(action):
             rec["buys"] += 1
         elif _is_sell(action):

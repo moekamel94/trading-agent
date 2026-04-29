@@ -673,13 +673,16 @@ def run_weekly_basket_review():
     mt_tickers, mt_meta, mt_reasoning = basket_curation.run_mt_weekly(stocks_lt)
     basket_mgr.save_mt(mt_tickers, mt_meta)
 
-    # Seed research cache for any new MT tickers (light pass, no web search)
-    combined_tickers = list(dict.fromkeys(stocks_lt + mt_tickers))
-    run_mt_cache_warmup(combined_tickers)
-
-    # Seed cache for any new LT additions too
-    if lt_add:
-        run_mt_cache_warmup(lt_add)
+    # Full monthly-depth onboarding for any ticker with no cache (new additions).
+    # Light warmup for stale-but-existing cache entries.
+    combined_tickers = list(dict.fromkeys(stocks_lt + mt_tickers + (lt_add or [])))
+    _no_cache = [s for s in combined_tickers if not _is_crypto(s) and not research_cache.load(s)]
+    _stale    = [s for s in combined_tickers if not _is_crypto(s) and s not in _no_cache]
+    if _no_cache:
+        print(f"  [Weekly Review] {len(_no_cache)} ticker(s) with no cache — running full onboarding: {_no_cache}")
+        run_new_ticker_onboarding(_no_cache)
+    if _stale:
+        run_mt_cache_warmup(_stale)
 
     mt_prev = set(basket_mgr.load_mt())  # post-save
     mt_changes = []
@@ -705,6 +708,70 @@ def run_weekly_basket_review():
     msg = "Weekly basket review:\n" + "\n".join(parts)
     print(msg)
     tg.send(msg)
+
+
+def _run_daily_discovery(current_basket: list[str]) -> list[str]:
+    """
+    Runs at the start of every trading cycle.
+    Checks congress buys (last 7 days) + UW pending queue for tickers NOT in the
+    combined basket. Adds them to the MT basket immediately and returns the new
+    symbols so the onboarding block picks them up in the same cycle.
+    """
+    import os as _os
+    basket_set = set(current_basket)
+    new_syms: list[str] = []
+    new_meta: dict = {}
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    # 1. Congress buys — last 7 days, not already in basket
+    try:
+        from signals.congress import get_recent_buys
+        recent = get_recent_buys(days=7)
+        for sym in recent:
+            if sym not in basket_set and sym not in new_syms:
+                new_syms.append(sym)
+                new_meta[sym] = {
+                    "source":  "congress_buy",
+                    "added":   today,
+                    "expires": None,
+                    "note":    "Recent congress buy (last 7 days)",
+                }
+                print(f"  [Daily Discovery] Congress buy: {sym} — adding to MT basket")
+    except Exception as _e:
+        print(f"  [Daily Discovery] Congress check error: {_e}")
+
+    # 2. UW pending queue — out-of-basket sweeps queued by gap scanner
+    try:
+        pending = basket_mgr.get_uw_pending()
+        for disc in pending:
+            sym = (disc.get("symbol") or "").upper()
+            if sym and sym not in basket_set and sym not in new_syms:
+                new_syms.append(sym)
+                prem = disc.get("premium", 0) or 0
+                new_meta[sym] = {
+                    "source":  "uw_discovery",
+                    "added":   today,
+                    "expires": None,
+                    "note":    f"UW sweep ${prem/1e6:.1f}M",
+                }
+                print(f"  [Daily Discovery] UW discovery: {sym} — ${prem/1e6:.1f}M sweep, adding to MT basket")
+    except Exception as _e:
+        print(f"  [Daily Discovery] UW pending error: {_e}")
+
+    if not new_syms:
+        return []
+
+    # Persist to MT basket
+    existing_mt   = basket_mgr.load_mt()
+    existing_meta = basket_mgr.load_mt_metadata()
+    combined_mt   = list(dict.fromkeys(existing_mt + new_syms))
+    basket_mgr.save_mt(combined_mt, {**existing_meta, **new_meta})
+    basket_mgr.clear_uw_pending()
+
+    msg = f"🆕 Daily discovery: {', '.join(new_syms)} added to MT basket — running full research now"
+    print(f"  [Daily Discovery] {msg}")
+    tg.send(msg)
+    return new_syms
 
 
 def run_cycle(dry_run: bool = False):
@@ -935,6 +1002,13 @@ def run_cycle(dry_run: bool = False):
     # PHASE 1: Collect signals for all candidates (no Claude)
     # =========================================================
     stock_basket = basket_mgr.load_combined()   # LT + MT baskets merged
+
+    # Daily discovery: congress buys (last 7 days) + UW pending queue.
+    # Any out-of-basket ticker found is added to the MT basket immediately and
+    # will be onboarded below — no waiting until Friday's weekly review.
+    _discovery_added = _run_daily_discovery(stock_basket)
+    if _discovery_added:
+        stock_basket = basket_mgr.load_combined()   # reload to include new additions
 
     # Always include held positions even if they've been removed from the basket.
     # This ensures the committee can output a SELL decision on stale/demoted holdings
