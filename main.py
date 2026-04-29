@@ -1936,10 +1936,75 @@ def run_cycle(dry_run: bool = False):
                 dist_pct = (cur - stop_val) / cur * 100
                 if dist_pct < 8:
                     exit_watch_parts.append(
-                        f"⚠️ {sym} ${cur:.2f} — stop {stop_str} ({dist_pct:.1f}% away)"
+                        f"⚠️ {sym} ${cur:.2f} — stop ${stop_val:.0f} ({dist_pct:.1f}% away)"
                     )
             except Exception:
                 pass
+
+    # ── Tranche scale-in alerts ───────────────────────────────────────────────
+    # Show any T1 position that is close to the T2 trigger or has already fired
+    tranche_alerts: list[str] = []
+    for t in db.get_all_tranches():
+        sym    = t["symbol"]
+        t_num  = t.get("current_tranche", 1)
+        target = t.get("target_pct", 0)
+        if t_num >= 3 or not target:
+            continue
+        tech_t = tech_map.get(sym) or {}
+        cur_t  = tech_t.get("price", 0) or 0
+        sma50  = tech_t.get("sma50", 0) or 0
+        vol_r  = tech_t.get("volume_ratio", 0) or 0
+        r1m    = tech_t.get("return_1m")
+        gc     = tech_t.get("golden_cross")
+        em_t   = (signals_map.get(sym, {}).get("earnings_momentum") or {}).get("label", "")
+        notes  = []
+        if em_t in ("strong_bullish", "bullish"):
+            notes.append(f"earnings beat → T{t_num+1} ready to add")
+        elif cur_t and sma50 and cur_t > sma50 * 1.05 and vol_r > 1.3:
+            pct_above = (cur_t / sma50 - 1) * 100
+            notes.append(f"+{pct_above:.1f}% above SMA50 on {vol_r:.1f}× vol → T{t_num+1} breakout trigger met")
+        elif gc and r1m and r1m > 5:
+            notes.append(f"golden cross + 1M={r1m:+.1f}% → T{t_num+1} trigger approaching")
+        if notes:
+            tranche_alerts.append(f"📈 **{sym}** (T{t_num}/{3} @ {target:.1f}% target): {notes[0]}")
+
+    # ── Time-stop warnings ────────────────────────────────────────────────────
+    # Warn on positions that are approaching or past their dead-money window
+    timestop_alerts: list[str] = []
+    try:
+        db_path_ts = os.path.join(os.path.dirname(__file__), "trading_agent.db")
+        import sqlite3 as _sq3
+        _conn_ts = _sq3.connect(db_path_ts)
+        _c_ts    = _conn_ts.cursor()
+        _c_ts.execute("SELECT symbol, MAX(ts) FROM trades WHERE action='BUY' GROUP BY symbol")
+        buy_dates_ts = {sym: ts for sym, ts in _c_ts.fetchall()}
+        _conn_ts.close()
+        for p in positions_final:
+            sym     = p["symbol"]
+            upl_pct = float(p.get("unrealized_plpc", 0) or 0)
+            ts_str  = buy_dates_ts.get(sym)
+            if not ts_str:
+                continue
+            try:
+                buy_dt  = datetime.fromisoformat(ts_str).replace(tzinfo=timezone.utc)
+                days_held = (datetime.now(timezone.utc) - buy_dt).days
+                tier      = config.TICKER_TIERS.get(sym, "mid_growth")
+                dead_days = 45 if tier == "medium_term" else 90
+                dead_gain = 5.0 if tier == "medium_term" else 3.0
+                if days_held >= dead_days and upl_pct < dead_gain:
+                    timestop_alerts.append(
+                        f"🕐 **{sym}** held {days_held}d  {upl_pct:+.1f}% — "
+                        f"dead-money window reached ({dead_gain:.0f}% gain in {dead_days}d threshold)"
+                    )
+                elif days_held >= int(dead_days * 0.75) and upl_pct < dead_gain:
+                    timestop_alerts.append(
+                        f"⏳ **{sym}** held {days_held}d  {upl_pct:+.1f}% — "
+                        f"approaching dead-money window ({dead_days - days_held}d left to show {dead_gain:.0f}%+)"
+                    )
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     # ── Assemble message ─────────────────────────────────────────────────────
     fg_score = mkt_ctx.get("fear_and_greed", {}).get("score", "?")
@@ -1965,10 +2030,16 @@ def run_cycle(dry_run: bool = False):
         msg_parts.append("**👀 Watching — almost there**")
         msg_parts.extend(near_buy_parts)
 
-    if exit_watch_parts:
+    if exit_watch_parts or timestop_alerts:
         msg_parts.append("")
         msg_parts.append("**🚨 Exit Watch**")
         msg_parts.extend(exit_watch_parts)
+        msg_parts.extend(timestop_alerts)
+
+    if tranche_alerts:
+        msg_parts.append("")
+        msg_parts.append("**📈 Scale-in Opportunities**")
+        msg_parts.extend(tranche_alerts)
 
     summary = "\n".join(msg_parts)
     print(summary)
