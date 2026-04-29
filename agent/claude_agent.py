@@ -1593,13 +1593,19 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f"Set allocation_pct to the starter size and target_pct to the full target — "
         f"the system will scale in on confirmation.\n"
         f"TRANCHE: allocation_pct = 50% of target_pct (half-size entry; scale in later).\n"
+        f"CCO STOP RULE: For any BUY decision, thesis_break_criteria MUST contain all three:\n"
+        f"  1. price_stop — specific price level that triggers exit (e.g. 'exit below $X')\n"
+        f"  2. fundamental_break — quantitative fundamental trigger (e.g. 'exit if rev growth <40% YoY')\n"
+        f"  3. time_stop — dead-money exit (e.g. 'exit if no >5% gain within 21 sessions')\n"
+        f"If any of the three is missing, CCO must output Reject. "
+        f"thesis_break_criteria format: 'price_stop:<X> | fundamental_break:<Y> | time_stop:<Z>'\n"
         f"Return ONLY a JSON array with exactly {n} objects in candidate order:\n"
         f'[{{\n'
         f'  "symbol":"<ticker>",\n'
         f'  "cio":{{"decision":"Buy"|"Avoid"|"Hold"|"Bucket","confidence":<1-10>,"narrative_drift":"none"|"positive"|"negative","rel_strength":"outperforming"|"inline"|"underperforming","narrative_stage":"Early"|"Consensus"|"Late","runway_assessment":"Strong"|"Neutral"|"Weak","reason":"<one sentence>"}},\n'
         f'  "quant":{{"decision":"Strongly_Bullish"|"Bullish"|"Neutral"|"Bearish"|"Block","signal":"<one sentence>"}},\n'
         f'  "cro":{{"decision":"Approve"|"Caution"|"Block","adv_ok":true|false,"valuation_risk":"Low"|"Elevated"|"Extreme","top_risk":"<one sentence>"}},\n'
-        f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>","thesis_break_criteria":"<quantitative break triggers or N/A>"}},\n'
+        f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>","thesis_break_criteria":"price_stop:<price> | fundamental_break:<trigger> | time_stop:<days/gain>"}},\n'
         f'  "devil":{{"bear_case":"<one sentence>","probability":<0-100>,"severity":"Low"|"Medium"|"High"}},\n'
         f'  "final_confidence":<1-10>,\n'
         f'  "action":"BUY"|"SELL"|"TRIM"|"HOLD"|"BUCKET",\n'

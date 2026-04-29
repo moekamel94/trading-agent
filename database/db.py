@@ -87,6 +87,8 @@ def init():
             ("catalyst_note",            "TEXT"),
             ("expected_holding_weeks",   "INTEGER"),
             ("uw_bearish_streak",        "INTEGER DEFAULT 0"),
+            ("entry_day_low",            "REAL"),
+            ("below_entry_low_streak",   "INTEGER DEFAULT 0"),
         ]:
             try:
                 c.execute(f"ALTER TABLE position_tranches ADD COLUMN {_col} {_defn}")
@@ -122,6 +124,47 @@ def get_uw_bearish_streak(symbol: str) -> int:
             "SELECT uw_bearish_streak FROM position_tranches WHERE symbol=?", (symbol,)
         ).fetchone()
         return row[0] if row and row[0] else 0
+
+
+def set_entry_day_low(symbol: str, low: float):
+    """Record the intraday low on the day a position was entered."""
+    with _conn() as c:
+        c.execute(
+            "UPDATE position_tranches SET entry_day_low=?, below_entry_low_streak=0 WHERE symbol=?",
+            (low, symbol)
+        )
+
+
+def check_entry_low_breach(symbol: str, current_price: float) -> int:
+    """
+    If current_price < entry_day_low, increment and return the consecutive-breach streak.
+    Otherwise reset streak to 0 and return 0.
+    Streak ≥ 2 means the position closed below its entry-day low on 2 consecutive sessions
+    — an early warning to re-review the thesis.
+    """
+    with _conn() as c:
+        row = c.execute(
+            "SELECT entry_day_low, below_entry_low_streak FROM position_tranches WHERE symbol=?",
+            (symbol,)
+        ).fetchone()
+    if not row or row[0] is None:
+        return 0
+    entry_low, streak = row
+    if current_price < entry_low:
+        streak = (streak or 0) + 1
+        with _conn() as c:
+            c.execute(
+                "UPDATE position_tranches SET below_entry_low_streak=? WHERE symbol=?",
+                (streak, symbol)
+            )
+        return streak
+    else:
+        with _conn() as c:
+            c.execute(
+                "UPDATE position_tranches SET below_entry_low_streak=0 WHERE symbol=?",
+                (symbol,)
+            )
+        return 0
 
 
 def log_audit(event_type: str, symbol: str, detail: str):

@@ -1026,6 +1026,25 @@ def run_cycle(dry_run: bool = False):
             pass
 
     exits = manager.check_stops(positions, signals_map=held_tech_map)
+
+    # Entry-day low breach check: if a new position closes below its entry-day low
+    # for 2 consecutive sessions, flag it for immediate QUANT re-review.
+    for p in positions:
+        sym = p["symbol"]
+        cur_price = float(p.get("current_price", 0))
+        if cur_price > 0:
+            try:
+                streak = db.check_entry_low_breach(sym, cur_price)
+                if streak >= 2:
+                    exits.append({
+                        "symbol": sym,
+                        "action": "REVIEW",
+                        "reason": (f"Entry-day low breached {streak} consecutive sessions "
+                                   f"— QUANT re-review: is thesis still intact at ${cur_price:.2f}?")
+                    })
+            except Exception:
+                pass
+
     pos_lookup = {p["symbol"]: p for p in positions}
     for exit_order in exits:
         sym    = exit_order["symbol"]
@@ -1312,7 +1331,46 @@ def run_cycle(dry_run: bool = False):
             tier = config.TICKER_TIERS.get(symbol, "mid_growth")
 
             if tier == "speculative":
-                pass  # always proceed — thesis checked post-cache load
+                # Spec hard gates: prevent falling-knife entries.
+                # Gate 1: below SMA200 AND MACD bearish — the single rule that would have
+                # blocked RXRX, MP, OKLO, and IONQ at their entry dates.
+                _spec_price  = tech.get("price") or 0
+                _spec_sma200 = tech.get("sma200") or 0
+                _spec_macd_b = tech.get("macd_bearish") or (tech.get("macd_hist", 0) or 0) < 0
+                _spec_below200 = _spec_sma200 > 0 and _spec_price < _spec_sma200
+                if _spec_below200 and _spec_macd_b:
+                    print(f"  [{symbol}] -> SKIP | Spec gate: below SMA200 + MACD bearish (falling knife)")
+                    db.log_audit("prelim_drop_spec_gate", symbol,
+                                 f"spec_below_sma200={_spec_below200} macd_bearish={_spec_macd_b}")
+                    _drop_prelim += 1
+                    continue
+
+                # Gate 2: 3m return < -15% with no nearby hard catalyst — no catching falling knives.
+                _spec_r3m = tech.get("return_3m")
+                if _spec_r3m is not None and _spec_r3m < -15:
+                    print(f"  [{symbol}] -> SKIP | Spec gate: 3m return {_spec_r3m:.1f}% < -15% (no catalyst)")
+                    db.log_audit("prelim_drop_spec_gate", symbol,
+                                 f"3m_return={_spec_r3m:.1f}%")
+                    _drop_prelim += 1
+                    continue
+
+                # Gate 3: institutional confirmation — require at least one real signal.
+                # Dark pool accumulation, insider net buying, or congress net buying in last 60d.
+                _dp_sig   = uw.get("darkpool", {}).get("darkpool_signal", "no_data")
+                _insd_sig = insd.get("net_signal", "neutral")
+                _cong_sig = cong.get("net_signal", "neutral")
+                _has_inst_confirm = (
+                    _dp_sig in ("accumulation", "strong_accumulation") or
+                    _insd_sig == "bullish" or
+                    _cong_sig == "bullish"
+                )
+                if not _has_inst_confirm:
+                    print(f"  [{symbol}] -> SKIP | Spec gate: no institutional confirmation "
+                          f"(dp={_dp_sig}, insider={_insd_sig}, congress={_cong_sig})")
+                    db.log_audit("prelim_drop_spec_gate", symbol,
+                                 f"no_inst_confirm dp={_dp_sig} insider={_insd_sig} congress={_cong_sig}")
+                    _drop_prelim += 1
+                    continue
             else:
                 prelim_score = 0
                 eps = fund.get("eps_growth_yoy")
@@ -1583,6 +1641,14 @@ def run_cycle(dry_run: bool = False):
                         print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
                         if action == "BUY":
                             cycle_buys.append(symbol)
+                            # Record today's intraday low as the entry-day low.
+                            # If price closes below this for 2 consecutive sessions,
+                            # the position gets flagged for QUANT re-review.
+                            _entry_low = tech.get("day_low") or tech.get("low") or price
+                            try:
+                                db.set_entry_day_low(symbol, _entry_low)
+                            except Exception:
+                                pass
                         elif action == "SELL":
                             cycle_sells.append(symbol)
 
