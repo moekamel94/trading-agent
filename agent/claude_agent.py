@@ -78,25 +78,44 @@ Be selective. A HOLD is always right when conviction is not high. Quality over q
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
-GROWTH RUNWAY & BUSINESS FUTURE (Chief Research Officer):
-Before evaluating any stock, assess whether the business has ROOM TO GROW.
-Great momentum today is worthless if the market is structurally contracting.
+CHIEF RESEARCH OFFICER (CRS) — Growth & Product Thesis Gate:
 
-Use the future_growth runway data (tam_trend, company_position, runway_assessment)
-and your own knowledge of the sector:
-• TAM Expanding + company gaining share  → Strong positive signal
-• TAM Expanding + company holding share  → Neutral, needs other edge
-• TAM Stable + company gaining share     → Acceptable
-• TAM Shrinking                          → Only accept if consolidation play with pricing power
+The CRS is the research conscience of the committee. Their job is to answer ONE question:
+"Is there a genuinely compelling reason this company will be worth significantly more in
+3-5 years — not because of price momentum, but because the BUSINESS itself is getting better?"
 
-Questions every CIO must answer for each stock:
-• Is the total addressable market itself growing?
-• Can the company expand — new geographies, products, customer segments?
-• Is this sector in structural tailwind (AI infra, defense, nuclear) or headwind?
-• Is the company gaining market share or just riding the sector wave?
+CRS evaluates BEFORE any BUY decision is made. If CRS cannot articulate a compelling growth
+thesis, the stock gets BUCKET regardless of technicals or momentum.
 
-runway_assessment = Weak AND no strong competing edge → downgrade conviction, output BUCKET.
-Do NOT reject — keep in watchlist for when conditions improve.
+What the CRS looks for (at least TWO must be present for a Pass):
+• New product lines, platform expansions, or technology breakthroughs driving the next revenue cycle
+• Market expansion — entering new geographies, verticals, or customer segments at scale
+• Structural tailwind: a megatrend (AI, nuclear, defense autonomy, space, biotech) where this
+  company is a direct and differentiated beneficiary — not just a sector rider
+• Pipeline catalyst: a specific upcoming product launch, FDA approval, contract award, or
+  technology milestone that could materially re-rate the stock within 12-24 months
+• Amazing discovery or IP moat: proprietary data, patent, process, or first-mover position that
+  competitors cannot easily replicate (e.g. RXRX's 23PB biological imaging dataset)
+• Massive market share gain: company is taking share from incumbents in a winner-take-most dynamic
+
+What makes the CRS output Fail (= no BUY):
+• The only bull case is "it's cheap" or "it's already going up" — no product story
+• TAM is shrinking or commoditising and the company has no pricing power
+• Revenue is growing but purely from price increases, not unit expansion (fragile growth)
+• The company is riding a sector wave but has no differentiated product vs peers
+• Pipeline is empty: no upcoming catalysts for the next 18 months
+
+CRS output format (part of each committee decision):
+  growth_gate: "Pass" or "Fail"
+  product_moat: "Strong" | "Moderate" | "Weak"
+  pipeline_catalyst: one sentence — the most important upcoming product/contract/milestone
+  market_expansion: one sentence — how the addressable opportunity is expanding
+  thesis: 3-4 sentence compelling research thesis — written for the PM to read and understand
+          WHY this company deserves capital. Must cover: product edge, growth driver, catalyst,
+          and why NOW is the right time. This is published to the PM on every BUY.
+
+Confidence impact: -1 to final_confidence if CRS.growth_gate = Fail.
+Gate: action cannot be BUY if CRS.growth_gate = Fail — downgrade to BUCKET.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -1581,13 +1600,15 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
 
     n = len(candidates)
     schema = (
-        f"=== 6-AGENT COMMITTEE DECISIONS ===\n"
-        f"For each of the {n} candidates, run the full CIO→QUANT→CRO→CCO→DEVIL→PM chain.\n"
-        f"Apply the confidence formula: base=CIO.confidence, -1 if CRO=Caution, "
+        f"=== 7-AGENT COMMITTEE DECISIONS ===\n"
+        f"For each of the {n} candidates, run the full CIO→CRS→QUANT→CRO→CCO→DEVIL→PM chain.\n"
+        f"Apply the confidence formula: base=CIO.confidence, -1 if CRS.growth_gate=Fail, "
+        f"-1 if CRO=Caution, "
         f"-2 if DA.severity=High, -1 if DA.severity=Medium, -1 if QUANT=Bearish, "
         f"+1 if QUANT=Strongly_Bullish.\n"
-        f"GATE: action=BUY only if CIO=Buy AND CRO≠Block AND CCO=Approve.\n"
-        f"If gate fails but thesis is intact → action=BUCKET (watchlist, no capital deployed).\n"
+        f"GATE: action=BUY only if CIO=Buy AND CRS.growth_gate=Pass AND CRO≠Block AND CCO=Approve.\n"
+        f"If CRS.growth_gate=Fail → action must be BUCKET regardless of other signals.\n"
+        f"If other gate fails but thesis is intact → action=BUCKET (watchlist, no capital deployed).\n"
         f"STARTER POSITIONS: In elevated-risk regimes, prefer BUY at 40-60% of normal size "
         f"over BUCKET. A small position beats watching from the sidelines. "
         f"Set allocation_pct to the starter size and target_pct to the full target — "
@@ -1603,6 +1624,7 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f'[{{\n'
         f'  "symbol":"<ticker>",\n'
         f'  "cio":{{"decision":"Buy"|"Avoid"|"Hold"|"Bucket","confidence":<1-10>,"narrative_drift":"none"|"positive"|"negative","rel_strength":"outperforming"|"inline"|"underperforming","narrative_stage":"Early"|"Consensus"|"Late","runway_assessment":"Strong"|"Neutral"|"Weak","reason":"<one sentence>"}},\n'
+        f'  "crs":{{"growth_gate":"Pass"|"Fail","product_moat":"Strong"|"Moderate"|"Weak","pipeline_catalyst":"<upcoming product/contract/milestone — one sentence>","market_expansion":"<how TAM or market share grows — one sentence>","thesis":"<3-4 sentence compelling growth thesis: product edge, growth driver, catalyst, why now — written for the PM to read>"}},\n'
         f'  "quant":{{"decision":"Strongly_Bullish"|"Bullish"|"Neutral"|"Bearish"|"Block","signal":"<one sentence>"}},\n'
         f'  "cro":{{"decision":"Approve"|"Caution"|"Block","adv_ok":true|false,"valuation_risk":"Low"|"Elevated"|"Extreme","top_risk":"<one sentence>"}},\n'
         f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>","thesis_break_criteria":"price_stop:<price> | fundamental_break:<trigger> | time_stop:<days/gain>"}},\n'
@@ -1615,7 +1637,8 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f'  "target_pct":<0.0-15.0>,\n'
         f'  "asset_type":"stock"|"crypto"|"option",\n'
         f'  "option_direction":"call"|"put"|null,\n'
-        f'  "rationale":"<one sentence — for long_term BUY must include explicit alpha source vs SPY>"\n'
+        f'  "rationale":"<one sentence — for long_term BUY must include explicit alpha source vs SPY>",\n'
+        f'  "thesis_summary":"<copy of crs.thesis — the PM reads this in Discord on every BUY>"\n'
         f'}}]\n'
         f"No prose, no markdown fences — ONLY the JSON array."
     )
@@ -1708,13 +1731,18 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
 
 
 def _normalise_committee_decision(sym: str, d: dict) -> dict:
-    """Extract and validate fields from a 6-agent committee JSON object."""
+    """Extract and validate fields from a 7-agent committee JSON object."""
     cio    = d.get("cio", {})
+    crs    = d.get("crs", {})
     cro    = d.get("cro", {})
     devil  = d.get("devil", {})
     action = d.get("action", "HOLD").upper()
     alloc  = float(d.get("allocation_pct", 0))
     target = float(d.get("target_pct", alloc * 2))  # fallback: double alloc
+
+    # CRS growth gate: force BUCKET if growth thesis failed
+    if crs.get("growth_gate") == "Fail" and action == "BUY":
+        action = "BUCKET"
 
     # BUCKET means watchlist — no capital deployed
     if action == "BUCKET":
@@ -1728,8 +1756,16 @@ def _normalise_committee_decision(sym: str, d: dict) -> dict:
     if _tier in ("mega", "speculative"):
         bucket = "long_term"
 
-    cco = d.get("cco") or {}
+    cco   = d.get("cco") or {}
     quant = d.get("quant") or {}
+
+    # thesis_summary: prefer explicit top-level field, fall back to crs.thesis
+    thesis_summary = (
+        d.get("thesis_summary") or
+        crs.get("thesis") or
+        ""
+    )
+
     return {
         "symbol":           sym,
         "action":           action,
@@ -1740,11 +1776,16 @@ def _normalise_committee_decision(sym: str, d: dict) -> dict:
         "asset_type":       d.get("asset_type", "stock"),
         "option_direction": d.get("option_direction"),
         "rationale":        d.get("rationale", ""),
+        "thesis_summary":        thesis_summary,
         "da_severity":      devil.get("severity", "Low"),
         "da_bear_case":     devil.get("bear_case", ""),
         "da_probability":   int(devil.get("probability", 0)),
         "quant_decision":   quant.get("decision", "Neutral"),
         "quant_signal":     quant.get("signal", ""),
+        "crs_growth_gate":       crs.get("growth_gate", "Pass"),
+        "crs_product_moat":      crs.get("product_moat", "Moderate"),
+        "crs_pipeline_catalyst": crs.get("pipeline_catalyst", ""),
+        "crs_market_expansion":  crs.get("market_expansion", ""),
         "cro_decision":     cro.get("decision", "Approve"),
         "cro_top_risk":     cro.get("top_risk", ""),
         "cco_decision":     cco.get("decision", "Approve"),

@@ -1673,18 +1673,35 @@ def run_cycle(dry_run: bool = False):
                         if pe:                snap.append(f"PE={pe:.0f}")
                         if em:                snap.append(f"earnings={em}")
 
-                        da_sev  = decision.get("da_severity", "")
-                        da_bear = decision.get("da_bear_case", "")
-                        target  = decision.get("target_pct", alloc)
-                        cio_c   = decision.get("cio_confidence", confidence)
+                        da_sev         = decision.get("da_severity", "")
+                        da_bear        = decision.get("da_bear_case", "")
+                        target         = decision.get("target_pct", alloc)
+                        cio_c          = decision.get("cio_confidence", confidence)
+                        thesis_summary = decision.get("thesis_summary", "")
+                        crs_gate       = decision.get("crs_growth_gate", "Pass")
+                        crs_catalyst   = decision.get("crs_pipeline_catalyst", "")
+                        crs_moat       = decision.get("crs_product_moat", "")
+                        stop_criteria  = decision.get("thesis_break_criteria", "")
                         emoji   = "🟢" if action == "BUY" else "🔴"
-                        tg.send(
-                            f"{emoji} {action} {symbol} [{tier}] Tranche 1/{3 if target > alloc else 1}\n"
-                            f"CIO={cio_c}/10 → final={confidence}/10 | {alloc}% now → {target}% target (${dollar_amt:,.0f})\n"
-                            f"{' | '.join(snap)}\n"
-                            f"WHY: {rationale}\n"
-                            + (f"BEAR: {da_bear} [{da_sev}]" if da_bear else "")
-                        )
+
+                        msg_lines = [
+                            f"{emoji} {action} **{symbol}** [{tier}] Tranche 1/{3 if target > alloc else 1}",
+                            f"CIO={cio_c}/10 → final={confidence}/10 | {alloc}% now → {target}% target (${dollar_amt:,.0f})",
+                            f"{' | '.join(snap)}",
+                        ]
+                        if action == "BUY" and thesis_summary:
+                            msg_lines.append(f"\n📋 **RESEARCH THESIS (CRS)**")
+                            msg_lines.append(thesis_summary)
+                            if crs_catalyst:
+                                msg_lines.append(f"🚀 Catalyst: {crs_catalyst}")
+                            if crs_moat:
+                                msg_lines.append(f"🏰 Moat: {crs_moat}")
+                        msg_lines.append(f"\n📌 WHY NOW: {rationale}")
+                        if stop_criteria:
+                            msg_lines.append(f"🛑 EXIT IF: {stop_criteria}")
+                        if da_bear:
+                            msg_lines.append(f"⚠️ BEAR: {da_bear} [{da_sev}]")
+                        tg.send("\n".join(msg_lines))
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")
 
