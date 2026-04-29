@@ -1673,34 +1673,45 @@ def run_cycle(dry_run: bool = False):
                         if pe:                snap.append(f"PE={pe:.0f}")
                         if em:                snap.append(f"earnings={em}")
 
-                        da_sev         = decision.get("da_severity", "")
-                        da_bear        = decision.get("da_bear_case", "")
-                        target         = decision.get("target_pct", alloc)
-                        cio_c          = decision.get("cio_confidence", confidence)
-                        thesis_summary = decision.get("thesis_summary", "")
-                        crs_gate       = decision.get("crs_growth_gate", "Pass")
-                        crs_catalyst   = decision.get("crs_pipeline_catalyst", "")
-                        crs_moat       = decision.get("crs_product_moat", "")
-                        stop_criteria  = decision.get("thesis_break_criteria", "")
-                        emoji   = "🟢" if action == "BUY" else "🔴"
+                        da_sev              = decision.get("da_severity", "")
+                        da_bear             = decision.get("da_bear_case", "")
+                        target              = decision.get("target_pct", alloc)
+                        cio_c               = decision.get("cio_confidence", confidence)
+                        thesis_summary      = decision.get("thesis_summary", "")
+                        crs_moat            = decision.get("crs_product_moat", "")
+                        crs_market          = decision.get("crs_market_outlook", "")
+                        crs_edge            = decision.get("crs_competitive_edge", "")
+                        crs_product         = decision.get("crs_product_advantage", "")
+                        crs_catalyst        = decision.get("crs_growth_catalyst", "")
+                        crs_why             = decision.get("crs_why_this_over_peers", "")
+                        stop_criteria       = decision.get("thesis_break_criteria", "")
+                        emoji = "🟢" if action == "BUY" else "🔴"
 
                         msg_lines = [
-                            f"{emoji} {action} **{symbol}** [{tier}] Tranche 1/{3 if target > alloc else 1}",
+                            f"{emoji} **{action} {symbol}** [{tier}] Tranche 1/{3 if target > alloc else 1}",
                             f"CIO={cio_c}/10 → final={confidence}/10 | {alloc}% now → {target}% target (${dollar_amt:,.0f})",
                             f"{' | '.join(snap)}",
                         ]
-                        if action == "BUY" and thesis_summary:
-                            msg_lines.append(f"\n📋 **RESEARCH THESIS (CRS)**")
-                            msg_lines.append(thesis_summary)
+                        if action == "BUY":
+                            msg_lines.append(f"\n━━━ RESEARCH THESIS [{crs_moat.upper()} MOAT] ━━━")
+                            if crs_market:
+                                msg_lines.append(f"📈 **Market Outlook**\n{crs_market}")
+                            if crs_edge:
+                                msg_lines.append(f"⚔️ **Competitive Edge vs Peers**\n{crs_edge}")
+                            if crs_product:
+                                msg_lines.append(f"🔬 **Product Advantage**\n{crs_product}")
                             if crs_catalyst:
-                                msg_lines.append(f"🚀 Catalyst: {crs_catalyst}")
-                            if crs_moat:
-                                msg_lines.append(f"🏰 Moat: {crs_moat}")
-                        msg_lines.append(f"\n📌 WHY NOW: {rationale}")
+                                msg_lines.append(f"🚀 **Growth Catalyst**\n{crs_catalyst}")
+                            if crs_why:
+                                msg_lines.append(f"🎯 **Why This Over Peers**\n{crs_why}")
+                            if thesis_summary:
+                                msg_lines.append(f"\n📋 **Summary**\n{thesis_summary}")
+                            msg_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+                        msg_lines.append(f"📌 **Decision:** {rationale}")
                         if stop_criteria:
-                            msg_lines.append(f"🛑 EXIT IF: {stop_criteria}")
+                            msg_lines.append(f"🛑 **Exit if:** {stop_criteria}")
                         if da_bear:
-                            msg_lines.append(f"⚠️ BEAR: {da_bear} [{da_sev}]")
+                            msg_lines.append(f"⚠️ **Bear case:** {da_bear} [{da_sev}]")
                         tg.send("\n".join(msg_lines))
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")

@@ -80,39 +80,75 @@ Be selective. A HOLD is always right when conviction is not high. Quality over q
 ═══════════════════════════════════════════════════════
 CHIEF RESEARCH OFFICER (CRS) — Growth & Product Thesis Gate:
 
-The CRS is the research conscience of the committee. Their job is to answer ONE question:
-"Is there a genuinely compelling reason this company will be worth significantly more in
-3-5 years — not because of price momentum, but because the BUSINESS itself is getting better?"
+The CRS is the research conscience of the committee. Every BUY must be justified by a
+detailed, specific research case — not sector momentum, not price action, not "it looks
+cheap." The PM receives the CRS output in Discord after every BUY so they can understand
+exactly WHY the capital was deployed.
 
-CRS evaluates BEFORE any BUY decision is made. If CRS cannot articulate a compelling growth
-thesis, the stock gets BUCKET regardless of technicals or momentum.
+The CRS produces FIVE structured research sections. Each must be substantive and specific:
 
-What the CRS looks for (at least TWO must be present for a Pass):
-• New product lines, platform expansions, or technology breakthroughs driving the next revenue cycle
-• Market expansion — entering new geographies, verticals, or customer segments at scale
-• Structural tailwind: a megatrend (AI, nuclear, defense autonomy, space, biotech) where this
-  company is a direct and differentiated beneficiary — not just a sector rider
-• Pipeline catalyst: a specific upcoming product launch, FDA approval, contract award, or
-  technology milestone that could materially re-rate the stock within 12-24 months
-• Amazing discovery or IP moat: proprietary data, patent, process, or first-mover position that
-  competitors cannot easily replicate (e.g. RXRX's 23PB biological imaging dataset)
-• Massive market share gain: company is taking share from incumbents in a winner-take-most dynamic
+1. MARKET OUTLOOK — the industry backdrop
+   • What is the TAM and how fast is it growing? (use real numbers where known)
+   • What structural tailwind is driving this market? Is it durable or cyclical?
+   • What is the competitive intensity — fragmented, consolidating, winner-take-most?
+   • Where are we in the adoption curve — early, mid, late?
+   Example quality: "The global AI data center power market is growing from $50B to $200B
+   by 2030 (30% CAGR) driven by hyperscaler capex commitments that are locked in via
+   multi-year contracts. This is a structural, not cyclical, expansion — demand is
+   supply-constrained, not demand-constrained."
 
-What makes the CRS output Fail (= no BUY):
-• The only bull case is "it's cheap" or "it's already going up" — no product story
-• TAM is shrinking or commoditising and the company has no pricing power
-• Revenue is growing but purely from price increases, not unit expansion (fragile growth)
-• The company is riding a sector wave but has no differentiated product vs peers
-• Pipeline is empty: no upcoming catalysts for the next 18 months
+2. COMPETITIVE EDGE — why this company beats named peers
+   • Name the top 2-3 competitors explicitly and explain the gap
+   • What does this company have that competitors cannot easily copy?
+   • Is the moat widening or narrowing? Give evidence.
+   • Where is market share moving — toward or away from this company?
+   Example quality: "VST beats NRG and Vistra's merchant peers because it owns the only
+   operating nuclear fleet in deregulated Texas markets — zero marginal cost power that
+   cannot be replicated by gas competitors facing $5-7/MMBtu fuel cost. Its 6.8GW nuclear
+   capacity is fully contracted to Microsoft via a 20-year PPA signed in Sept 2024, which
+   competitors cannot match without decade-long construction timelines."
 
-CRS output format (part of each committee decision):
-  growth_gate: "Pass" or "Fail"
-  product_moat: "Strong" | "Moderate" | "Weak"
-  pipeline_catalyst: one sentence — the most important upcoming product/contract/milestone
-  market_expansion: one sentence — how the addressable opportunity is expanding
-  thesis: 3-4 sentence compelling research thesis — written for the PM to read and understand
-          WHY this company deserves capital. Must cover: product edge, growth driver, catalyst,
-          and why NOW is the right time. This is published to the PM on every BUY.
+3. PRODUCT ADVANTAGE — what makes the product/technology distinctly better
+   • What is the specific product, platform, or technology and why is it better?
+   • Is there a proprietary process, patent, dataset, or network effect?
+   • What does a customer get from this company they cannot get elsewhere?
+   • What is in the pipeline that will drive the next product cycle?
+   Example quality: "NVDA's Blackwell B200 delivers 4× the training throughput of H100
+   at similar power envelope via NVLink 5 which bonds 72 GPUs into a single logical unit —
+   AMD MI300X cannot approach this because it lacks NVLink and requires 8× the memory
+   bandwidth to compensate, costing 30% more per training FLOP. CUDA's 4M+ developer base
+   and 600+ software libraries represent a switching cost no hardware spec can overcome."
+
+4. GROWTH CATALYST — the specific next event with timeline and expected impact
+   • Name the exact catalyst (product launch, earnings, contract, approval, milestone)
+   • When does it happen? (specific quarter or date range)
+   • What is the expected financial impact or market reaction?
+   • What evidence exists that this catalyst is on track?
+   Example quality: "GEV's Vernova X gas turbine backlog hit $21B in Q1 2025 (+60% YoY)
+   with 18-month lead times — Q2 2025 earnings (est. Aug) will show the first full quarter
+   of Vernova margin expansion from ~3% to ~8% as manufacturing efficiency improves.
+   The AWS nuclear data center MOU signed Feb 2025 provides a visible path to 5GW of
+   nuclear services revenue by 2030 that is not yet in consensus estimates."
+
+5. WHY THIS OVER PEERS — the decisive reason to own THIS name vs the sector ETF or
+   closest competitor
+   • If someone asked "why not just buy the sector ETF?" what is the answer?
+   • If there is a close peer (e.g. IONQ vs RGTI, VST vs CEG), why this one specifically?
+   • What re-rating event exists for this stock that does NOT exist for the peer/ETF?
+   Example quality: "Buy GEV not XLI (industrials ETF) because XLI has zero pure-play
+   exposure to nuclear data center power — GEV is the only large-cap that combines gas
+   turbine dominance (pricing power), nuclear services (secular growth), and electrification
+   (grid hardening spend). The peer CEG is nuclear-only and trades at 24× vs GEV at 18×
+   for inferior revenue diversity. GEV is the only name where a single AWS/Google contract
+   announcement is a genuine 20-30% re-rating catalyst."
+
+CRS FAIL conditions (no BUY):
+• Cannot name specific competitors and explain the gap
+• TAM is shrinking or no evidence of structural demand growth
+• Company is a pure sector rider — remove and the thesis is identical to the ETF
+• Pipeline is empty: no identifiable catalyst in the next 18 months
+• Revenue growth is price-only, not unit/volume-driven
+• "It's cheap" or "strong momentum" is the entire case — no product story
 
 Confidence impact: -1 to final_confidence if CRS.growth_gate = Fail.
 Gate: action cannot be BUY if CRS.growth_gate = Fail — downgrade to BUCKET.
@@ -1624,7 +1660,12 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f'[{{\n'
         f'  "symbol":"<ticker>",\n'
         f'  "cio":{{"decision":"Buy"|"Avoid"|"Hold"|"Bucket","confidence":<1-10>,"narrative_drift":"none"|"positive"|"negative","rel_strength":"outperforming"|"inline"|"underperforming","narrative_stage":"Early"|"Consensus"|"Late","runway_assessment":"Strong"|"Neutral"|"Weak","reason":"<one sentence>"}},\n'
-        f'  "crs":{{"growth_gate":"Pass"|"Fail","product_moat":"Strong"|"Moderate"|"Weak","pipeline_catalyst":"<upcoming product/contract/milestone — one sentence>","market_expansion":"<how TAM or market share grows — one sentence>","thesis":"<3-4 sentence compelling growth thesis: product edge, growth driver, catalyst, why now — written for the PM to read>"}},\n'
+        f'  "crs":{{"growth_gate":"Pass"|"Fail","product_moat":"Strong"|"Moderate"|"Weak",'
+        f'"market_outlook":"<2-3 sentences: TAM size+growth rate, structural tailwind, adoption stage, competitive intensity>",'
+        f'"competitive_edge":"<2-3 sentences: name top 2-3 competitors explicitly, explain the specific gap, is moat widening or narrowing>",'
+        f'"product_advantage":"<2-3 sentences: what the product does that peers cannot, proprietary IP/data/network effect, next product cycle>",'
+        f'"growth_catalyst":"<2-3 sentences: exact upcoming event with quarter/date, expected financial impact, evidence it is on track>",'
+        f'"why_this_over_peers":"<2 sentences: why this name vs sector ETF, why vs closest named peer, what re-rating event exists only here>"}},\n'
         f'  "quant":{{"decision":"Strongly_Bullish"|"Bullish"|"Neutral"|"Bearish"|"Block","signal":"<one sentence>"}},\n'
         f'  "cro":{{"decision":"Approve"|"Caution"|"Block","adv_ok":true|false,"valuation_risk":"Low"|"Elevated"|"Extreme","top_risk":"<one sentence>"}},\n'
         f'  "cco":{{"decision":"Approve"|"Reject","reason":"<one sentence>","thesis_break_criteria":"price_stop:<price> | fundamental_break:<trigger> | time_stop:<days/gain>"}},\n'
@@ -1638,7 +1679,7 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f'  "asset_type":"stock"|"crypto"|"option",\n'
         f'  "option_direction":"call"|"put"|null,\n'
         f'  "rationale":"<one sentence — for long_term BUY must include explicit alpha source vs SPY>",\n'
-        f'  "thesis_summary":"<copy of crs.thesis — the PM reads this in Discord on every BUY>"\n'
+        f'  "thesis_summary":"<compiled CRS thesis for PM: combine market_outlook + competitive_edge + product_advantage + growth_catalyst + why_this_over_peers into one flowing paragraph — this is what the PM reads in Discord>"\n'
         f'}}]\n'
         f"No prose, no markdown fences — ONLY the JSON array."
     )
@@ -1672,7 +1713,7 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
     prompt = f"{geo_block}{macro_regime_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
 
     # max_tokens: room for adaptive thinking + structured JSON output per candidate.
-    _max_tokens = 350 * n + 6000
+    _max_tokens = 550 * n + 6000  # +200/candidate for richer CRS thesis sections
 
     try:
         response = _client.messages.create(
@@ -1782,10 +1823,13 @@ def _normalise_committee_decision(sym: str, d: dict) -> dict:
         "da_probability":   int(devil.get("probability", 0)),
         "quant_decision":   quant.get("decision", "Neutral"),
         "quant_signal":     quant.get("signal", ""),
-        "crs_growth_gate":       crs.get("growth_gate", "Pass"),
-        "crs_product_moat":      crs.get("product_moat", "Moderate"),
-        "crs_pipeline_catalyst": crs.get("pipeline_catalyst", ""),
-        "crs_market_expansion":  crs.get("market_expansion", ""),
+        "crs_growth_gate":         crs.get("growth_gate", "Pass"),
+        "crs_product_moat":        crs.get("product_moat", "Moderate"),
+        "crs_market_outlook":      crs.get("market_outlook", ""),
+        "crs_competitive_edge":    crs.get("competitive_edge", ""),
+        "crs_product_advantage":   crs.get("product_advantage", ""),
+        "crs_growth_catalyst":     crs.get("growth_catalyst", ""),
+        "crs_why_this_over_peers": crs.get("why_this_over_peers", ""),
         "cro_decision":     cro.get("decision", "Approve"),
         "cro_top_risk":     cro.get("top_risk", ""),
         "cco_decision":     cco.get("decision", "Approve"),
