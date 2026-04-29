@@ -326,6 +326,31 @@ _TOOLS = [
         "description": "Trigger a full trading cycle. Use request_approval first.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
+    {
+        "name": "trade_option",
+        "description": (
+            "Place a manual option trade and set an auto-sell target. "
+            "Mohammed specifies the contract details and the system places a limit buy "
+            "then auto-sells when the option premium hits the target. "
+            "Example: 'buy call SPY May 1 strike 711 at 2.95 sell at 3.30' → "
+            "symbol=SPY, direction=call, expiry=2026-05-01, strike=711, "
+            "entry_price=2.95, target_price=3.30. "
+            "Always use request_approval first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol":       {"type": "string",  "description": "Underlying ticker, e.g. SPY"},
+                "direction":    {"type": "string",  "description": "'call' or 'put'"},
+                "expiry":       {"type": "string",  "description": "Expiry date, e.g. '2026-05-01' or 'May 1'"},
+                "strike":       {"type": "number",  "description": "Strike price, e.g. 711"},
+                "entry_price":  {"type": "number",  "description": "Limit price to pay for the option premium, e.g. 2.95"},
+                "target_price": {"type": "number",  "description": "Option premium at which to auto-sell, e.g. 3.30"},
+                "qty":          {"type": "integer", "description": "Number of contracts (default 1)"},
+            },
+            "required": ["symbol", "direction", "expiry", "strike", "entry_price", "target_price"],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -548,6 +573,76 @@ async def _exec_tool(name: str, inputs: dict, channel=None) -> str:
         elif name == "run_trading_cycle":
             subprocess.Popen([sys.executable, "main.py"], cwd=_DEFAULT_DIR)
             return "Trading cycle started."
+
+        elif name == "trade_option":
+            import sys as _sys
+            _sys.path.insert(0, _DEFAULT_DIR)
+            from broker import alpaca as _alp
+            from database import options_positions as _op_db
+            from datetime import datetime as _dt, date as _date
+            import re as _re
+
+            sym     = inputs["symbol"].upper().strip()
+            dirn    = inputs["direction"].lower().strip()
+            expiry_raw  = str(inputs["expiry"]).strip()
+            strike  = float(inputs["strike"])
+            entry_p = float(inputs["entry_price"])
+            target_p = float(inputs["target_price"])
+            qty     = int(inputs.get("qty") or 1)
+
+            # Parse expiry — accept "2026-05-01", "May 1", "May 1 2026", "05/01" etc.
+            expiry_dt = None
+            for fmt in ("%Y-%m-%d", "%b %d %Y", "%B %d %Y", "%b %d", "%B %d", "%m/%d/%Y", "%m/%d"):
+                try:
+                    parsed = _dt.strptime(expiry_raw, fmt)
+                    if parsed.year == 1900:
+                        parsed = parsed.replace(year=_dt.now().year)
+                        # If already past, assume next year
+                        if parsed.date() < _dt.now().date():
+                            parsed = parsed.replace(year=_dt.now().year + 1)
+                    expiry_dt = parsed.date()
+                    break
+                except ValueError:
+                    continue
+
+            if expiry_dt is None:
+                return f"Could not parse expiry date: '{expiry_raw}'. Use format like '2026-05-01' or 'May 1'."
+
+            # Build OCC contract symbol
+            contract_symbol = _alp.build_occ_symbol(sym, expiry_dt, dirn, strike)
+
+            # Calculate upside %
+            upside_pct = round((target_p - entry_p) / entry_p * 100, 1)
+            cost_total = round(entry_p * qty * 100, 2)
+
+            # Place limit buy order
+            try:
+                order = _alp.place_option_limit_order(contract_symbol, qty, "BUY", entry_p)
+                order_id = str(getattr(order, "id", "n/a"))
+            except Exception as _oe:
+                return f"Order failed: {_oe}\nContract symbol tried: {contract_symbol}"
+
+            # Log position
+            trade_id = _op_db.log_live_trade(
+                contract_symbol=contract_symbol,
+                symbol=sym,
+                direction=dirn,
+                expiry=str(expiry_dt),
+                strike=strike,
+                entry_price=entry_p,
+                target_price=target_p,
+                qty=qty,
+            )
+
+            return (
+                f"✅ Option order placed!\n"
+                f"Contract: {contract_symbol}\n"
+                f"{sym} {dirn.upper()} ${strike:.2f} exp {expiry_dt}\n"
+                f"Limit buy: ${entry_p:.2f} × {qty} contract(s) = ${cost_total:,.2f}\n"
+                f"Auto-sell target: ${target_p:.2f} (+{upside_pct:.1f}%)\n"
+                f"Order ID: {order_id} | Trade #{trade_id}\n"
+                f"The agent will auto-sell when premium hits ${target_p:.2f}."
+            )
 
         else:
             return f"Unknown tool: {name}"
@@ -772,6 +867,44 @@ def _setup_slash_commands(bot: KimmyBot):
             ephemeral=True,
         )
 
+    @tree.command(name="veto_removal", description="Cancel a pending MT basket removal within the 24h veto window")
+    @app_commands.describe(ticker="Ticker symbol to keep (e.g. DDOG)")
+    async def slash_veto(interaction: discord.Interaction, ticker: str):
+        try:
+            from basket.pending_removals import cancel, get_all
+            sym = ticker.upper().strip()
+            pending = get_all()
+            if sym not in pending:
+                await interaction.response.send_message(
+                    f"**{sym}** is not in the pending removal list. "
+                    f"Current pending: {', '.join(pending.keys()) or 'none'}",
+                    ephemeral=True,
+                )
+            else:
+                cancel(sym)
+                await interaction.response.send_message(
+                    f"✅ Veto applied — **{sym}** will be kept in the MT basket. "
+                    f"It will not be removed in tomorrow's daily review.",
+                    ephemeral=False,
+                )
+        except Exception as e:
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+
+    @tree.command(name="pending_removals", description="Show MT basket positions flagged for removal (in veto window)")
+    async def slash_pending(interaction: discord.Interaction):
+        try:
+            from basket.pending_removals import summary_lines
+            lines = summary_lines()
+            if not lines:
+                await interaction.response.send_message(
+                    "No pending MT basket removals at this time.", ephemeral=True
+                )
+            else:
+                msg = "**Pending MT basket removals (24h veto window open):**\n" + "\n".join(lines)
+                await interaction.response.send_message(msg, ephemeral=False)
+        except Exception as e:
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+
     @tree.command(name="help", description="What Kimmy can do")
     async def slash_help(interaction: discord.Interaction):
         await interaction.response.send_message(
@@ -790,7 +923,7 @@ def _setup_slash_commands(bot: KimmyBot):
             "`#code-*` → Software engineering\n"
             "`#research-*` → Research & analysis\n"
             "Anything else → General assistant\n\n"
-            "**Commands:** `/clear` `/status` `/help`",
+            "**Commands:** `/clear` `/status` `/help` `/veto_removal` `/pending_removals`",
             ephemeral=True,
         )
 

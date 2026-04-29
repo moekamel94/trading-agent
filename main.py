@@ -710,6 +710,26 @@ def run_weekly_basket_review():
     tg.send(msg)
 
 
+def _mt_weekly_deployed_pct(portfolio_equity: float) -> float:
+    """
+    Return total allocation_pct of MT BUY decisions executed since last Monday.
+    Used to enforce the weekly MT deployment cap.
+    """
+    try:
+        from datetime import timedelta
+        import zoneinfo
+        now_et    = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        monday_et = now_et - timedelta(days=now_et.weekday())
+        monday_et = monday_et.replace(hour=0, minute=0, second=0, microsecond=0)
+        trades    = db.get_recent_trades(since=monday_et.astimezone(timezone.utc).isoformat())
+        mt_buys   = [t for t in trades
+                     if t.get("action") == "BUY"
+                     and t.get("sleeve") == "medium_term"]
+        return sum(t.get("allocation_pct", 0) for t in mt_buys)
+    except Exception:
+        return 0.0
+
+
 def run_daily_basket_review():
     """
     Daily MT basket review — Mon-Fri 16:15 ET.
@@ -948,9 +968,27 @@ def run_cycle(dry_run: bool = False):
         mkt_ctx["vix_term_structure"] = uw_flow.get_vix_term_structure()
     except Exception:
         mkt_ctx["vix_term_structure"] = {}
+    # SPY daily return — used by geo_block to flag high-velocity down days
+    try:
+        import yfinance as _yf
+        _spy_hist = _yf.Ticker("SPY").history(period="3d")
+        if len(_spy_hist) >= 2:
+            _spy_today  = float(_spy_hist["Close"].iloc[-1])
+            _spy_prev   = float(_spy_hist["Close"].iloc[-2])
+            _spy_vol    = float(_spy_hist["Volume"].iloc[-1])
+            _spy_avgvol = float(_spy_hist["Volume"].mean())
+            mkt_ctx["spy_day_return"]    = round((_spy_today - _spy_prev) / _spy_prev * 100, 2)
+            mkt_ctx["spy_volume_ratio"]  = round(_spy_vol / _spy_avgvol, 2) if _spy_avgvol else 1.0
+        else:
+            mkt_ctx["spy_day_return"]   = 0.0
+            mkt_ctx["spy_volume_ratio"] = 1.0
+    except Exception:
+        mkt_ctx["spy_day_return"]   = 0.0
+        mkt_ctx["spy_volume_ratio"] = 1.0
     vts = mkt_ctx.get("vix_term_structure", {})
     vts_note = f" | VTS={'INVERTED⚠️' if vts.get('inverted') else 'normal'}({vts.get('vix_spot','?')}/{vts.get('vix_3m','?')})" if vts.get("inverted") is not None else ""
-    print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | VIX={mkt_ctx['vix'].get('vix','?')}{vts_note}")
+    _spy_dr = mkt_ctx.get("spy_day_return", 0)
+    print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | VIX={mkt_ctx['vix'].get('vix','?')}{vts_note} | SPY={_spy_dr:+.1f}%")
     if mkt_ctx.get("upcoming_macro_events"):
         print(f"  Macro events this week: {[e['event'] for e in mkt_ctx['upcoming_macro_events']]}")
 
@@ -1567,6 +1605,22 @@ def run_cycle(dry_run: bool = False):
     # =========================================================
     _opt_queue: list[dict] = []  # committee-flagged options plays queued for Phase 4
 
+    # MT weekly deployment cap — compute once before the loop
+    _macro      = mkt_ctx.get("macro_momentum") or {}
+    _regime_lbl = _macro.get("label", "neutral")
+    _vix_now    = (mkt_ctx.get("vix") or {}).get("vix", 0)
+    if isinstance(_vix_now, (int, float)) and _vix_now > 35 and _regime_lbl == "extreme_fear":
+        _mt_cap_pct = 0.0   # CRISIS — no new MT
+    elif isinstance(_vix_now, (int, float)) and _vix_now > 28 and _regime_lbl in ("risk_off", "extreme_fear"):
+        _mt_cap_pct = 5.0   # STRESS — 5% NAV/week
+    elif _regime_lbl == "risk_off":
+        _mt_cap_pct = 10.0  # ELEVATED — 10% NAV/week
+    else:
+        _mt_cap_pct = 30.0  # Normal — no meaningful cap (30% = max sleeve)
+    _mt_deployed_this_week = _mt_weekly_deployed_pct(portfolio["equity"])
+    print(f"  [MT Cap] regime={_regime_lbl} | weekly cap={_mt_cap_pct:.0f}% | "
+          f"deployed this week={_mt_deployed_this_week:.1f}%")
+
     for decision in decisions:
         symbol = decision["symbol"]
         signals = signals_map.get(symbol, {})
@@ -1654,21 +1708,60 @@ def run_cycle(dry_run: bool = False):
                               f"{symbol} {dirn.upper()} conf={confidence}/10")
                         continue
                     else:
-                        alpaca.place_market_order(symbol, qty, action)
-                        db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
-                        print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
-                        if action == "BUY":
-                            cycle_buys.append(symbol)
-                            # Record today's intraday low as the entry-day low.
-                            # If price closes below this for 2 consecutive sessions,
-                            # the position gets flagged for QUANT re-review.
-                            _entry_low = tech.get("day_low") or tech.get("low") or price
-                            try:
-                                db.set_entry_day_low(symbol, _entry_low)
-                            except Exception:
-                                pass
-                        elif action == "SELL":
-                            cycle_sells.append(symbol)
+                        # ── MT weekly deployment cap check ────────────────
+                        _is_mt_buy = (action == "BUY"
+                                      and decision.get("bucket") == "medium_term")
+                        if _is_mt_buy and _mt_deployed_this_week + alloc > _mt_cap_pct:
+                            tg.send(
+                                f"⛔ MT cap: {symbol} BUY blocked "
+                                f"({_mt_deployed_this_week:.1f}% + {alloc:.1f}% > {_mt_cap_pct:.0f}% weekly cap). "
+                                f"BUCKET'd to watchlist."
+                            )
+                            print(f"  [{symbol}] MT weekly cap exceeded — converting BUY → BUCKET")
+                            decision["action"] = "BUCKET"
+                            action = "BUCKET"
+                        else:
+                            alpaca.place_market_order(symbol, qty, action)
+                            db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
+                            print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
+                            if action == "BUY":
+                                cycle_buys.append(symbol)
+                                if _is_mt_buy:
+                                    _mt_deployed_this_week += alloc
+                                # Record today's intraday low as the entry-day low.
+                                _entry_low = tech.get("day_low") or tech.get("low") or price
+                                try:
+                                    db.set_entry_day_low(symbol, _entry_low)
+                                except Exception:
+                                    pass
+                                # Attribution logging
+                                try:
+                                    from database import decisions_log as _dlog
+                                    _regime_str = (
+                                        "crisis"   if (isinstance(_vix_now, (int, float)) and _vix_now > 35 and _regime_lbl == "extreme_fear") else
+                                        "stress"   if (isinstance(_vix_now, (int, float)) and _vix_now > 28 and _regime_lbl in ("risk_off", "extreme_fear")) else
+                                        "elevated" if _regime_lbl == "risk_off" else "normal"
+                                    )
+                                    _dlog.log_committee_decision(
+                                        symbol=symbol,
+                                        action="BUY",
+                                        sleeve=decision.get("bucket", ""),
+                                        confidence=confidence,
+                                        regime=_regime_str,
+                                        allocation_pct=alloc,
+                                        catalyst_type=decision.get("catalyst_type", ""),
+                                        catalyst_date=decision.get("catalyst_date", ""),
+                                        rationale=rationale,
+                                        cio_confidence=decision.get("cio_confidence", confidence),
+                                        da_severity=decision.get("da_severity", ""),
+                                        crs_growth_gate=decision.get("crs_growth_gate", ""),
+                                        price_at_decision=price,
+                                        price_target=decision.get("price_target", 0.0),
+                                    )
+                                except Exception:
+                                    pass
+                            elif action == "SELL":
+                                cycle_sells.append(symbol)
 
                         # Build rich notification with key signals
                         tier   = config.TICKER_TIERS.get(symbol, "mid_growth")

@@ -215,6 +215,21 @@ RULE: If thesis-break criteria are not quantifiable at entry → conviction CAPS
 
 Conviction tiers:
 9–10 → core holding | 7–8 → standard | 5–6 → small / BUCKET | <5 → BUCKET or reject
+
+SLEEVE-SPECIFIC CONVICTION WEIGHTING:
+For LONG-TERM (6m–3y) positions, weight these formula components most:
+  • A (Earnings Growth Acceleration) — is the business compounding?
+  • C (Institutional Accumulation) — are smart money and insiders on board?
+  • E (Narrative Stage) — Early-stage thesis = highest asymmetry
+
+For MEDIUM-TERM (3–8 week catalyst) positions, weight these most:
+  • B (Relative Strength vs SPY) — momentum is the catalyst's fuel
+  • D (Breakout Quality + Volume) — the setup must be technically clean
+  • Catalyst quality: earnings in 3–8 weeks > sector event > analyst day
+
+A conf-7 MT play with clean technicals + defined earnings catalyst beats a conf-8 LT
+play with a vague 12-month narrative for the MT sleeve. Use the formula, then apply
+sleeve context to decide the right vehicle.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -405,6 +420,13 @@ Required characteristics:
   Without an identifiable catalyst + clear exit, use BUCKET not BUY in risk-off.
   With a catalyst (earnings date, product launch, sector event), conf 7 is sufficient —
   the catalyst-driven exit plan is what makes the risk-off play manageable.
+
+PYRAMID-ON-STRENGTH (MT sleeve only):
+Once a medium-term position is open and confirms:
+  IF position is +5% or more within 3 trading days of entry AND volume on up days
+  is still ≥ 1.3× average — deploy the reserved 40% second tranche immediately.
+  Do not wait for the scheduled confirmation cycle. Strength is the confirmation.
+  Cap: tranche-2 deployment still subject to the 6% per-slot hard cap.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -418,11 +440,14 @@ CCO: flag any ticker with a recent stop-loss exit and apply this gate.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
-PORTFOLIO DRAWDOWN AWARENESS (PM):
-• If portfolio is down >12% from its recent peak → risk-reduction mode
-• In drawdown mode: new positions at 50% of normal tier allocation
-• Only conviction 9+ names warrant new capital in drawdown mode
-• Priority is stopping the drawdown, not chasing new opportunities
+PORTFOLIO DRAWDOWN CIRCUIT BREAKER (PM — enforced independently of VIX):
+• DD −10% to −15% from recent peak → 75% of normal sizing on all new entries
+• DD > −15% from recent peak → 50% of normal sizing on all new entries
+• These tiers are additive with VIX regime sizing: apply the MORE restrictive of the two.
+  Example: DD −12% (→75% size) + STRESS regime (→50% size) = 50% wins (most restrictive).
+• No hard conviction freeze at any DD level — graduated size, not a buying ban.
+• Priority: stop adding to broken theses. High-conviction intact theses still get capital.
+• The portfolio_drawdown_pct field in the portfolio context contains the current DD %.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -1544,7 +1569,8 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
     elif isinstance(vix_val, (int, float)) and vix_val > 28 and m_label in ("risk_off", "extreme_fear"):
         geo_warnings.append(
             f"⚠️  STRESS (VIX={vix_val:.0f} + {m_label}): Size NEW positions at 50% of normal. "
-            f"Min confidence 7. Prefer quality/mega. Max 2 new adds this cycle. QUANT output Bearish (-1 to conf)."
+            f"LT sleeve min confidence 8. MT sleeve min confidence 8 (higher bar — catalyst alone not enough in STRESS). "
+            f"Prefer mega/quality. Max 2 new adds this cycle. QUANT output Bearish (-1 to conf)."
         )
     elif m_label == "risk_off":
         geo_warnings.append(
@@ -1561,6 +1587,35 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
             f"vs 3m={vts_ctx.get('vix_3m','?')} — "
             f"PM apply 25% gross exposure reduction to all new positions."
         )
+    dd_pct = port_ctx.get("portfolio_drawdown_pct", 0.0)
+    if dd_pct <= -15.0:
+        geo_warnings.append(
+            f"🔴 DRAWDOWN CIRCUIT BREAKER: Portfolio is {dd_pct:.1f}% from recent peak. "
+            f"Size ALL new entries at 50% of normal (INDEPENDENT of VIX regime). "
+            f"Apply the MORE restrictive of: this DD limit vs the VIX regime limit above. "
+            f"Focus on preserving capital — only highest-conviction intact theses get new capital."
+        )
+    elif dd_pct <= -10.0:
+        geo_warnings.append(
+            f"⚠️  DRAWDOWN WARNING: Portfolio is {dd_pct:.1f}% from recent peak. "
+            f"Size ALL new entries at 75% of normal (INDEPENDENT of VIX regime). "
+            f"Apply the MORE restrictive of: this DD limit vs the VIX regime limit above."
+        )
+
+    spy_day_ret = mkt_ctx.get("spy_day_return", 0.0)
+    spy_vol_r   = mkt_ctx.get("spy_volume_ratio", 1.0)
+    if isinstance(spy_day_ret, (int, float)) and spy_day_ret <= -2.0 and spy_vol_r >= 1.5:
+        geo_warnings.append(
+            f"🚨 HIGH-VELOCITY DOWN DAY: SPY fell {spy_day_ret:.1f}% on {spy_vol_r:.1f}× volume today. "
+            f"NO new entries this session. Hold and monitor existing positions. "
+            f"Institutional panic selling is in progress — entering now means buying into distribution."
+        )
+    elif isinstance(spy_day_ret, (int, float)) and spy_day_ret <= -2.0:
+        geo_warnings.append(
+            f"⚠️  SPY DOWN {spy_day_ret:.1f}% today (normal volume). Treat all new BUYs as one confidence "
+            f"point lower. Prefer BUCKET over borderline BUY decisions this session."
+        )
+
     if cash_pct > 30:
         geo_warnings.append(
             f"⚠️  CASH DRAG: Portfolio is {cash_pct:.0f}% cash. Mandate is 2× SPY. "
@@ -1574,7 +1629,7 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f"=== MACRO & GEOPOLITICAL CONTEXT ===\n"
         f"Signal: {m_label.upper()} (score={m_score:.2f}) | Themes: {m_themes}\n"
         f"Headline: {m_head}\n"
-        f"Market: Fear&Greed={fg_score} | VIX={vix_val}\n"
+        f"Market: Fear&Greed={fg_score} | VIX={vix_val} | SPY today={spy_day_ret:+.1f}%\n"
         f"{warn_str}"
     )
 
@@ -1690,6 +1745,11 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f"    • Earnings ≤3 days away (binary event block) — BUCKET and revisit T+2\n"
         f"  DO NOT use action=BUCKET for a valid MT candidate with a catalyst just because "
         f"macro is risk_off. In risk_off: BUY smaller, not BUCKET everything.\n"
+        f"CATALYST TAXONOMY (required for every MT BUY — use exact type names):\n"
+        f"  catalyst_type MUST be one of: earnings | product_launch | regulatory_decision |\n"
+        f"    analyst_day | contract_award | macro_print | sector_rotation | post_earnings_continuation\n"
+        f"  catalyst_date MUST be a specific YYYY-MM-DD date (not 'Q2 2025' or 'upcoming')\n"
+        f"  An MT BUY without a valid catalyst_type and catalyst_date → CCO must Reject\n"
         f"PRICE TARGET RULE: Every decision (BUY, HOLD, SELL, BUCKET) must include price_target. "
         f"For HOLD on an existing position, update price_target if the thesis has strengthened or "
         f"weakened since last review — this is how the PM tracks whether to add or reduce. "
@@ -1719,6 +1779,8 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f'  "action":"BUY"|"SELL"|"TRIM"|"HOLD"|"BUCKET",\n'
         f'  "bucket":"long_term"|"medium_term",\n'
         f'  "catalyst_note":"<specific catalyst + timeline for medium_term, or N/A for long_term>",\n'
+        f'  "catalyst_type":"earnings"|"product_launch"|"regulatory_decision"|"analyst_day"|"contract_award"|"macro_print"|"sector_rotation"|"post_earnings_continuation"|"N/A",\n'
+        f'  "catalyst_date":"YYYY-MM-DD or N/A",\n'
         f'  "allocation_pct":<0.0-8.0 long_term | 0.0-6.0 medium_term>,\n'
         f'  "target_pct":<0.0-15.0>,\n'
         f'  "asset_type":"stock"|"crypto"|"option",\n'

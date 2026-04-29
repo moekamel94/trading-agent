@@ -980,6 +980,7 @@ def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]
     Returns (updated_tickers, updated_metadata, discord_summary_string).
     """
     from basket.manager import load_mt, load_mt_metadata, save_mt
+    from basket import pending_removals as _pr
 
     print("\n  [Daily Basket Review] Starting MT basket daily review...")
 
@@ -1033,6 +1034,10 @@ def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]
             sma20         = float(close.tail(20).mean())
             above_sma20   = current_price > sma20
 
+            # 5-day EMA for overbought exit signal
+            ema5 = float(close.ewm(span=5, adjust=False).mean().iloc[-1])
+            below_5ema = current_price < ema5
+
             lookback  = min(max(days_held, 5), len(close) - 1)
             past_price = float(close.iloc[-lookback - 1])
             pct_change = (current_price - past_price) / past_price * 100 if past_price else 0
@@ -1042,8 +1047,10 @@ def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]
             loss  = (-delta.clip(upper=0)).tail(14).mean()
             rsi   = 100 - (100 / (1 + gain / loss)) if loss > 0 else 100
 
-            if rsi >= 75:
+            if rsi >= 80 and below_5ema:
                 momentum = "overbought"
+            elif rsi >= 80 and not below_5ema:
+                momentum = "bullish"  # still above 5-EMA — let winner run
             elif rsi <= 35:
                 momentum = "oversold"
             elif above_sma20 and pct_change > 2:
@@ -1056,6 +1063,7 @@ def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]
             pct_change  = 0
             rsi         = 50
             above_sma20 = True
+            below_5ema  = False
             momentum    = "unknown"
 
         position_data.append({
@@ -1066,6 +1074,7 @@ def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]
             "pct_change":       round(pct_change, 1),
             "rsi":              round(float(rsi), 1),
             "above_sma20":      above_sma20,
+            "below_5ema":       below_5ema,
             "momentum":         momentum,
             "catalyst_date":    catalyst_str,
             "catalyst_passed":  catalyst_passed,
@@ -1083,8 +1092,8 @@ Current positions ({len(existing_tickers)} tickers, max {config.MT_BASKET_MAX}):
 
 Decision rules — REMOVE if ANY applies:
 1. momentum="bearish" AND pct_change < -10 (thesis broken)
-2. rsi >= 75 (overbought; catalyst likely priced in or exhausted)
-3. catalyst_passed=true AND pct_change < 5 AND days_past_cat > 7 (catalyst fizzled; dead money)
+2. momentum="overbought" (rsi >= 80 AND below_5ema=true; winner has reversed off peak)
+3. catalyst_passed=true AND pct_change < 5 AND days_past_cat > 3 (catalyst fizzled with no move)
 4. ttl_remaining <= 0 (TTL expired)
 5. ttl_remaining <= 3 AND pct_change < 3 (barely moved and expiring soon)
 6. momentum="oversold" AND days_held > 21 (sustained downtrend for 3+ weeks)
@@ -1122,11 +1131,45 @@ Output ONLY valid JSON:
 
     print(f"  [Daily Basket Review] Removals: {to_remove}")
 
-    # ── Step 3: Source 1:1 replacements ──────────────────────────────────────
-    replacements = []
-    if to_remove:
-        n_replace     = len(to_remove)
-        current_after = set(existing_tickers) - set(to_remove)
+    # Log all daily review decisions
+    try:
+        from database import decisions_log as _dlog
+        for pd_entry in position_data:
+            sym = pd_entry["symbol"]
+            action = "REMOVE" if sym in to_remove else "KEEP"
+            criterion = removal_reasons.get(sym, "") if sym in to_remove else ""
+            _dlog.log_daily_review_decision(
+                symbol=sym,
+                action=action,
+                criterion=criterion,
+                pct_change=pd_entry.get("pct_change", 0),
+                rsi=pd_entry.get("rsi", 0),
+                above_sma20=pd_entry.get("above_sma20", True),
+                momentum=pd_entry.get("momentum", ""),
+                days_held=pd_entry.get("days_held", 0),
+                ttl_remaining=pd_entry.get("ttl_remaining", 0),
+                catalyst_passed=pd_entry.get("catalyst_passed", False),
+                source=existing_meta.get(sym, {}).get("source", ""),
+            )
+    except Exception:
+        pass
+
+    # ── Step 3: Apply yesterday's ready-to-remove (24h veto elapsed) ─────────
+    ready = _pr.get_ready(hours=24)
+    ready_syms = [r["symbol"] for r in ready]
+    ready_reasons = {r["symbol"]: r["reason"] for r in ready}
+
+    # ── Step 4: Propose today's new removals (24h veto starts now) ────────────
+    for sym in to_remove:
+        _pr.propose(sym, removal_reasons.get(sym, ""), criterion="daily_review")
+    newly_proposed = to_remove  # what Haiku flagged today
+
+    # ── Step 5: Source 1:1 replacements for READY (applying now) removals ────
+    n_replace     = len(ready_syms)
+    replacements  = []
+    if n_replace > 0:
+        print(f"  [Daily Basket Review] Applying {n_replace} ready removals (24h elapsed): {ready_syms}")
+        current_after = set(existing_tickers) - set(ready_syms)
 
         congress_cands = _mt_get_congress_buys(lt_basket)
         uw_cands       = _mt_get_uw_discoveries()
@@ -1146,10 +1189,8 @@ Output ONLY valid JSON:
                 replacements.append(c)
                 seen.add(sym)
 
-        print(f"  [Daily Basket Review] Replacements sourced: {[c['symbol'] for c in replacements]}")
-
-    # ── Step 4: Apply changes and save ───────────────────────────────────────
-    final_tickers = [s for s in existing_tickers if s not in to_remove]
+    # ── Step 6: Build updated basket (only remove ready_syms, not newly_proposed) ───
+    final_tickers = [s for s in existing_tickers if s not in ready_syms]
     final_meta    = {s: existing_meta[s] for s in final_tickers if s in existing_meta}
 
     today_str = today.isoformat()
@@ -1169,25 +1210,33 @@ Output ONLY valid JSON:
 
     save_mt(final_tickers, final_meta)
 
-    # ── Step 5: Build Discord summary ────────────────────────────────────────
-    haiku_summary  = review.get("summary", "")
-    removal_lines  = [f"• ❌ {s}: {removal_reasons.get(s, '')}" for s in to_remove]
-    add_lines      = [f"• ✅ {c['symbol']} ({c['source']}): {c.get('note', '')[:80]}"
-                      for c in replacements]
+    # ── Step 7: Clear applied removals from pending file ─────────────────────
+    _pr.clear_symbols(ready_syms)
+
+    # ── Step 8: Build Discord summary ────────────────────────────────────────
+    haiku_summary   = review.get("summary", "")
+    applied_lines   = [f"• ✅ Removed **{s}**: {ready_reasons.get(s, '')}" for s in ready_syms]
+    add_lines       = [f"• ➕ {c['symbol']} ({c['source']}): {c.get('note', '')[:80]}"
+                       for c in replacements]
+    proposed_lines  = [f"• ⏳ **{s}** flagged for removal: {removal_reasons.get(s, '')} _(applies tomorrow unless vetoed)_"
+                       for s in newly_proposed]
 
     parts = [f"📋 **Daily MT Basket Review** — {today_str}",
              f"Basket: {len(final_tickers)}/{config.MT_BASKET_MAX} positions"]
-    if to_remove:
-        parts.append("**Removed:**\n" + "\n".join(removal_lines))
+    if ready_syms:
+        parts.append("**Applied removals (24h elapsed):**\n" + "\n".join(applied_lines))
     if replacements:
-        parts.append("**Added:**\n" + "\n".join(add_lines))
-    if not to_remove and not replacements:
+        parts.append("**Replacements added:**\n" + "\n".join(add_lines))
+    if newly_proposed:
+        parts.append("**Newly flagged (veto window open — type `/veto_removal TICKER` to cancel):**\n"
+                     + "\n".join(proposed_lines))
+    if not ready_syms and not newly_proposed and not replacements:
         parts.append(f"All {len(existing_tickers)} positions intact — no changes today.")
     if haiku_summary:
         parts.append(f"_{haiku_summary}_")
 
     discord_msg = "\n\n".join(parts)
     print(f"  [Daily Basket Review] Done — "
-          f"removed={to_remove}, added={[c['symbol'] for c in replacements]}")
+          f"applied={ready_syms}, proposed={newly_proposed}, added={[c['symbol'] for c in replacements]}")
 
     return final_tickers, final_meta, discord_msg
