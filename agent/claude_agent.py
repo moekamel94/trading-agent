@@ -1388,7 +1388,7 @@ Core signal detail:
 
     response = _client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=300,
+        max_tokens=600,
         system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
@@ -1448,18 +1448,42 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
     vix_val  = (mkt_ctx.get("vix") or {}).get("vix", "?")
 
     vts_ctx  = mkt_ctx.get("vix_term_structure") or {}
+    cash_pct = (port_ctx.get("cash", 0) / port_ctx.get("equity", 1) * 100) if port_ctx.get("equity") else 0
+
     geo_warnings = []
-    if m_label == "risk_off":
-        geo_warnings.append("⚠️  RISK-OFF: CIO confidence must be ≥ 9 for any BUY")
-    if isinstance(vix_val, (int, float)) and vix_val > 30:
-        geo_warnings.append(f"⚠️  VIX={vix_val} > 30: QUANT should output Bearish (applies -1 to final confidence)")
-    if isinstance(vix_val, (int, float)) and vix_val > 25 and m_label == "risk_off":
-        geo_warnings.append("⚠️  VIX > 25 + risk_off: CCO should Reject all new positions below confidence 9")
+    # Tiered risk regime: sizing absorbs risk, NOT confidence thresholds.
+    # A conf≥9 hard ban is equivalent to "buy nothing" — use smaller size instead.
+    if isinstance(vix_val, (int, float)) and vix_val > 35 and m_label == "extreme_fear":
+        geo_warnings.append(
+            f"⚠️  CRISIS (VIX={vix_val:.0f}, extreme_fear): Size NEW positions at 33% of normal. "
+            f"Min confidence 8. Only highest-conviction names. QUANT output Bearish (-1 to conf)."
+        )
+    elif isinstance(vix_val, (int, float)) and vix_val > 28 and m_label in ("risk_off", "extreme_fear"):
+        geo_warnings.append(
+            f"⚠️  STRESS (VIX={vix_val:.0f} + {m_label}): Size NEW positions at 50% of normal. "
+            f"Min confidence 7. Prefer quality/mega. Max 2 new adds this cycle. QUANT output Bearish (-1 to conf)."
+        )
+    elif m_label == "risk_off":
+        geo_warnings.append(
+            f"⚠️  ELEVATED RISK (risk_off, VIX={vix_val}): Size NEW positions at 75% of normal. "
+            f"Confidence 7+ strongly preferred. Quality names still investable — use smaller entries."
+        )
+    elif isinstance(vix_val, (int, float)) and vix_val > 25:
+        geo_warnings.append(
+            f"⚠️  VIX={vix_val:.0f} elevated: QUANT should output Bearish if technical picture confirms (-1 to conf)."
+        )
     if vts_ctx.get("inverted"):
         geo_warnings.append(
             f"⚠️  VIX TERM STRUCTURE INVERTED: spot={vts_ctx.get('vix_spot','?')} "
-            f"vs 3m={vts_ctx.get('vix_3m','?')} (spread={vts_ctx.get('spread','?')}) — "
-            f"system rule: PM must apply 25% gross exposure reduction to all new positions"
+            f"vs 3m={vts_ctx.get('vix_3m','?')} — "
+            f"PM apply 25% gross exposure reduction to all new positions."
+        )
+    if cash_pct > 30:
+        geo_warnings.append(
+            f"⚠️  CASH DRAG: Portfolio is {cash_pct:.0f}% cash. Mandate is 2× SPY. "
+            f"Idle cash costs ~(SPY monthly return) per month in foregone alpha. "
+            f"A BUCKET decision on a quality stock is not free — it has an opportunity cost. "
+            f"Deploy capital into high-conviction names even in elevated-risk regimes."
         )
     warn_str = "\n".join(geo_warnings) if geo_warnings else "No active warnings."
 
@@ -1564,6 +1588,10 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         f"+1 if QUANT=Strongly_Bullish.\n"
         f"GATE: action=BUY only if CIO=Buy AND CRO≠Block AND CCO=Approve.\n"
         f"If gate fails but thesis is intact → action=BUCKET (watchlist, no capital deployed).\n"
+        f"STARTER POSITIONS: In elevated-risk regimes, prefer BUY at 40-60% of normal size "
+        f"over BUCKET. A small position beats watching from the sidelines. "
+        f"Set allocation_pct to the starter size and target_pct to the full target — "
+        f"the system will scale in on confirmation.\n"
         f"TRANCHE: allocation_pct = 50% of target_pct (half-size entry; scale in later).\n"
         f"Return ONLY a JSON array with exactly {n} objects in candidate order:\n"
         f'[{{\n'
