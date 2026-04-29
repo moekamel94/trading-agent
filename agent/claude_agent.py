@@ -1419,7 +1419,8 @@ Core signal detail:
         }
 
 
-def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
+def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
+                     macro_regime: dict | None = None) -> list:
     """
     One Claude call running all candidates through the 6-agent committee chain.
     CIO → QUANT → CRO → CCO → DEVIL → PM, with confidence aggregation formula.
@@ -1469,6 +1470,15 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
         f"Market: Fear&Greed={fg_score} | VIX={vix_val}\n"
         f"{warn_str}"
     )
+
+    # ── Economic regime block (FRED + yfinance, free, cached daily) ────────────
+    macro_regime_block = ""
+    if macro_regime:
+        try:
+            from signals.macro_regime import format_for_prompt
+            macro_regime_block = "\n\n" + format_for_prompt(macro_regime)
+        except Exception:
+            pass
 
     # ── Portfolio status ───────────────────────────────────────────────────────
     holdings    = port_ctx.get("holdings", [])
@@ -1602,7 +1612,7 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict) -> list:
         pass
 
     learning_section = f"\n\n{learning_block}" if learning_block else ""
-    prompt = f"{geo_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
+    prompt = f"{geo_block}{macro_regime_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
 
     # max_tokens: room for adaptive thinking + structured JSON output per candidate.
     _max_tokens = 350 * n + 6000

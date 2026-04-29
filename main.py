@@ -710,6 +710,138 @@ def run_weekly_basket_review():
     tg.send(msg)
 
 
+def run_basket_intelligence(mkt_ctx: dict, macro_regime: dict, uw_mkt_ctx: dict,
+                            current_basket: list[str]) -> None:
+    """
+    Daily proactive basket scan — runs after the morning committee cycle.
+    Uses a cheap Haiku call to analyse UW sector flows + macro regime and surface
+    tickers to add/remove from the basket BEFORE the market prices in the rotation.
+    Only escalates to full research when the model flags a real opportunity.
+
+    Cost: ~$0.01-0.03 per call (Haiku) vs $0.30-0.50 for a full committee cycle.
+    """
+    try:
+        import os as _os
+        from signals.macro_regime import format_for_prompt as _fmt_macro
+        _client = __import__("anthropic").Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+        # Build the intelligence brief
+        macro_txt = _fmt_macro(macro_regime) if macro_regime else "No macro data."
+
+        sector_flows = uw_mkt_ctx.get("sector_flows") or {}
+        sf_lines = []
+        for sector, flow in sector_flows.items():
+            if flow and flow != "no_data":
+                sf_lines.append(f"  {sector}: {flow}")
+        sf_txt = "\n".join(sf_lines) if sf_lines else "  No sector flow data."
+
+        tide = uw_mkt_ctx.get("market_tide", "no_data")
+        pc   = uw_mkt_ctx.get("market_put_call_ratio", "?")
+
+        # Upcoming economic events
+        events = macro_regime.get("upcoming_events", []) if macro_regime else []
+        high_events = [e for e in events if e.get("impact") == "High"]
+        ev_txt = "\n".join(f"  {e['date']}: {e['event']}" for e in high_events[:5]) or "  None in next 14 days."
+
+        current_themes = "\n".join(f"  {s}" for s in sorted(current_basket)[:30])
+
+        prompt = f"""You are a proactive equity research analyst. Your job is to identify stocks that should be added to our watchlist BEFORE the market prices in the opportunity — not after.
+
+CURRENT MACRO REGIME:
+{macro_txt}
+
+UW MARKET-WIDE SIGNALS:
+Market tide: {tide} | Put/Call ratio: {pc}
+Sector institutional flows:
+{sf_txt}
+
+UPCOMING HIGH-IMPACT ECONOMIC EVENTS:
+{ev_txt}
+
+CURRENT BASKET (first 30):
+{current_themes}
+
+TASK: Based on the macro regime, sector rotation signals, and upcoming catalysts, identify:
+1. UP TO 3 sectors or themes that institutional money is rotating INTO right now
+2. UP TO 5 specific tickers (NOT already in the basket above) that should be added to capture this rotation BEFORE it's priced in
+3. UP TO 2 basket tickers that should be REMOVED because the macro/rotation is working against them
+
+RULES:
+- Only suggest tickers with real institutional backing (large cap or proven growth)
+- Focus on what's HAPPENING NOW in the data, not general thesis
+- If no clear signal, output nothing — do not manufacture opportunities
+- Be specific about WHY each ticker benefits from the current regime
+
+OUTPUT FORMAT (JSON only, no prose):
+{{
+  "rotation_themes": ["theme1", "theme2"],
+  "add": [{{"ticker": "X", "reason": "one sentence tied to current macro/UW data"}}],
+  "remove": [{{"ticker": "X", "reason": "one sentence"}}],
+  "confidence": "high|medium|low",
+  "summary": "one sentence for Discord"
+}}
+If no clear signal: {{"rotation_themes": [], "add": [], "remove": [], "confidence": "low", "summary": "No clear rotation signal today."}}"""
+
+        resp = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"): raw = raw[4:]
+            raw = raw.strip()
+
+        import json as _json
+        result = _json.loads(raw)
+
+        conf = result.get("confidence", "low")
+        adds = result.get("add", [])
+        removes = result.get("remove", [])
+        summary = result.get("summary", "")
+        themes = result.get("rotation_themes", [])
+
+        print(f"\n  [BasketIntel] {summary}")
+        if themes:
+            print(f"  [BasketIntel] Rotation into: {', '.join(themes)}")
+
+        if conf == "low" and not adds and not removes:
+            return
+
+        # Execute adds — add to MT basket + run full onboarding
+        new_syms = []
+        for item in adds:
+            sym = (item.get("ticker") or "").upper()
+            reason = item.get("reason", "")
+            if sym and sym not in set(current_basket):
+                new_syms.append(sym)
+                print(f"  [BasketIntel] ADD {sym}: {reason}")
+
+        if new_syms:
+            today = datetime.now(timezone.utc).date().isoformat()
+            existing_mt   = basket_mgr.load_mt()
+            existing_meta = basket_mgr.load_mt_metadata()
+            new_meta      = {s: {"source": "uw_discovery", "added": today,
+                                 "expires": None, "note": f"MacroIntel: {next((x['reason'] for x in adds if x.get('ticker','').upper()==s), '')[:80]}"}
+                             for s in new_syms}
+            basket_mgr.save_mt(list(dict.fromkeys(existing_mt + new_syms)), {**existing_meta, **new_meta})
+            run_new_ticker_onboarding(new_syms)
+            tg.send(f"📡 Basket Intelligence [{conf.upper()}]: Adding {', '.join(new_syms)}\n"
+                    f"Rotation: {', '.join(themes)}\n{summary}")
+
+        # Surface removes as committee agenda items (don't auto-remove — committee decides)
+        for item in removes:
+            sym = (item.get("ticker") or "").upper()
+            reason = item.get("reason", "")
+            if sym:
+                print(f"  [BasketIntel] FLAG FOR REMOVAL {sym}: {reason}")
+                tg.send(f"⚠️ Basket Intel: Consider removing {sym} | {reason}")
+
+    except Exception as _e:
+        print(f"  [BasketIntel] error: {_e}")
+
+
 def _run_daily_discovery(current_basket: list[str]) -> list[str]:
     """
     Runs at the start of every trading cycle.
@@ -803,6 +935,16 @@ def run_cycle(dry_run: bool = False):
     print(f"  Market: Fear&Greed={mkt_ctx['fear_and_greed'].get('score','?')} ({mkt_ctx['market_risk']}) | VIX={mkt_ctx['vix'].get('vix','?')}{vts_note}")
     if mkt_ctx.get("upcoming_macro_events"):
         print(f"  Macro events this week: {[e['event'] for e in mkt_ctx['upcoming_macro_events']]}")
+
+    # --- Macro economic regime (FRED + yfinance, free, daily cache) ---
+    # Gives the committee CPI trend, yield curve, NFP, jobless claims, dollar strength,
+    # and upcoming high-impact economic calendar — so it can pre-position ahead of catalysts.
+    _macro_regime: dict = {}
+    try:
+        from signals.macro_regime import compute as _macro_compute
+        _macro_regime = _macro_compute()
+    except Exception as _e:
+        print(f"  [MacroRegime] error: {_e}")
 
     # --- UW market-wide context (once per cycle — tide, sector flows, SPY/QQQ flow) ---
     uw_mkt_ctx: dict = {}
@@ -1322,7 +1464,8 @@ def run_cycle(dry_run: bool = False):
 
     if candidates:
         print(f"\n  [Committee] Reviewing {len(candidates)} candidates in one call...")
-        decisions = claude_agent.committee_review(candidates, port_ctx, mkt_ctx)
+        decisions = claude_agent.committee_review(candidates, port_ctx, mkt_ctx,
+                                                  macro_regime=_macro_regime)
         # Alert on committee fallback (Opus parse failure degraded to individual Haiku calls)
         fallback_errors = {d["symbol"]: d["_committee_fallback"]
                            for d in decisions if d.get("_committee_fallback")}
@@ -1588,6 +1731,18 @@ def run_cycle(dry_run: bool = False):
     equity = portfolio_final["equity"]
     cash   = portfolio_final["cash"]
     print(f"\nCycle complete. Equity: ${equity:,.2f}")
+
+    # Daily basket intelligence — proactive rotation/macro scan using Haiku (cheap).
+    # Only runs in the morning cycle (before 11 AM ET) to avoid double-firing.
+    import zoneinfo as _zi
+    if datetime.now(_zi.ZoneInfo("America/New_York")).hour < 11:
+        try:
+            run_basket_intelligence(
+                mkt_ctx, _macro_regime, uw_mkt_ctx,
+                basket_mgr.load_combined(),
+            )
+        except Exception as _bie:
+            print(f"  [BasketIntel] skipped: {_bie}")
 
     # Build positions P&L block
     pos_lines = []
