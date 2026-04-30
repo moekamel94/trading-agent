@@ -499,7 +499,10 @@ Target: 30-80% gain over 3-12 months. Thesis = growth acceleration.
 
 ═══════════════════════════════════════════════════════
 SPECULATIVE TIER — "IONQ Standard" Required:
-IONQ, MP, SOUN, LUNR, RXRX, ASTS
+Eligible tickers are defined in config.TICKER_TIERS (speculative). Their activation in any
+given cycle is REGIME-CONDITIONAL — see MACRO SECTOR ROUTING below. A speculative ticker
+whose sector has regime weight < 0.55 receives BUCKET regardless of thesis quality.
+Current speculative universe: IONQ, MP, SOUN, LUNR, RXRX, ASTS — theses below.
 
 Entry bar (must meet ALL): revenue >$50M growing >40% YoY OR binary catalyst within 18 months,
 Tier-1 strategic partner (NVIDIA/hyperscaler/DoD/Fortune 100), market cap $2B–$25B,
@@ -573,6 +576,40 @@ CONVICTION BOOSTERS (raise your confidence score):
 • UW short squeeze risk (high short_interest + high borrow_rate) — fuel for explosive upside
 • UW IV rank ≤ 20 — options cheaply priced; great entry for leveraged upside
 • UW flow momentum ≥ 3× — institutions accelerating into this name today
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+MACRO SECTOR ROUTING — THE PRIMARY FILTER (read this first):
+
+Every committee prompt includes a MACRO REGIME and SECTOR ROUTING block.
+This is not advisory — it is the PRIMARY filter on all new BUY decisions.
+
+HOW TO USE IT:
+1. Read the regime label: GROWTH_DRIVEN / INFLATIONARY / RECESSIONARY /
+   GEOPOLITICALLY_STRESSED / STAGFLATION
+2. Read the sector weights. Three tiers:
+   ✓ CONCENTRATE (≥ 0.70): These are the winning sectors. Capital flows here.
+   ~ NEUTRAL (0.40–0.69): Hold existing positions. New entries need ≥ 8 conviction.
+   ✗ AVOID (< 0.40): No new BUYs. Existing positions get HOLD (not forced sell).
+
+RULES (mandatory, not guidelines):
+• A BUY in an AVOID-sector stock → downgrade to BUCKET unless conviction = 10.
+• A BUY in a NEUTRAL-sector stock → requires conviction ≥ 8 AND a catalyst within 6 weeks.
+• CONCENTRATE sectors get the standard conviction bar (≥ 7 LT, ≥ 7 MT).
+• The regime may concentrate us in 2-3 sectors. That is correct. Do not diversify
+  for diversification's sake. We want to be where capital is flowing, not everywhere.
+
+SPECULATIVE TICKERS are regime-conditional:
+• A speculative name in a CONCENTRATE sector → eligible per normal speculative rules.
+• A speculative name in a NEUTRAL sector → eligible only if catalyst within 12 months AND conviction ≥ 8.
+• A speculative name in an AVOID sector → BUCKET. The thesis is valid but the macro tailwind
+  is absent. Revisit when regime shifts.
+
+BEING AHEAD OF THE MARKET:
+The regime is derived from forward-looking data (upcoming economic events, Finnhub geo news,
+yield curve shape). Use it to position BEFORE sector rotation happens, not after. If the
+regime signals GEOPOLITICALLY_STRESSED, defense and energy names should be bought on pullbacks
+— not after they've already rallied 20%. The regime is the map; price action confirms direction.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -1513,7 +1550,8 @@ _COMMITTEE_BATCH_SIZE = 20  # max candidates per committee call to prevent JSON 
 
 
 def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
-                     macro_regime: dict | None = None) -> list:
+                     macro_regime: dict | None = None,
+                     force_opus: bool = False) -> list:
     """
     One Claude call running all candidates through the 6-agent committee chain.
     CIO → QUANT → CRO → CCO → DEVIL → PM, with confidence aggregation formula.
@@ -1521,6 +1559,9 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
     Falls back to individual decide() calls on parse failure.
     Learning context from recent trade outcomes is injected into the prompt.
     Batched into groups of _COMMITTEE_BATCH_SIZE to prevent JSON parse errors on large lists.
+
+    force_opus=True: use Opus 4.7 (for manual/ad-hoc queries from Discord or CLI).
+    Default (force_opus=False): uses Sonnet 4.6 + extended thinking (scheduled cycles).
     """
     if not candidates:
         return []
@@ -1531,13 +1572,16 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         for i in range(0, len(candidates), _COMMITTEE_BATCH_SIZE):
             batch = candidates[i:i + _COMMITTEE_BATCH_SIZE]
             print(f"  [Committee] Batch {i // _COMMITTEE_BATCH_SIZE + 1}: {len(batch)} candidates")
-            results.extend(_committee_review_batch(batch, port_ctx, mkt_ctx, macro_regime))
+            results.extend(_committee_review_batch(batch, port_ctx, mkt_ctx, macro_regime,
+                                                   force_opus=force_opus))
         return results
-    return _committee_review_batch(candidates, port_ctx, mkt_ctx, macro_regime)
+    return _committee_review_batch(candidates, port_ctx, mkt_ctx, macro_regime,
+                                   force_opus=force_opus)
 
 
 def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
-                             macro_regime: dict | None = None) -> list:
+                             macro_regime: dict | None = None,
+                             force_opus: bool = False) -> list:
 
     # ── Learning context (what worked / didn't in last 30 days) ──────────────
     try:
@@ -1825,10 +1869,15 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
     _max_tokens = 550 * n + 6000  # +200/candidate for richer CRS thesis sections
 
     try:
+        _model   = "claude-opus-4-7"   if force_opus else "claude-sonnet-4-6"
+        _thinking = ({"type": "adaptive"}
+                     if force_opus else
+                     {"type": "enabled", "budget_tokens": 8000})
+        print(f"  [Committee] model={_model} force_opus={force_opus}")
         response = _client.messages.create(
-            model="claude-opus-4-7",
+            model=_model,
             max_tokens=_max_tokens,
-            thinking={"type": "adaptive"},
+            thinking=_thinking,
             system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )

@@ -20,6 +20,7 @@ import requests
 import yfinance as yf
 import config
 import anthropic
+from signals import macro_regime as _macro_mod
 
 from basket.tier_criteria import (
     TIER_CRITERIA, REMOVE_CRITERIA, ADD_CRITERIA,
@@ -41,6 +42,11 @@ _THESIS_SECTORS = [
 ]
 
 _ETHICAL_EXCLUSIONS = {"APP"}
+
+
+def _winning_sectors(sector_weights: dict, min_weight: float = 0.55) -> set[str]:
+    """Return sector keys that are regime-active (weight >= min_weight)."""
+    return {s for s, w in sector_weights.items() if w >= min_weight}
 
 
 # ── Thesis state helpers ──────────────────────────────────────────────────────
@@ -137,7 +143,9 @@ def _flag_weak_existing(existing: list[str], cached_research: dict) -> list[dict
 def _claude_curate_tier(tier: str, candidates: list[dict],
                         flagged_existing: list[dict],
                         current_basket: list[str],
-                        caps: dict) -> dict:
+                        caps: dict,
+                        sector_weights: dict | None = None,
+                        regime_label: str = "growth_driven") -> dict:
     """Ask Haiku to recommend basket changes for one tier."""
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     spec_note = (
@@ -146,8 +154,23 @@ def _claude_curate_tier(tier: str, candidates: list[dict],
         "Do NOT recommend removing speculative tickers — flag them for committee review instead."
         if tier == "speculative" else ""
     )
+    # Build sector routing context for the prompt
+    if sector_weights:
+        sw_sorted = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+        winning_str = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w >= 0.70)
+        avoid_str   = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w < 0.40)
+        regime_ctx = (
+            f"\nMACRO REGIME: {regime_label.upper().replace('_', ' ')}\n"
+            f"CONCENTRATE IN (weight ≥ 0.70): {winning_str or 'none'}\n"
+            f"AVOID (weight < 0.40, BUCKET only): {avoid_str or 'none'}\n"
+            f"RULE: Only ADD candidates whose sector is in the winning list. "
+            f"Candidates in avoid-list sectors → skip regardless of fundamentals.\n"
+        )
+    else:
+        regime_ctx = ""
+
     prompt = f"""Monthly basket review — {tier.upper()} tier.
-Current basket ({len(current_basket)} stocks): {current_basket}
+{regime_ctx}Current basket ({len(current_basket)} stocks): {current_basket}
 Max adds this month: {caps['max_add']} | Max removes: {caps['max_remove']}
 
 NEW CANDIDATES (screened for {tier} criteria):
@@ -190,6 +213,20 @@ def run(existing_basket: list[str], cached_research: dict,
     flagged = _flag_weak_existing(existing_basket, cached_research)
     flagged_syms = {f["symbol"] for f in flagged}
 
+    # Load macro regime for sector-alignment filtering
+    macro = {}
+    sector_weights: dict = {}
+    regime_label = "growth_driven"
+    try:
+        macro = _macro_mod.compute()
+        sector_weights = macro.get("sector_weights", {})
+        regime_label   = macro.get("regime_label", "growth_driven")
+        winning = _winning_sectors(sector_weights, min_weight=0.55)
+        print(f"  [Curation] Regime={regime_label.upper()} | winning sectors: {sorted(winning)}")
+    except Exception as _e:
+        print(f"  [Curation] Macro regime load failed: {_e} — proceeding without sector filter")
+        winning = set()
+
     all_adds:    list[str] = []
     all_removes: list[str] = []
     all_flags:   list[str] = []
@@ -207,8 +244,29 @@ def run(existing_basket: list[str], cached_research: dict,
                     and sym not in _ETHICAL_EXCLUSIONS
                     and sym.isalpha() and len(sym) <= 5):
                 fund = _quick_fundamentals(sym)
-                if fund.get("sector") in _THESIS_SECTORS:
-                    candidates.append(fund)
+                # Sector alignment gate: if we have regime data, only consider
+                # candidates in regime-winning sectors. If no regime data, use thesis sectors.
+                fund_sector = fund.get("sector", "")
+                if winning:
+                    # Map yfinance sector name to our internal sector key — rough match
+                    yf_sector_map = {
+                        "Technology":           ["ai_software", "semis", "cyber", "ai_infra",
+                                                 "quantum", "voice_ai", "mega_tech"],
+                        "Healthcare":           ["healthcare", "biotech"],
+                        "Energy":               ["energy_oil", "nuclear"],
+                        "Basic Materials":      ["commodities_metals"],
+                        "Industrials":          ["defense", "robotics", "ai_infra"],
+                        "Consumer Cyclical":    ["ecommerce"],
+                        "Financial Services":   ["fintech"],
+                        "Communication Services": ["ai_software", "ecommerce"],
+                        "Utilities":            ["nuclear", "energy_oil"],
+                    }
+                    candidate_sectors = yf_sector_map.get(fund_sector, [fund_sector])
+                    if not any(cs in winning for cs in candidate_sectors):
+                        continue  # skip — not in a regime-winning sector
+                elif fund_sector not in _THESIS_SECTORS:
+                    continue  # fallback: thesis-sector filter
+                candidates.append(fund)
 
         tier_flagged = [f for f in flagged if classify_ticker(f["symbol"]) == tier]
         print(f"  [Curation/{tier}] {len(candidates)} candidates, {len(tier_flagged)} flagged existing")
@@ -216,7 +274,8 @@ def run(existing_basket: list[str], cached_research: dict,
         if not candidates and not tier_flagged:
             continue
 
-        result = _claude_curate_tier(tier, candidates, tier_flagged, existing_basket, caps)
+        result = _claude_curate_tier(tier, candidates, tier_flagged, existing_basket, caps,
+                                     sector_weights=sector_weights, regime_label=regime_label)
 
         adds    = [s for s in result.get("add", [])
                    if s not in existing_basket and s not in _ETHICAL_EXCLUSIONS][:caps["max_add"]]
@@ -385,7 +444,9 @@ def _detect_tier_promotions(existing_basket: list[str]) -> list[dict]:
 
 def _claude_weekly(scored: list[dict], congress_map: dict,
                    current_basket: list[str], cached_research: dict,
-                   spec_flags: list[dict]) -> dict:
+                   spec_flags: list[dict],
+                   sector_weights: dict | None = None,
+                   regime_label: str = "growth_driven") -> dict:
     """Ask Haiku for weekly basket recommendations (non-speculative only)."""
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
@@ -410,9 +471,21 @@ def _claude_weekly(scored: list[dict], congress_map: dict,
     cong_buys  = [s for s, v in congress_map.items() if v.get("net_signal") == "bullish"]
     cong_sells = [s for s, v in congress_map.items() if v.get("net_signal") == "bearish"]
 
+    if sector_weights:
+        sw_sorted = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+        weekly_winning = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w >= 0.70)
+        weekly_avoid   = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w < 0.40)
+        weekly_regime_ctx = (
+            f"MACRO REGIME: {regime_label.upper().replace('_', ' ')}\n"
+            f"ADD only from winning sectors (≥0.70): {weekly_winning or 'none'}\n"
+            f"BUCKET/skip stocks in avoid sectors (<0.40): {weekly_avoid or 'none'}\n\n"
+        )
+    else:
+        weekly_regime_ctx = ""
+
     prompt = f"""Weekly basket review (Friday — tier-aware, conservative).
 Only make changes when signals are clear. Speculative names are handled separately.
-
+{weekly_regime_ctx}
 Current basket ({len(current_basket)} tickers): {current_basket}
 
 FLAGGED FOR REMOVAL (scored by tier):
@@ -466,6 +539,16 @@ def run_weekly(existing_basket: list[str],
     stocks = [s for s in existing_basket if not s.startswith("BTC")]
     scored = [_weekly_score_ticker(s, cached_research, thesis_state) for s in stocks]
 
+    # Load macro regime for sector routing
+    _sw_weekly: dict = {}
+    _regime_weekly = "growth_driven"
+    try:
+        _macro_weekly = _macro_mod.compute()
+        _sw_weekly    = _macro_weekly.get("sector_weights", {})
+        _regime_weekly = _macro_weekly.get("regime_label", "growth_driven")
+    except Exception:
+        pass
+
     # ── Speculative protection — flag for committee, never auto-remove ────────
     spec_flags: list[dict] = []
     for s in scored:
@@ -500,7 +583,8 @@ def run_weekly(existing_basket: list[str],
     # ── Haiku decides non-speculative changes ─────────────────────────────────
     print("  [WeeklyCuration] Asking Claude for weekly recommendations...")
     result = _claude_weekly(scored, congress_map, existing_basket,
-                            cached_research, spec_flags)
+                            cached_research, spec_flags,
+                            sector_weights=_sw_weekly, regime_label=_regime_weekly)
 
     to_add    = [s for s in result.get("add", [])
                  if s not in existing_basket and s not in _ETHICAL_EXCLUSIONS

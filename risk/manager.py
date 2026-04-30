@@ -9,12 +9,50 @@ BTC has its own separate criteria block at the bottom.
 from datetime import date, datetime
 import config
 import database.db as _db
+import os as _os
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _is_btc(symbol: str) -> bool:
     return "BTC" in symbol.upper()
+
+
+def check_sector_regime_alignment(symbol: str) -> tuple[bool, str]:
+    """
+    Gate new entries based on whether the stock's sector is regime-active.
+    Reads the daily-cached macro regime (free — no API call if already cached).
+    Returns (allowed, reason).
+    allowed=True  → proceed to entry criteria
+    allowed=False → BUCKET (sector not in regime-winning range)
+    """
+    # Only enforce during live market cycles (not back-tests or dry-runs)
+    if _os.environ.get("KIMMY_MONTHLY") == "1":
+        return True, "monthly research mode — regime gate bypassed"
+
+    sector = config.SECTOR_MAP.get(symbol)
+    if not sector:
+        return True, "sector unknown — gate bypassed"
+
+    try:
+        from signals import macro_regime as _mr
+        macro = _mr.compute()  # returns cached result — no API call if today's cache exists
+        sector_weights: dict = macro.get("sector_weights", {})
+        regime_label:   str  = macro.get("regime_label", "growth_driven")
+        if not sector_weights:
+            return True, "no sector weights — gate bypassed"
+
+        weight = sector_weights.get(sector, 0.60)  # default neutral if sector not in map
+        min_weight = config.REGIME_MIN_SECTOR_WEIGHT  # 0.55
+
+        if weight < min_weight:
+            return False, (
+                f"Sector '{sector}' weight {weight:.2f} < {min_weight} in "
+                f"{regime_label.upper().replace('_', ' ')} regime — BUCKET only"
+            )
+        return True, f"sector '{sector}' weight {weight:.2f} — regime-active"
+    except Exception:
+        return True, "regime gate error — bypassed"
 
 
 def _days_to_earnings(earnings: dict) -> int | None:
@@ -40,6 +78,14 @@ def check_entry_criteria(signals: dict, bucket: str = None) -> tuple[bool, str]:
     if _is_btc(sym):
         return check_btc_entry(signals)
     tier = config.TICKER_TIERS.get(sym, "mid_growth")
+
+    # Sector-regime alignment gate (BUY only in regime-winning sectors)
+    # Mega-caps are exempt — they are held through regimes, not entered on regime signal.
+    if tier != "mega":
+        regime_ok, regime_reason = check_sector_regime_alignment(sym)
+        if not regime_ok:
+            return False, regime_reason
+
     if tier == "speculative":
         return _check_speculative_entry(signals)
     if tier == "mid_growth":

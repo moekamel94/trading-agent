@@ -44,6 +44,120 @@ _YF_SYMBOLS = {
     "^VIX":    "vix",               # VIX
 }
 
+# Geopolitical keyword buckets for Finnhub news sweep
+_GEO_KEYWORDS = {
+    "active_war":        ["war", "invasion", "military strike", "conflict escalation",
+                          "troops deployed", "bombing", "missile strike", "NATO article 5"],
+    "supply_disruption": ["supply chain", "Red Sea", "Suez Canal", "Strait of Hormuz",
+                          "blockade", "shipping disruption", "port closure", "tariff shock",
+                          "export ban"],
+    "energy_crisis":     ["energy crisis", "gas shortage", "OPEC cut", "oil embargo",
+                          "energy sanctions", "LNG shortage", "pipeline attack"],
+    "trade_war":         ["trade war", "tariff escalation", "chip export ban",
+                          "trade restrictions", "sanctions escalation", "decoupling"],
+}
+
+# Sector weights by macro regime label
+# Keys must match config.SECTOR_MAP values exactly.
+# Weights: 0.85+ = concentrate here | 0.45-0.70 = acceptable | <0.40 = BUCKET only
+_SECTOR_WEIGHTS_BY_REGIME: dict[str, dict[str, float]] = {
+    "growth_driven": {
+        "ai_software":        0.95,
+        "semis":              0.90,
+        "cyber":              0.85,
+        "ai_infra":           0.85,
+        "ecommerce":          0.75,
+        "healthcare":         0.65,
+        "biotech":            0.60,
+        "defense":            0.60,
+        "nuclear":            0.65,
+        "robotics":           0.60,
+        "fintech":            0.55,
+        "space":              0.55,
+        "voice_ai":           0.55,
+        "quantum":            0.50,
+        "mega_tech":          0.70,
+        "energy_oil":         0.25,
+        "commodities_metals": 0.20,
+    },
+    "inflationary": {
+        "energy_oil":         0.95,
+        "commodities_metals": 0.90,
+        "defense":            0.80,
+        "nuclear":            0.80,
+        "fintech":            0.65,
+        "healthcare":         0.55,
+        "biotech":            0.45,
+        "robotics":           0.40,
+        "cyber":              0.40,
+        "ai_software":        0.30,
+        "semis":              0.25,
+        "ai_infra":           0.30,
+        "mega_tech":          0.30,
+        "ecommerce":          0.20,
+        "space":              0.20,
+        "voice_ai":           0.20,
+        "quantum":            0.15,
+    },
+    "recessionary": {
+        "defense":            0.90,
+        "healthcare":         0.88,
+        "nuclear":            0.75,
+        "biotech":            0.65,
+        "energy_oil":         0.55,
+        "cyber":              0.50,
+        "fintech":            0.40,
+        "commodities_metals": 0.40,
+        "ai_software":        0.30,
+        "ai_infra":           0.30,
+        "semis":              0.20,
+        "mega_tech":          0.35,
+        "ecommerce":          0.20,
+        "robotics":           0.25,
+        "space":              0.15,
+        "voice_ai":           0.15,
+        "quantum":            0.10,
+    },
+    "geopolitically_stressed": {
+        "defense":            0.95,
+        "energy_oil":         0.90,
+        "commodities_metals": 0.88,
+        "cyber":              0.85,
+        "nuclear":            0.80,
+        "space":              0.65,
+        "healthcare":         0.55,
+        "biotech":            0.45,
+        "fintech":            0.40,
+        "ai_software":        0.35,
+        "semis":              0.30,
+        "ai_infra":           0.35,
+        "robotics":           0.45,
+        "mega_tech":          0.30,
+        "ecommerce":          0.20,
+        "voice_ai":           0.20,
+        "quantum":            0.20,
+    },
+    "stagflation": {
+        "energy_oil":         0.90,
+        "commodities_metals": 0.88,
+        "defense":            0.82,
+        "nuclear":            0.78,
+        "healthcare":         0.68,
+        "biotech":            0.55,
+        "fintech":            0.50,
+        "cyber":              0.45,
+        "ai_software":        0.25,
+        "semis":              0.20,
+        "ai_infra":           0.25,
+        "mega_tech":          0.25,
+        "ecommerce":          0.15,
+        "robotics":           0.30,
+        "space":              0.15,
+        "voice_ai":           0.15,
+        "quantum":            0.10,
+    },
+}
+
 
 def _fred_series(series_id: str) -> dict:
     """Fetch latest value + prior value for a FRED series via free CSV."""
@@ -124,6 +238,103 @@ def _fmp_economic_calendar() -> list[dict]:
         return sorted(high_impact, key=lambda x: x["date"])[:20]
     except Exception:
         return []
+
+
+def _finnhub_geo_news() -> dict:
+    """
+    Sweep Finnhub general market news for active geopolitical themes.
+    Returns {flags: {active_war, supply_disruption, energy_crisis, trade_war},
+             headlines: [str], any_active: bool}.
+    Cached within the daily macro regime cache — costs 1 API call/day.
+    """
+    try:
+        import config as _cfg
+        if not _cfg.FINNHUB_API_KEY:
+            return {}
+        r = requests.get(
+            "https://finnhub.io/api/v1/news",
+            params={"category": "general", "token": _cfg.FINNHUB_API_KEY},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return {}
+        articles = r.json() if isinstance(r.json(), list) else []
+
+        # Combine headline + summary for each article
+        texts = []
+        for a in articles[:60]:
+            t = (a.get("headline", "") + " " + a.get("summary", "")).lower()
+            texts.append(t)
+
+        flags: dict[str, bool] = {}
+        headlines: list[str] = []
+        for flag_key, keywords in _GEO_KEYWORDS.items():
+            # Require ≥2 keyword hits to avoid single-word false positives
+            hit_count = sum(1 for kw in keywords if any(kw.lower() in t for t in texts))
+            flags[flag_key] = hit_count >= 2
+            if flags[flag_key]:
+                for a in articles[:30]:
+                    h = a.get("headline", "")
+                    if any(kw.lower() in h.lower() for kw in keywords):
+                        headlines.append(h[:120])
+                        break
+
+        return {
+            "flags":      flags,
+            "headlines":  headlines[:5],
+            "any_active": any(flags.values()),
+        }
+    except Exception:
+        return {}
+
+
+def _derive_regime_label(regime: dict, geo: dict) -> str:
+    """
+    Classify the macro environment into one clear regime label.
+    Geopolitical stress (active war + energy/supply crisis) can override fundamentals.
+    Order of precedence: geo_stress > stagflation > recessionary > inflationary > growth_driven
+    """
+    inflation  = regime.get("inflation_trend", "stable")
+    curve      = regime.get("yield_curve", "normal")
+    labor      = regime.get("labor", "neutral")
+    yield_10y  = regime.get("yield_10y") or 4.0
+    consumer   = regime.get("consumer_mood", "cautious")
+    geo_flags  = (geo or {}).get("flags", {})
+
+    # Geopolitical override: active war + any supply/energy disruption = geo_stressed
+    if geo_flags.get("active_war") and (
+            geo_flags.get("supply_disruption") or geo_flags.get("energy_crisis")):
+        return "geopolitically_stressed"
+
+    # Stagflation: rising inflation + weakening labor
+    if inflation == "rising" and labor == "weakening":
+        return "stagflation"
+
+    # Recessionary: inverted curve + weakening labor, OR consumer pessimistic + claims rising
+    claims_trend = regime.get("claims_trend", "stable")
+    if ((curve == "inverted" and labor == "weakening") or
+            (consumer == "pessimistic" and claims_trend == "rising")):
+        return "recessionary"
+
+    # Inflationary: rising inflation + high yields (4.5%+)
+    if inflation == "rising" and yield_10y > 4.5:
+        return "inflationary"
+
+    # Geopolitically stressed (without active war): supply/energy disruption OR trade war
+    if geo_flags.get("supply_disruption") or geo_flags.get("energy_crisis") or geo_flags.get("trade_war"):
+        return "geopolitically_stressed"
+
+    # Default: growth-driven
+    return "growth_driven"
+
+
+def _derive_sector_weights(regime_label: str) -> dict[str, float]:
+    """
+    Return the sector weight vector for the given regime label.
+    Weights range 0.0–1.0; top 2-3 sectors ≥ 0.85, bottom sectors ≤ 0.25.
+    """
+    return dict(_SECTOR_WEIGHTS_BY_REGIME.get(regime_label,
+                _SECTOR_WEIGHTS_BY_REGIME["growth_driven"]))
 
 
 def _derive_regime(data: dict) -> dict:
@@ -245,9 +456,19 @@ def compute(force_refresh: bool = False) -> dict:
 
     regime = _derive_regime(data)
 
+    # Geopolitical news sweep (Finnhub — cached within daily macro cache)
+    geo = _finnhub_geo_news()
+
+    # Derive higher-level regime label and sector weights
+    regime_label    = _derive_regime_label(regime, geo)
+    sector_weights  = _derive_sector_weights(regime_label)
+
     output = {
         "date":            today,
         "regime":          regime,
+        "regime_label":    regime_label,
+        "sector_weights":  sector_weights,
+        "geo_flags":       geo,
         "raw":             data,
         "upcoming_events": calendar,
     }
@@ -261,13 +482,19 @@ def compute(force_refresh: bool = False) -> dict:
 
     # Summary line
     r = regime
+    # Top sectors by weight
+    top_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:3]
+    top_str = " | ".join(f"{s}={w:.2f}" for s, w in top_sectors)
     print(
-        f"  [MacroRegime] inflation={r.get('inflation_trend')} | "
+        f"  [MacroRegime] REGIME={regime_label.upper()} | "
+        f"inflation={r.get('inflation_trend')} | "
         f"curve={r.get('yield_curve')} ({r.get('yield_spread_bps')}bps) | "
         f"labor={r.get('labor')} (U={r.get('unemployment_rate')}%) | "
-        f"10Y={r.get('yield_10y')} | DXY={r.get('dxy')} | "
-        f"rotation_bias={r.get('rotation_bias')}"
+        f"10Y={r.get('yield_10y')} | DXY={r.get('dxy')}"
     )
+    print(f"  [MacroRegime] TOP SECTORS: {top_str}")
+    if geo.get("any_active"):
+        print(f"  [MacroRegime] GEO FLAGS: {geo.get('flags')} | {geo.get('headlines', [])[:2]}")
     if calendar:
         near = [e for e in calendar[:5] if e.get("impact") == "High"]
         if near:
@@ -343,5 +570,37 @@ def format_for_prompt(macro: dict) -> str:
         lines.append("• Labor market strong — consumer spending resilient, supports discretionary & financials.")
     elif labor == "weakening":
         lines.append("• Labor market weakening — defensive rotation signal.")
+
+    # Sector weights — the most actionable output
+    sw = macro.get("sector_weights", {})
+    if sw:
+        lines.append("=== SECTOR ROUTING (regime-driven) ===")
+        lines.append(f"Regime: {macro.get('regime_label', '?').upper().replace('_', ' ')}")
+        # Sort by weight descending
+        sorted_sw = sorted(sw.items(), key=lambda x: x[1], reverse=True)
+        winning   = [(s, w) for s, w in sorted_sw if w >= 0.70]
+        neutral   = [(s, w) for s, w in sorted_sw if 0.40 <= w < 0.70]
+        avoid     = [(s, w) for s, w in sorted_sw if w < 0.40]
+        if winning:
+            lines.append("CONCENTRATE HERE (weight ≥ 0.70) — new BUYs only from these sectors:")
+            for s, w in winning:
+                lines.append(f"  ✓ {s}: {w:.2f}")
+        if neutral:
+            lines.append("NEUTRAL (weight 0.40–0.69) — existing holds OK, new entries need high conviction:")
+            for s, w in neutral:
+                lines.append(f"  ~ {s}: {w:.2f}")
+        if avoid:
+            lines.append("AVOID (weight < 0.40) — BUCKET only, no new entries:")
+            for s, w in avoid:
+                lines.append(f"  ✗ {s}: {w:.2f}")
+
+    # Geopolitical alert
+    geo = macro.get("geo_flags", {})
+    if geo.get("any_active"):
+        lines.append("=== GEOPOLITICAL ALERT ===")
+        active = [k for k, v in (geo.get("flags") or {}).items() if v]
+        lines.append(f"Active signals: {', '.join(active).replace('_', ' ').upper()}")
+        for h in (geo.get("headlines") or [])[:3]:
+            lines.append(f"  • {h}")
 
     return "\n".join(lines)

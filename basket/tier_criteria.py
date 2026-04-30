@@ -154,3 +154,53 @@ EARNINGS_CAP_PCT = {
     "mid_growth":   5.0,
     "speculative":  4.0,
 }
+
+# ── Regime-conditional screening thresholds ───────────────────────────────────
+# In inflationary/geo-stressed regimes, energy/defense/commodities have lower margins
+# but are still the right sectors — relax margin requirements, tighten growth a bit.
+REGIME_THRESHOLD_PRESETS: dict[str, dict] = {
+    "growth_driven": {
+        # Default thresholds — same as TIER_CRITERIA
+        "large_growth": {"min_rev_growth": 0.20, "min_gross_margin": 0.50},
+        "mid_growth":   {"min_rev_growth": 0.25, "min_gross_margin": 0.40},
+        "mega":         {"min_rev_growth": 0.08, "min_gross_margin": None},
+    },
+    "inflationary": {
+        # Energy/commodities/defense — lower margins, still strong revenue
+        "large_growth": {"min_rev_growth": 0.10, "min_gross_margin": 0.25},
+        "mid_growth":   {"min_rev_growth": 0.12, "min_gross_margin": 0.20},
+        "mega":         {"min_rev_growth": 0.06, "min_gross_margin": None},
+    },
+    "recessionary": {
+        # Defense/healthcare — quality over growth, margins matter more
+        "large_growth": {"min_rev_growth": 0.05, "min_gross_margin": 0.45},
+        "mid_growth":   {"min_rev_growth": 0.08, "min_gross_margin": 0.38},
+        "mega":         {"min_rev_growth": 0.03, "min_gross_margin": None},
+    },
+    "geopolitically_stressed": {
+        # Defense/energy/cyber — wide margin tolerance
+        "large_growth": {"min_rev_growth": 0.08, "min_gross_margin": 0.25},
+        "mid_growth":   {"min_rev_growth": 0.10, "min_gross_margin": 0.20},
+        "mega":         {"min_rev_growth": 0.05, "min_gross_margin": None},
+    },
+    "stagflation": {
+        # Survival-mode: energy + defense + healthcare
+        "large_growth": {"min_rev_growth": 0.08, "min_gross_margin": 0.28},
+        "mid_growth":   {"min_rev_growth": 0.10, "min_gross_margin": 0.22},
+        "mega":         {"min_rev_growth": 0.05, "min_gross_margin": None},
+    },
+}
+
+
+def get_tier_criteria(tier: str, regime_label: str = "growth_driven") -> dict:
+    """
+    Return entry thresholds for a tier, adjusted for the current macro regime.
+    Falls back to TIER_CRITERIA defaults for speculative (regime-independent).
+    """
+    base = dict(TIER_CRITERIA.get(tier, TIER_CRITERIA["mid_growth"]))
+    if tier == "speculative":
+        return base  # speculative criteria are always absolute — no regime adjustment
+    preset = REGIME_THRESHOLD_PRESETS.get(regime_label, REGIME_THRESHOLD_PRESETS["growth_driven"])
+    overrides = preset.get(tier, {})
+    base.update({k: v for k, v in overrides.items() if v is not None})
+    return base

@@ -82,6 +82,13 @@ MAX_SPECULATIVE_POSITIONS = 5
 MAX_SPECULATIVE_PCT  = 10.0  # max % in speculative/moonshot tier
 MIN_SPEC_CONFIDENCE  = 7     # minimum confidence to enter a speculative position (no conf-6 entries)
 
+# --- Macro Regime Routing ---
+# Minimum sector weight (from macro_regime.sector_weights) required to open new positions.
+# Sectors below this threshold receive BUCKET only — no new BUYs.
+REGIME_MIN_SECTOR_WEIGHT = 0.55
+# Number of top-weight sectors the system concentrates in per regime cycle.
+REGIME_TOP_N_SECTORS = 3
+
 # --- 70/30 Portfolio Structure ---
 # Long-term bucket: mega + speculative + large_growth (6+ months)
 # Medium-term bucket: catalyst/swing plays from large_growth or mid_growth (3-8 weeks)
