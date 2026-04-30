@@ -39,7 +39,15 @@ def _get_yf_metrics(symbol: str) -> dict:
     """Pull forward-looking metrics from yfinance."""
     clean = symbol.split("/")[0] if "/" in symbol else symbol
     try:
-        info = yf.Ticker(clean).info
+        _ex = ThreadPoolExecutor(max_workers=1)
+        _fut = _ex.submit(lambda: yf.Ticker(clean).info)
+        try:
+            info = _fut.result(timeout=12)
+        except Exception:
+            _ex.shutdown(wait=False)
+            return {}
+        _ex.shutdown(wait=False)
+
         target = info.get("targetMeanPrice")
         price  = info.get("currentPrice") or info.get("regularMarketPrice") or 1
 

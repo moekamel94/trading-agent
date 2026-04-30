@@ -19,6 +19,7 @@ from broker import alpaca
 from signals import technical, sentiment, congress, insider, fundamentals, research, financial_data, social, market_context, future_growth, momentum_news
 from signals import gap_scanner
 from signals import options_flow as uw_flow
+from signals import uw_scanner
 from agent import claude_agent
 from agent import options_advisor
 from database import options_positions as op_db
@@ -31,6 +32,61 @@ from notifications import discord_bot as tg
 
 # Load S&P 500 list once at startup for options eligibility check
 _SP500 = config.get_sp500_tickers()
+
+# UW sector key → our internal sector_weights keys
+_UW_SECTOR_TO_INTERNAL: dict[str, list[str]] = {
+    "semis":    ["semis"],
+    "ai_tech":  ["ai_software", "ai_infra", "mega_tech"],
+    "cyber":    ["cyber"],
+    "defense":  ["defense"],
+    "biotech":  ["biotech"],
+    "energy":   ["energy_oil"],
+    "fintech":  ["fintech"],
+    "robotics": ["robotics"],
+    "nuclear":  ["nuclear"],
+    "quantum":  ["quantum"],
+    "space":    ["space"],
+}
+
+
+def _apply_uw_sector_overlay(macro: dict, sector_flows: dict) -> dict:
+    """
+    Adjust macro sector weights using UW real-time institutional options flow.
+
+    UW flow on sector ETFs (SOXX, ITA, XLE, CIBR, etc.) leads FRED data by
+    1-3 days. When UW shows bullish flow in a sector the macro already favours,
+    that's a confirmation. When UW diverges from the macro label, treat it as
+    an early warning and soften the weight accordingly.
+
+    Multipliers (capped / floored to keep weights in [0.10, 0.95]):
+      bullish UW flow  →  × 1.15  (institutional positioning ahead of news)
+      bearish UW flow  →  × 0.82  (smart money exiting — soften, don't eliminate)
+      neutral / no_data→  no change
+    """
+    import copy as _copy
+    updated = _copy.deepcopy(macro)
+    weights = updated.get("sector_weights", {})
+    if not weights:
+        return macro
+
+    adjustments: list[str] = []
+    for uw_key, flow in sector_flows.items():
+        mult = 1.15 if flow == "bullish" else (0.82 if flow == "bearish" else None)
+        if mult is None:
+            continue
+        for internal in _UW_SECTOR_TO_INTERNAL.get(uw_key, []):
+            if internal not in weights:
+                continue
+            old = weights[internal]
+            new = round(min(0.95, max(0.10, old * mult)), 3)
+            if abs(new - old) >= 0.02:          # only report meaningful changes
+                adjustments.append(f"{internal} {old:.2f}→{new:.2f}({flow[:4]})")
+            weights[internal] = new
+
+    updated["sector_weights"] = weights
+    if adjustments:
+        print(f"  [UW Sector Overlay] {' | '.join(adjustments)}")
+    return updated
 
 
 def _portfolio_context(portfolio, positions):
@@ -152,9 +208,90 @@ def run_gap_scan():
     stock_basket = basket_mgr.load_combined()   # scan both LT and MT
     alerts       = gap_scanner.scan(positions, stock_basket, config)
     print(alerts["summary"])
-    if any([alerts["gap_alerts"], alerts["earnings_today"], alerts["earnings_cap_flags"],
-            alerts.get("uw_bearish_alerts"), alerts.get("uw_discovery")]):
-        tg.send(f"⚠️ Pre-open alerts\n{alerts['summary']}")
+
+    # Build an actionable Discord alert (only if there's something to act on)
+    has_alerts = any([
+        alerts["gap_alerts"], alerts["earnings_today"], alerts["earnings_cap_flags"],
+        alerts.get("uw_bearish_alerts"), alerts.get("uw_discovery"),
+    ])
+    if has_alerts:
+        _pos_map   = {p["symbol"]: p for p in positions}
+        _cache     = {}
+        try:
+            import json as _j
+            _cp = os.path.join(os.path.dirname(__file__), "..", "research_cache.json") if False else \
+                  os.path.join(os.path.dirname(__file__), "research_cache.json")
+            _cache = _j.load(open(_cp))
+        except Exception:
+            pass
+
+        _alert_lines = [f"**⚡ PRE-OPEN ALERTS — {datetime.now(timezone.utc).strftime('%a %b %d')}**"]
+
+        # Gap alerts with entry price + stop context
+        if alerts["gap_alerts"]:
+            _alert_lines.append("\n**📊 Overnight Gaps (held positions):**")
+            for a in alerts["gap_alerts"]:
+                sym  = a["symbol"]
+                gap  = a["gap_pct"]
+                pos  = _pos_map.get(sym, {})
+                cur  = float(pos.get("current_price", 0) or 0)
+                entry = float(pos.get("avg_entry", 0) or 0)
+                upl  = float(pos.get("unrealized_plpc", 0) or 0)
+                direction = "⬆️ GAP UP" if gap > 0 else "⬇️ GAP DOWN"
+                action = ("Consider trimming into strength" if gap > 6
+                          else "Monitor closely — may see follow-through" if gap > 0
+                          else ("🚨 Review stop — gap threatens entry" if entry and cur < entry * 1.05
+                                else "Watch for bounce vs breakdown"))
+                _alert_lines.append(
+                    f"  {direction} **{sym}** {gap:+.1f}%  |  entry ${entry:.2f}  P&L {upl:+.1f}%"
+                )
+                _alert_lines.append(f"    → {action}")
+
+        # Earnings today/tomorrow — what to do
+        if alerts["earnings_today"]:
+            _alert_lines.append("\n**📅 Earnings This Week:**")
+            for e in alerts["earnings_today"]:
+                sym  = e["symbol"]
+                tier = e["tier"]
+                is_held = sym in _pos_map
+                tag = "HELD" if is_held else "BASKET"
+                note = ("Size check required — see cap flags below" if is_held
+                        else "Watch for reaction — potential entry after settle")
+                _alert_lines.append(f"  [{tag}] **{sym}** ({tier})  → {note}")
+
+        # Cap flags
+        if alerts["earnings_cap_flags"]:
+            _alert_lines.append("\n**🚨 Oversized Into Earnings (trim before open):**")
+            for f in alerts["earnings_cap_flags"]:
+                _alert_lines.append(
+                    f"  **{f['symbol']}** {f['current_pct']:.1f}% NAV → cap is {f['cap_pct']}% "
+                    f"({f['tier']}) — TRIM to {f['cap_pct']}% before earnings"
+                )
+
+        # UW bearish sweeps
+        if alerts.get("uw_bearish_alerts"):
+            _alert_lines.append("\n**🐻 Unusual Whales Bearish Sweeps (held):**")
+            for a in alerts["uw_bearish_alerts"]:
+                _alert_lines.append(
+                    f"  **{a['symbol']}** prem_pct={a['norm_pct']}  C/P={a['cp_ratio']}"
+                    f"  → Elevated put activity — review thesis"
+                )
+
+        # UW discovery
+        if alerts.get("uw_discovery"):
+            top = sorted(alerts["uw_discovery"], key=lambda x: x["premium"], reverse=True)[:4]
+            _alert_lines.append("\n**🔭 Large Bullish Sweeps (not in basket):**")
+            for d in top:
+                exp = f"  exp {d['expiry_weeks']}wk" if d.get("expiry_weeks") else ""
+                _alert_lines.append(f"  **{d['symbol']}** ${d['premium']/1e6:.1f}M{exp}")
+
+        # Catalyst window
+        if alerts.get("catalyst_alerts"):
+            _alert_lines.append("\n**🎯 Upcoming Catalysts (30d window):**")
+            for c in alerts["catalyst_alerts"][:4]:
+                _alert_lines.append(f"  **{c['ticker']}** — {c['milestone']} due {c['due']}")
+
+        tg.send("\n".join(_alert_lines))
     # Store for 09:50 cycle pickup
     import json as _json, os as _os
     _alerts_path = _os.path.join(_os.path.dirname(__file__), ".gap_alerts.json")
@@ -277,12 +414,13 @@ def run_spec_research():
             growth_data   = future_growth.compute(symbol)
             earn_mom      = momentum_news.earnings_momentum(symbol)
 
-            uw_short = uw_iv = uw_oi = uw_dp = {}
+            uw_short = uw_iv = uw_oi = uw_dp = uw_earn = {}
             if config.UNUSUAL_WHALES_API_KEY:
                 uw_short = uw_flow.get_short_interest(symbol)
                 uw_iv    = uw_flow.get_iv_data(symbol)
                 uw_oi    = uw_flow.get_oi_changes(symbol)
                 uw_dp    = uw_flow.get_darkpool(symbol)
+                uw_earn  = uw_flow.get_earnings_beat_rate(symbol)
 
             research_cache.save(symbol, {
                 "fundamentals":          fund,
@@ -301,10 +439,12 @@ def run_spec_research():
                 "uw_iv":                 uw_iv,
                 "uw_oi_changes":         uw_oi,
                 "uw_darkpool":           uw_dp,
+                "uw_earnings_beat":      uw_earn,
             })
             g_score = (growth_data or {}).get("score", "?")
+            beat_str = f" | beat={uw_earn.get('beat_rate')}" if uw_earn.get('beat_rate') is not None else ""
             print(f"  [{symbol}] growth={g_score} | social={social_data.get('combined_label')} | "
-                  f"short={uw_short.get('short_interest_pct')}% IV_rank={uw_iv.get('iv_rank')} ✓")
+                  f"short={uw_short.get('short_interest_pct')}% IV_rank={uw_iv.get('iv_rank')}{beat_str} ✓")
             done += 1
         except Exception as e:
             print(f"  [{symbol}] ERROR: {e}")
@@ -374,16 +514,18 @@ def run_monthly_research():
                 earn_mom      = momentum_news.earnings_momentum(symbol)
 
             # UW structural data — slow-moving signals worth caching for all tiers
-            uw_short = uw_iv = uw_oi = uw_dp = {}
+            uw_short = uw_iv = uw_oi = uw_dp = uw_earn = {}
             if config.UNUSUAL_WHALES_API_KEY:
                 uw_short = uw_flow.get_short_interest(symbol)
                 uw_iv    = uw_flow.get_iv_data(symbol)
                 uw_oi    = uw_flow.get_oi_changes(symbol)
                 uw_dp    = uw_flow.get_darkpool(symbol)
+                uw_earn  = uw_flow.get_earnings_beat_rate(symbol)
 
             g_score = growth_data.get("score", "cached") if growth_data else "-"
+            beat_str = f" | beat={uw_earn.get('beat_rate')}" if uw_earn.get('beat_rate') is not None else ""
             print(f"  [{symbol}] growth={g_score} | sent={sent.get('label')} | depth={depth_tag} | "
-                  f"short={uw_short.get('short_interest_pct')}% IV_rank={uw_iv.get('iv_rank')}")
+                  f"short={uw_short.get('short_interest_pct')}% IV_rank={uw_iv.get('iv_rank')}{beat_str}")
 
             research_cache.save(symbol, {
                 "fundamentals":          fund,
@@ -401,6 +543,7 @@ def run_monthly_research():
                 "uw_iv":                 uw_iv,
                 "uw_oi_changes":         uw_oi,
                 "uw_darkpool":           uw_dp,
+                "uw_earnings_beat":      uw_earn,
             })
             done += 1
         except Exception as e:
@@ -713,19 +856,22 @@ def run_weekly_basket_review():
 def _mt_weekly_deployed_pct(portfolio_equity: float) -> float:
     """
     Return total allocation_pct of MT BUY decisions executed since last Monday.
-    Used to enforce the weekly MT deployment cap.
+    Uses decisions_log (has sleeve + allocation_pct); trades table does not.
     """
     try:
         from datetime import timedelta
         import zoneinfo
+        from database import decisions_log as _dlog
         now_et    = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
         monday_et = now_et - timedelta(days=now_et.weekday())
         monday_et = monday_et.replace(hour=0, minute=0, second=0, microsecond=0)
-        trades    = db.get_recent_trades(since=monday_et.astimezone(timezone.utc).isoformat())
-        mt_buys   = [t for t in trades
-                     if t.get("action") == "BUY"
-                     and t.get("sleeve") == "medium_term"]
-        return sum(t.get("allocation_pct", 0) for t in mt_buys)
+        monday_utc_str = monday_et.astimezone(timezone.utc).isoformat()
+        records   = _dlog.get_recent_decisions(days=7)
+        mt_buys   = [r for r in records
+                     if r.get("action") == "BUY"
+                     and r.get("sleeve") == "medium_term"
+                     and r.get("ts", "") >= monday_utc_str]
+        return sum(r.get("allocation_pct", 0) for r in mt_buys)
     except Exception:
         return 0.0
 
@@ -746,6 +892,103 @@ def run_daily_basket_review():
 
     if discord_msg:
         tg.send(discord_msg)
+
+
+def run_uw_sweep_scan():
+    """
+    Poll UW sweep feed every 5 min during market hours.
+    Basket/held hits → Discord alert.
+    Out-of-basket call sweeps ≥$1M → Discord + MT basket queue.
+    Call sweeps ≥$2M → also trigger immediate onboarding research.
+    Cost: 1 API call per run (78/day).
+    """
+    if not uw_flow._is_market_hours():
+        return
+    try:
+        combined   = basket_mgr.load_combined()
+        basket     = basket_mgr.load()
+        held       = [p["symbol"] for p in alpaca.get_positions()]
+        alerts, discoveries = uw_scanner.run_sweep_feed_scan(basket, held)
+
+        for msg in alerts:
+            tg.send(msg)
+
+        if not discoveries:
+            return
+
+        # Queue all discoveries to uw_pending (consumed at next run_cycle)
+        basket_mgr.queue_uw_discovery(discoveries)
+
+        # For very large call sweeps (≥$2M) add to MT basket and research NOW —
+        # don't wait for the next cycle. Institutional sweeps at this size move fast.
+        combined_set = set(combined)
+        big = [d for d in discoveries
+               if d.get("premium", 0) >= 2_000_000
+               and d["symbol"] not in combined_set]
+
+        if big:
+            today      = datetime.now(timezone.utc).date().isoformat()
+            big_syms   = list(dict.fromkeys(d["symbol"] for d in big))
+            ex_mt      = basket_mgr.load_mt()
+            ex_meta    = basket_mgr.load_mt_metadata()
+            new_meta   = {
+                s: {
+                    "source":  "uw_sweep",
+                    "added":   today,
+                    "expires": None,
+                    "note":    f"UW call sweep ≥$2M — immediate onboarding",
+                }
+                for s in big_syms
+            }
+            basket_mgr.save_mt(list(dict.fromkeys(ex_mt + big_syms)),
+                               {**ex_meta, **new_meta})
+            run_new_ticker_onboarding(big_syms)
+            prem_str = " | ".join(
+                f"{d['symbol']} ${d['premium']/1e6:.1f}M" for d in big
+            )
+            tg.send(f"🔭 HIGH-CONVICTION UW SWEEP → immediate research: {prem_str}")
+
+    except Exception as e:
+        print(f"  [UW sweep scan] error: {e}")
+
+
+def run_uw_intraday_scan():
+    """
+    Refresh UW flow + all data signals for the full basket every 15 min.
+    Market-hours TTLs in options_flow ensure each call hits the API fresh.
+    Cost: ~190 API calls per run (4,900/day at target cadence).
+    Also runs discovery scan once at 10:00 ET and sends hits to Discord.
+    """
+    if not uw_flow._is_market_hours():
+        return
+    try:
+        import zoneinfo
+        basket = basket_mgr.load()
+        held   = [p["symbol"] for p in alpaca.get_positions()]
+
+        # Refresh all basket + held tickers
+        uw_scanner.run_basket_refresh(basket, held)
+
+        # Once-daily discovery scan at 10:00 (±7 min window)
+        now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        if now_et.hour == 10 and now_et.minute < 8:
+            hits  = uw_scanner.run_discovery_scan(basket)
+            lines = uw_scanner.discovery_discord_lines(hits)
+            if lines:
+                tg.send("\n".join(lines))
+            # Queue darkpool accumulation hits to uw_pending so the next
+            # run_cycle picks them up via _run_daily_discovery().
+            if hits:
+                basket_mgr.queue_uw_discovery([
+                    {
+                        "symbol":  h["symbol"],
+                        "premium": h.get("total_notional_3d", 0),
+                        "source":  "uw_darkpool_scan",
+                    }
+                    for h in hits
+                ])
+    except Exception as e:
+        print(f"  [UW intraday scan] error: {e}")
 
 
 def run_basket_intelligence(mkt_ctx: dict, macro_regime: dict, uw_mkt_ctx: dict,
@@ -847,6 +1090,43 @@ If no clear signal: {{"rotation_themes": [], "add": [], "remove": [], "confidenc
         if conf == "low" and not adds and not removes:
             return
 
+        # ── Hard sector-alignment gate on Haiku's suggestions ─────────────────
+        # Haiku already sees the macro sector routing in its prompt, but we enforce
+        # it structurally here so a hallucinated suggestion in an avoid-sector never
+        # reaches the basket regardless of what the model outputs.
+        _sw = (macro_regime or {}).get("sector_weights", {})
+        if _sw:
+            _min_w = config.REGIME_MIN_SECTOR_WEIGHT
+            _aligned: list[dict] = []
+            for _item in adds:
+                _sym = (_item.get("ticker") or "").upper()
+                if not _sym:
+                    continue
+                # Known sector (fast path — no API call)
+                _internal = config.SECTOR_MAP.get(_sym)
+                if _internal:
+                    _w = _sw.get(_internal, 0.60)
+                    if _w < _min_w:
+                        print(f"  [BasketIntel] REJECTED {_sym}: sector '{_internal}' "
+                              f"weight {_w:.2f} < {_min_w} — not in winning sectors")
+                        continue
+                else:
+                    # Unknown ticker — quick yfinance sector lookup
+                    try:
+                        import yfinance as _yf_bi
+                        _yf_sec = (_yf_bi.Ticker(_sym).info or {}).get("sector", "")
+                        from basket.curation import _YF_SECTOR_TO_INTERNAL
+                        _candidates = _YF_SECTOR_TO_INTERNAL.get(_yf_sec, [])
+                        _best_w = max((_sw.get(s, 0) for s in _candidates), default=0.60)
+                        if _candidates and _best_w < _min_w:
+                            print(f"  [BasketIntel] REJECTED {_sym}: yfinance sector "
+                                  f"'{_yf_sec}' best weight {_best_w:.2f} < {_min_w}")
+                            continue
+                    except Exception:
+                        pass   # lookup failed — allow through rather than block on error
+                _aligned.append(_item)
+            adds = _aligned
+
         # Execute adds — add to MT basket + run full onboarding
         new_syms = []
         for item in adds:
@@ -928,6 +1208,28 @@ def _run_daily_discovery(current_basket: list[str]) -> list[str]:
     except Exception as _e:
         print(f"  [Daily Discovery] UW pending error: {_e}")
 
+    # 3. UW market OI buildup — stocks with unusual call OI accumulation today
+    try:
+        oi_hits = uw_flow.get_market_oi_buildup(min_mcap=2_000_000_000, top_n=30)
+        added_oi = 0
+        for hit in oi_hits:
+            sym = hit["symbol"]
+            if sym not in basket_set and sym not in new_syms:
+                new_syms.append(sym)
+                new_meta[sym] = {
+                    "source":  "uw_oi_buildup",
+                    "added":   today,
+                    "expires": None,
+                    "note":    (f"OI buildup +{hit['oi_change_pct']:.0f}% | "
+                                f"{hit['oi_diff']:,} contracts | "
+                                f"{hit['days_increasing']}d increasing"),
+                }
+                added_oi += 1
+        if added_oi:
+            print(f"  [Daily Discovery] OI buildup: {added_oi} stocks showing unusual call positioning")
+    except Exception as _e:
+        print(f"  [Daily Discovery] OI buildup error: {_e}")
+
     if not new_syms:
         return []
 
@@ -944,7 +1246,118 @@ def _run_daily_discovery(current_basket: list[str]) -> list[str]:
     return new_syms
 
 
-def run_cycle(dry_run: bool = False):
+def _run_regime_sector_scan(macro_regime: dict, existing_basket: list[str]) -> list[str]:
+    """
+    Daily regime-driven sector scan.
+
+    When the macro regime identifies winning sectors (weight ≥ 0.70), this function
+    runs a broad FMP screener for EACH winning sector — not just the 65 pre-selected
+    tickers — and adds the best new names directly to the MT basket for same-day
+    committee review. This closes the gap between regime classification and actual
+    new-stock discovery.
+
+    Rate-limited: runs once per calendar day via a .lock file.
+    Capped at max_per_sector=3 new names per winning sector.
+    Returns list of newly discovered symbols added to the MT basket.
+    """
+    import os as _os
+    if not macro_regime:
+        return []
+
+    # Run only once per day — morning cycle sets the lock, afternoon skips
+    _today  = datetime.now(timezone.utc).date().isoformat()
+    _lock   = _os.path.join(_os.path.dirname(__file__), f".regime_scan_{_today}.lock")
+    if _os.path.exists(_lock):
+        return []
+
+    sector_weights  = macro_regime.get("sector_weights", {})
+    regime_label    = macro_regime.get("regime_label", "growth_driven")
+    regime_shift    = macro_regime.get("regime_shift", False)
+    prev_label      = macro_regime.get("prev_regime_label")
+
+    winning = [(s, w) for s, w in sector_weights.items() if w >= 0.70]
+    if not winning:
+        try: open(_lock, "w").close()
+        except Exception: pass
+        return []
+
+    # Regime shift: alert before running scan
+    if regime_shift and prev_label:
+        _shift_msg = (
+            f"⚡ MACRO REGIME SHIFT DETECTED\n"
+            f"{prev_label.upper().replace('_',' ')} → {regime_label.upper().replace('_',' ')}\n"
+            f"Winning sectors now: {', '.join(s for s,_ in sorted(winning, key=lambda x:-x[1]))}\n"
+            f"Running sector opportunity scan for new names..."
+        )
+        print(f"\n  [RegimeScan] {_shift_msg}")
+        tg.send(_shift_msg)
+
+    print(f"\n  [RegimeScan] Running sector opportunity scan "
+          f"({regime_label.upper()}) — {len(winning)} winning sectors...")
+
+    try:
+        from basket.curation import run_sector_opportunity_scan
+        discoveries = run_sector_opportunity_scan(
+            macro_regime, existing_basket, max_per_sector=3
+        )
+    except Exception as _e:
+        print(f"  [RegimeScan] scan error: {_e}")
+        try: open(_lock, "w").close()
+        except Exception: pass
+        return []
+
+    if not discoveries:
+        print("  [RegimeScan] No new opportunities found outside current basket")
+        try: open(_lock, "w").close()
+        except Exception: pass
+        return []
+
+    # Add all discoveries to the MT basket
+    new_syms   = list(dict.fromkeys(d["symbol"] for d in discoveries))
+    _today_str = datetime.now(timezone.utc).date().isoformat()
+    existing_mt   = basket_mgr.load_mt()
+    existing_meta = basket_mgr.load_mt_metadata()
+    new_meta = {
+        d["symbol"]: {
+            "source":   "regime_scan",
+            "added":    _today_str,
+            "expires":  None,
+            "note":     d["note"],
+        }
+        for d in discoveries
+    }
+    basket_mgr.save_mt(
+        list(dict.fromkeys(existing_mt + new_syms)),
+        {**existing_meta, **new_meta}
+    )
+
+    # Full research onboarding so the committee sees complete signals today
+    run_new_ticker_onboarding(new_syms)
+
+    # Discord summary grouped by sector
+    from collections import defaultdict as _dd
+    by_sector: dict = _dd(list)
+    for d in discoveries:
+        by_sector[d["sector_key"]].append(d["symbol"])
+    sector_lines = "\n".join(
+        f"  {sk} ({sector_weights.get(sk,0):.2f}): {', '.join(syms)}"
+        for sk, syms in sorted(by_sector.items(), key=lambda x: -sector_weights.get(x[0], 0))
+    )
+    disc_msg = (
+        f"🔭 Regime Scan [{regime_label.upper()}] — {len(new_syms)} new opportunities\n"
+        f"{sector_lines}\n"
+        f"All added to MT basket for committee review."
+    )
+    print(f"\n  [RegimeScan] {disc_msg}")
+    tg.send(disc_msg)
+
+    try: open(_lock, "w").close()
+    except Exception: pass
+
+    return new_syms
+
+
+def run_cycle(dry_run: bool = False, force_opus: bool = False):
     import zoneinfo
     now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
     time_label = now_et.strftime("%I:%M %p ET")
@@ -1009,6 +1422,13 @@ def run_cycle(dry_run: bool = False):
             uw_mkt_ctx = uw_flow.get_uw_market_context()
         except Exception as _e:
             print(f"  [UW market context] error: {_e}")
+
+    # Apply UW real-time sector flow overlay onto macro sector weights.
+    # UW options flow on sector ETFs leads FRED data by 1-3 days — it shows
+    # where institutional money is positioning NOW, before the macro stats confirm it.
+    # e.g., FRED says growth_driven but UW shows defense=bullish → lift defense weight.
+    if _macro_regime and uw_mkt_ctx.get("sector_flows"):
+        _macro_regime = _apply_uw_sector_overlay(_macro_regime, uw_mkt_ctx["sector_flows"])
 
     print(f"Portfolio: equity=${portfolio['equity']:,.2f}  cash=${portfolio['cash']:,.2f}  positions={port_ctx['position_count']}")
 
@@ -1159,6 +1579,34 @@ def run_cycle(dry_run: bool = False):
             except Exception as e:
                 print(f"    [HardCap] order error {sym}: {e}")
 
+    # ── Continuous learning: update 7/14d price outcomes for past entries ───────
+    try:
+        from learning import tracker as _ltracker
+        _ltracker.outcome_update()
+        # Recompute adaptive signal weights from accumulated outcomes
+        _ltracker.compute_weights()
+    except Exception as _le:
+        print(f"  [Tracker] error: {_le}")
+
+    # ── Bi-weekly committee review (runs every 13+ days) ─────────────────────
+    try:
+        from reports import biweekly_review as _review
+        if _review.should_run_today():
+            import zoneinfo as _rzi
+            _now_et = datetime.now(_rzi.ZoneInfo("America/New_York"))
+            # Run on weekends only (avoid disrupting live trading days)
+            if _now_et.weekday() in (5, 6):   # 5 = Saturday, 6 = Sunday
+                _rpt = _review.run_biweekly_review(dry_run=False)
+                _summary = _rpt.get("summary", "")
+                _changes = _rpt.get("param_changes", [])
+                tg.send(
+                    f"📋 BI-WEEKLY REVIEW COMPLETE\n{_summary}\n"
+                    f"Auto-applied {len([c for c in _changes if c.get('confidence')=='high'])} param change(s). "
+                    f"Full report saved to DB."
+                )
+    except Exception as _re:
+        print(f"  [BiweeklyReview] error: {_re}")
+
     # Shadow mode graduation check — auto-unlocks +0.5 bonus once validation criteria met
     if config.UNUSUAL_WHALES_API_KEY:
         graduated = uw_flow.check_shadow_graduation()
@@ -1227,6 +1675,15 @@ def run_cycle(dry_run: bool = False):
     if _discovery_added:
         stock_basket = basket_mgr.load_combined()   # reload to include new additions
 
+    # Regime-driven sector scan: for each winning sector (weight ≥ 0.70) run a
+    # broad FMP screener and add the best NEW names to the MT basket for today's
+    # committee review. This is the structured link between the macro regime and
+    # stock discovery — we are not limited to the 65 pre-selected tickers.
+    # Rate-limited to once per calendar day via a .lock file.
+    _regime_scan_added = _run_regime_sector_scan(_macro_regime, stock_basket)
+    if _regime_scan_added:
+        stock_basket = basket_mgr.load_combined()   # reload to include regime scan additions
+
     # Always include held positions even if they've been removed from the basket.
     # This ensures the committee can output a SELL decision on stale/demoted holdings
     # rather than silently ignoring them until a mechanical stop fires.
@@ -1237,6 +1694,16 @@ def run_cycle(dry_run: bool = False):
         stock_basket = stock_basket + _orphaned
 
     watchlist = stock_basket + config.CRYPTO_WATCHLIST
+    _n_watchlist    = len(watchlist)
+    _n_lt           = len(basket_mgr.load())
+    _n_mt           = len(basket_mgr.load_mt())
+    _n_discovery    = len(_discovery_added) if _discovery_added else 0
+    _n_regime_scan  = len(_regime_scan_added) if _regime_scan_added else 0
+    _n_orphaned     = len(_orphaned) if _orphaned else 0
+    _n_crypto       = len(config.CRYPTO_WATCHLIST)
+    print(f"  [Watchlist] {_n_watchlist} total: "
+          f"LT={_n_lt} MT={_n_mt} discovery={_n_discovery} "
+          f"regime_scan={_n_regime_scan} orphaned={_n_orphaned} crypto={_n_crypto}")
     signals_map = {}
     tech_map: dict = {}  # tech per symbol for Phase 3 trade execution
 
@@ -1464,6 +1931,16 @@ def run_cycle(dry_run: bool = False):
                     prelim_score += 2
                 elif _uw_sig == "bullish_sweep":      prelim_score += 1
                 if _uw_sig == "bearish_sweep":        prelim_score -= 2
+                # Adaptive learning adjustment: bump prelim score by the weighted
+                # conviction delta from continuous learning (bounded ±1 point here).
+                try:
+                    from learning import tracker as _ltracker
+                    _learn_adj = _ltracker.conviction_adjustment(signals)
+                    _learn_bump = max(-1, min(1, round(_learn_adj)))
+                    if _learn_bump != 0:
+                        prelim_score += _learn_bump
+                except Exception:
+                    pass
                 threshold = config.MID_GROWTH_PRELIM_MIN if tier == "mid_growth" else 1
                 if prelim_score < threshold:
                     print(f"  [{symbol}] -> SKIP | Prelim score {prelim_score} "
@@ -1587,9 +2064,59 @@ def run_cycle(dry_run: bool = False):
     near_miss_mt: list[dict] = []   # BUCKET decisions in medium_term sleeve
 
     if candidates:
+        # ── Pre-gate: force BUCKET on spec tickers in regime AVOID sectors ────
+        _regime_weights = (_macro_regime or {}).get("sector_weights", {})
+        _spec_buckets = []
+        _pass_to_committee = []
+        for _cand in candidates:
+            _sym  = _cand["symbol"]
+            _tier = config.TICKER_TIERS.get(_sym, "")
+            if _tier == "speculative":
+                _sec = config.SECTOR_MAP.get(_sym)
+                _wt  = _regime_weights.get(_sec, 1.0) if _sec else 1.0
+                if _wt < config.REGIME_MIN_SECTOR_WEIGHT:
+                    print(f"  [{_sym}] -> PRE-GATE BUCKET | spec tier + sector '{_sec}' "
+                          f"weight={_wt:.2f} < {config.REGIME_MIN_SECTOR_WEIGHT} (AVOID)")
+                    _spec_buckets.append({
+                        "symbol": _sym, "action": "BUCKET",
+                        "rationale": (
+                            f"Regime pre-gate: speculative tier, sector '{_sec}' "
+                            f"weight {_wt:.2f} below AVOID threshold "
+                            f"{config.REGIME_MIN_SECTOR_WEIGHT}"
+                        ),
+                        "confidence": 0, "cio_confidence": 0,
+                        "final_confidence": 0, "bucket": "long_term",
+                        "allocation_pct": 0, "target_pct": 0,
+                        "asset_type": "stock", "option_direction": None,
+                        "da_severity": "Low",
+                    })
+                    continue
+            _pass_to_committee.append(_cand)
+        candidates = _pass_to_committee
+
+        # ── Fetch supporting context for committee ────────────────────────────
+        _signal_weights = {}
+        try:
+            from learning.tracker import _load_weights as _lw
+            _signal_weights = _lw() or {}
+        except Exception:
+            pass
+
+        _stop_exits = []
+        try:
+            _stop_exits = db.get_recent_stop_exits(days=30)
+        except Exception:
+            pass
+
         print(f"\n  [Committee] Reviewing {len(candidates)} candidates in one call...")
-        decisions = claude_agent.committee_review(candidates, port_ctx, mkt_ctx,
-                                                  macro_regime=_macro_regime)
+        decisions = claude_agent.committee_review(
+            candidates, port_ctx, mkt_ctx,
+            macro_regime=_macro_regime,
+            force_opus=force_opus,
+            signal_weights=_signal_weights,
+            recent_stop_exits=_stop_exits,
+        )
+        decisions = _spec_buckets + decisions
         # Alert on committee fallback (Opus parse failure degraded to individual Haiku calls)
         fallback_errors = {d["symbol"]: d["_committee_fallback"]
                            for d in decisions if d.get("_committee_fallback")}
@@ -1721,7 +2248,11 @@ def run_cycle(dry_run: bool = False):
                             decision["action"] = "BUCKET"
                             action = "BUCKET"
                         else:
-                            alpaca.place_market_order(symbol, qty, action)
+                            from monitoring import self_healer as _sh
+                            _ok, _err = _sh.place_order_with_retry(symbol, qty, action)
+                            if not _ok:
+                                print(f"  [ORDER FAIL] {action} {symbol}: {_err}")
+                                continue   # skip logging and alerting — order did not execute
                             db.log_trade(symbol, action, asset_type, qty, price, alloc, confidence, rationale)
                             print(f"  [TRADE] {action} {symbol} conf={confidence}/10")
                             if action == "BUY":
@@ -1732,6 +2263,23 @@ def run_cycle(dry_run: bool = False):
                                 _entry_low = tech.get("day_low") or tech.get("low") or price
                                 try:
                                     db.set_entry_day_low(symbol, _entry_low)
+                                except Exception:
+                                    pass
+                                # Continuous learning: snapshot signals at entry for
+                                # outcome tracking 7/14 days later.
+                                try:
+                                    from learning import tracker as _tracker
+                                    _sec_key    = config.SECTOR_MAP.get(symbol, "")
+                                    _sec_weight = (_macro_regime.get("sector_weights") or {}).get(_sec_key, 0.0)
+                                    _tracker.record_signal_outcome = lambda *a, **kw: None  # lazy guard
+                                    db.record_signal_outcome(
+                                        symbol       = symbol,
+                                        entry_price  = price,
+                                        signals      = signals,
+                                        regime_label = _macro_regime.get("regime_label", ""),
+                                        sector_key   = _sec_key,
+                                        sector_weight = _sec_weight,
+                                    )
                                 except Exception:
                                     pass
                                 # Attribution logging
@@ -2211,6 +2759,51 @@ def run_cycle(dry_run: bool = False):
     else:
         msg_parts.append("**No trades this cycle**")
 
+    # Record cycle funnel stats for EOD health digest
+    try:
+        from monitoring import health as _h
+        _n_pre_gate = len(_spec_buckets) if '_spec_buckets' in locals() else 0
+        _h.record_cycle_stats(
+            n_scanned       = _n_watchlist,
+            n_filtered      = len(candidates) + _n_pre_gate,
+            n_committee     = len(decisions) - _n_pre_gate if decisions else 0,
+            n_pregatebucket = _n_pre_gate,
+            buys            = len(cycle_buys),
+            sells           = len(cycle_sells),
+            cycle_label     = "open" if datetime.now(tz_et).hour < 12 else "close",
+            basket_breakdown= {
+                "lt": _n_lt, "mt": _n_mt,
+                "discovery": _n_discovery,
+                "regime_scan": _n_regime_scan,
+                "orphaned": _n_orphaned,
+                "crypto": _n_crypto,
+            },
+        )
+    except Exception:
+        pass
+
+    # Post-cycle self-healer: detect zero-candidate streaks and committee fallback patterns
+    try:
+        from monitoring import self_healer as _sh
+        _quota_hits = 0
+        try:
+            from monitoring import health as _hq
+            _quota_hits = sum(len(v) for v in _hq._api_quotas.values())
+        except Exception:
+            pass
+        _post_cycle_stats = {
+            "scanned":        _n_watchlist,
+            "passed_filters": len(candidates),
+            "buys":           len(cycle_buys),
+            "sells":          len(cycle_sells),
+            "quota_hits":     _quota_hits,
+        }
+        if len(cycle_buys) + len(cycle_sells) > 0:
+            _sh.reset_zero_candidate_streak()
+        _sh.run_post_cycle_check(_post_cycle_stats, decisions if decisions else [])
+    except Exception:
+        pass
+
     if near_buy_parts:
         msg_parts.append("")
         msg_parts.append("**👀 Watching — almost there**")
@@ -2303,6 +2896,8 @@ def main():
     parser.add_argument("--weekly-basket",   action="store_true")
     parser.add_argument("--bot",            action="store_true")
     parser.add_argument("--discord",        action="store_true")
+    parser.add_argument("--force-opus",     action="store_true",
+                        help="Use Opus 4.7 for the committee (manual/ad-hoc runs)")
     args = parser.parse_args()
 
     if args.monthly:
@@ -2322,74 +2917,115 @@ def main():
         from apscheduler.triggers.cron import CronTrigger
 
         # Safe wrappers — a crash in one job must never kill the whole bot
+        from monitoring import health as _health
+
         def _safe_cycle():
+            import zoneinfo as _rzi
+            _now_et = datetime.now(_rzi.ZoneInfo("America/New_York"))
+            _job_id = "trading_cycle_open" if _now_et.hour < 12 else "trading_cycle_close"
+            _health.heartbeat(_job_id)
             try:
                 run_cycle()
             except Exception as e:
                 msg = f"❌ Trading cycle crashed: {e}"
                 print(msg)
+                _health.record_silent_error(_job_id, str(e), severity="high")
                 try: tg.send(msg)
                 except Exception: pass
 
         def _safe_monthly():
+            _health.heartbeat("monthly_research")
             try:
                 run_monthly_research()
             except Exception as e:
                 msg = f"❌ Monthly research crashed: {e}"
                 print(msg)
+                _health.record_silent_error("monthly_research", str(e), severity="high")
+                try: tg.send(msg)
+                except Exception: pass
+
+        def _safe_earnings_reaction():
+            _health.heartbeat("earnings_reaction")
+            # Morning health check runs first — fixes what it can, escalates the rest
+            try:
+                from monitoring.self_healer import run_morning_check
+                run_morning_check()
+            except Exception as _mc_err:
+                print(f"  [SelfHealer] Morning check error: {_mc_err}")
+            try:
+                from reports.earnings_reaction import run_earnings_reaction
+                run_earnings_reaction(dry_run=False)
+            except Exception as e:
+                msg = f"❌ Earnings reaction crashed: {e}"
+                print(msg)
+                _health.record_silent_error("earnings_reaction", str(e), severity="high")
                 try: tg.send(msg)
                 except Exception: pass
 
         def _safe_premarket():
+            _health.heartbeat("premarket_summary")
             try:
                 reporter.run_premarket(dry_run=False)
             except Exception as e:
                 print(f"Premarket summary error: {e}")
+                _health.record_silent_error("premarket_summary", str(e))
 
         def _safe_close():
+            _health.heartbeat("close_summary")
             try:
                 reporter.run_close()
             except Exception as e:
                 print(f"Close summary error: {e}")
+                _health.record_silent_error("close_summary", str(e))
 
         def _safe_weekly():
+            _health.heartbeat("weekly_review")
             try:
                 weekly_review.run()
             except Exception as e:
                 msg = f"❌ Weekly review crashed: {e}"
                 print(msg)
+                _health.record_silent_error("weekly_review", str(e), severity="high")
                 try: tg.send(msg)
                 except Exception: pass
 
         def _safe_weekly_basket():
+            _health.heartbeat("weekly_basket_review")
             try:
                 run_weekly_basket_review()
             except Exception as e:
                 msg = f"❌ Weekly basket review crashed: {e}"
                 print(msg)
+                _health.record_silent_error("weekly_basket_review", str(e), severity="high")
                 try: tg.send(msg)
                 except Exception: pass
 
         def _safe_daily_basket_review():
+            _health.heartbeat("daily_basket_review")
             try:
                 run_daily_basket_review()
             except Exception as e:
                 msg = f"❌ Daily basket review crashed: {e}"
                 print(msg)
+                _health.record_silent_error("daily_basket_review", str(e), severity="high")
                 try: tg.send(msg)
                 except Exception: pass
 
         def _safe_gap_scan():
+            _health.heartbeat("gap_scan")
             try:
                 run_gap_scan()
             except Exception as e:
                 print(f"Gap scan error: {e}")
+                _health.record_silent_error("gap_scan", str(e))
 
         def _safe_midday():
+            _health.heartbeat("midday_check")
             try:
                 run_midday_check()
             except Exception as e:
                 print(f"Midday check error: {e}")
+                _health.record_silent_error("midday_check", str(e))
 
         def _safe_spec_research():
             try:
@@ -2399,6 +3035,25 @@ def main():
                 print(msg)
                 try: tg.send(msg)
                 except Exception: pass
+
+        def _safe_watchdog():
+            try:
+                from monitoring.watchdog import run_watchdog
+                run_watchdog()
+            except Exception as e:
+                print(f"Watchdog error: {e}")
+
+        def _safe_uw_sweep_scan():
+            try:
+                run_uw_sweep_scan()
+            except Exception as e:
+                print(f"UW sweep scan error: {e}")
+
+        def _safe_uw_intraday_scan():
+            try:
+                run_uw_intraday_scan()
+            except Exception as e:
+                print(f"UW intraday scan error: {e}")
 
         def _startup_catchup():
             """
@@ -2446,6 +3101,15 @@ def main():
                         hour=config.BASKET_REFRESH_HOUR,
                         minute=config.BASKET_REFRESH_MINUTE),
             id="monthly_research",
+            misfire_grace_time=GRACE,
+        )
+        # Overnight earnings reaction: Mon-Fri 7:30 ET
+        scheduler.add_job(
+            _safe_earnings_reaction,
+            CronTrigger(day_of_week="mon-fri",
+                        hour=config.EARNINGS_REACTION_HOUR,
+                        minute=config.EARNINGS_REACTION_MINUTE),
+            id="earnings_reaction",
             misfire_grace_time=GRACE,
         )
         # Pre-market summary: Mon-Fri 9:00 ET
@@ -2536,6 +3200,28 @@ def main():
             id="weekly_review",
             misfire_grace_time=GRACE,
         )
+        # Watchdog: every 30 min Mon-Fri — checks for missed jobs, alerts immediately
+        scheduler.add_job(
+            _safe_watchdog,
+            CronTrigger(day_of_week="mon-fri", hour="7-17", minute="*/30"),
+            id="watchdog",
+            misfire_grace_time=GRACE,
+        )
+        # UW sweep feed: every 5 min Mon-Fri (market hours guard inside)
+        from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+        scheduler.add_job(
+            _safe_uw_sweep_scan,
+            _IntervalTrigger(minutes=5),
+            id="uw_sweep_scan",
+            misfire_grace_time=120,
+        )
+        # UW basket refresh: every 15 min Mon-Fri (market hours guard inside)
+        scheduler.add_job(
+            _safe_uw_intraday_scan,
+            _IntervalTrigger(minutes=15),
+            id="uw_intraday_scan",
+            misfire_grace_time=300,
+        )
         # One-time startup catchup — fires 15s after process start
         from datetime import timedelta as _td
         scheduler.add_job(
@@ -2558,7 +3244,9 @@ def main():
             f"  Daily MT basket review: Mon-Thu 16:15 ET (Haiku; removes broken, adds 1:1)\n"
             f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (full weekly refresh)\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly, spec tier only)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET"
+            f"  Weekly portfolio review: Sunday 18:00 ET\n"
+            f"  UW sweep feed scan    : every 5 min Mon-Fri 9:30-16:00 ET\n"
+            f"  UW basket refresh     : every 15 min Mon-Fri 9:30-16:00 ET (~5K calls/day)"
         )
 
         from notifications import discord_bot
@@ -2567,6 +3255,8 @@ def main():
         run_btc_check()
     elif args.premarket:
         db.init()
+        from reports.earnings_reaction import run_earnings_reaction
+        run_earnings_reaction(dry_run=False)
         reporter.run_premarket(dry_run=False)
     elif args.close_summary:
         db.init()
@@ -2649,6 +3339,19 @@ def main():
             CronTrigger(day_of_week="sun", hour=18, minute=0),
             id="weekly_review",
         )
+        from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+        scheduler.add_job(
+            run_uw_sweep_scan,
+            _IntervalTrigger(minutes=5),
+            id="uw_sweep_scan",
+            misfire_grace_time=120,
+        )
+        scheduler.add_job(
+            run_uw_intraday_scan,
+            _IntervalTrigger(minutes=15),
+            id="uw_intraday_scan",
+            misfire_grace_time=300,
+        )
         print(
             f"Scheduler started:\n"
             f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
@@ -2660,14 +3363,16 @@ def main():
             f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET\n"
             f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET"
+            f"  Weekly portfolio review: Sunday 18:00 ET\n"
+            f"  UW sweep feed scan    : every 5 min (market hours only)\n"
+            f"  UW basket refresh     : every 15 min (market hours only, ~5K calls/day)"
         )
         try:
             scheduler.start()
         except KeyboardInterrupt:
             print("Scheduler stopped.")
     else:
-        run_cycle(dry_run=args.dry_run)
+        run_cycle(dry_run=args.dry_run, force_opus=args.force_opus)
 
 
 

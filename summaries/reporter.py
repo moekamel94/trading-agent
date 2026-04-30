@@ -170,7 +170,7 @@ def _sector_concentration(positions: list, equity: float) -> list[str]:
 # ── Main pre-market report ────────────────────────────────────────────────────
 
 def run_premarket(dry_run: bool = False):
-    """09:00 AM ET — full portfolio briefing."""
+    """09:00 AM ET — concise pre-market briefing: NAV, macro, news, holdings, plan."""
     import config
 
     now   = datetime.now(timezone.utc)
@@ -188,13 +188,12 @@ def run_premarket(dry_run: bool = False):
     cash_pct = cash / equity * 100 if equity else 0
     n_pos    = len(positions)
 
-    # Load supporting data
-    spy      = _spy_returns()
-    port_ret = _portfolio_returns(equity)
-    entry_dt = _entry_date_map()
+    spy         = _spy_returns()
+    port_ret    = _portfolio_returns(equity)
+    entry_dt    = _entry_date_map()
     tranche_map = {t["symbol"]: t for t in db.get_all_tranches()}
-    macro    = _load_macro_regime()
-    agenda   = _load_committee_agenda()
+    macro       = _load_macro_regime()
+    agenda      = _load_committee_agenda()
 
     cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "research_cache.json")
     cache_data: dict = {}
@@ -203,221 +202,160 @@ def run_premarket(dry_run: bool = False):
     except Exception:
         pass
 
-    # ── 1. Portfolio overview + benchmark ────────────────────────────────────
-    lines = [
-        f"**🌅 PRE-MARKET BRIEFING — {label}**",
-        "",
-        "**💼 Portfolio vs Benchmark**",
-        f"NAV: ${equity:,.0f}  |  Cash: ${cash:,.0f} ({cash_pct:.0f}%)  |  {n_pos} positions",
-    ]
-
-    # Performance table
+    # ── 1. Portfolio snapshot ─────────────────────────────────────────────────
     p7  = port_ret.get("port_7d")
     p30 = port_ret.get("port_30d")
     s7  = spy.get("spy_7d")
     s30 = spy.get("spy_30d")
-    if p7 is not None or s7 is not None:
-        head = f"{'':12}{'7-day':>8}{'30-day':>8}"
-        port_row = f"{'Portfolio':12}{f'{p7:+.1f}%' if p7 is not None else 'N/A':>8}{f'{p30:+.1f}%' if p30 is not None else 'N/A':>8}"
-        spy_row  = f"{'SPY':12}{f'{s7:+.1f}%' if s7 is not None else 'N/A':>8}{f'{s30:+.1f}%' if s30 is not None else 'N/A':>8}"
-        # Mandate check: target is 2× SPY
-        mandate_note = ""
-        if p30 is not None and s30 is not None:
-            target_30d = s30 * 2
-            gap = p30 - target_30d
-            if gap >= 0:
-                mandate_note = f"✅ Ahead of 2×SPY target by {gap:+.1f}pp"
-            else:
-                mandate_note = f"⚠️ Behind 2×SPY target by {abs(gap):.1f}pp (need {target_30d:.1f}%, have {p30:.1f}%)"
-        lines += [head, port_row, spy_row]
-        if mandate_note:
-            lines.append(mandate_note)
+    perf_parts = []
+    if p7 is not None:  perf_parts.append(f"7d: {p7:+.1f}%")
+    if p30 is not None: perf_parts.append(f"30d: {p30:+.1f}%")
+    if s7 is not None:  perf_parts.append(f"SPY 7d: {s7:+.1f}%")
+    if s30 is not None: perf_parts.append(f"SPY 30d: {s30:+.1f}%")
 
-    # Sector concentration
-    sect_lines = _sector_concentration(positions, equity)
-    if sect_lines:
-        lines.append("")
-        lines.append("**📊 Sector Concentration**")
-        lines.extend(sect_lines)
+    mandate_note = ""
+    if p30 is not None and s30 is not None:
+        gap = p30 - (s30 * 2)
+        mandate_note = (f"✅ +{gap:.1f}pp vs 2×SPY target" if gap >= 0
+                        else f"⚠️ {abs(gap):.1f}pp behind 2×SPY (need {s30*2:.1f}%, have {p30:.1f}%)")
 
-    # ── 2. Macro context ─────────────────────────────────────────────────────
-    regime = macro.get("regime", {})
-    raw    = macro.get("raw", {})
-    events = macro.get("upcoming_events", [])
-    cpi    = regime.get("cpi_yoy_est", "")
-    y10    = regime.get("yield_10y", "")
-    spread = regime.get("yield_spread_bps", "")
-    dxy    = regime.get("dxy", "")
-    gold   = regime.get("gold", "")
-    oil    = regime.get("oil_wti", "")
-    vix_v  = raw.get("vix", "?")
+    lines = [
+        f"**🌅 PRE-MARKET — {label}**",
+        f"NAV ${equity:,.0f}  |  Cash ${cash:,.0f} ({cash_pct:.0f}%)  |  {n_pos} positions",
+    ]
+    if perf_parts:
+        lines.append("  ".join(perf_parts))
+    if mandate_note:
+        lines.append(mandate_note)
+
+    # ── 2. Macro snapshot ─────────────────────────────────────────────────────
+    regime   = macro.get("regime", {})
+    raw_mac  = macro.get("raw", {})
+    events   = macro.get("upcoming_events", [])
+    cpi      = regime.get("cpi_yoy_est", "?")
+    y10      = regime.get("yield_10y", "?")
+    spread   = regime.get("yield_spread_bps", "?")
+    vix_v    = raw_mac.get("vix", "?")
     consumer = regime.get("consumer_mood", "")
-    bias   = regime.get("rotation_bias", "")
+    bias     = regime.get("rotation_bias", "")
     inflation = regime.get("inflation_trend", "")
 
     lines += [
         "",
-        "**📈 Macro Context**",
-        f"VIX: {vix_v}  |  CPI: {cpi}% ({inflation})  |  10Y: {y10}%  |  Spread: {spread}bps",
-        f"DXY: {dxy}  |  Gold: ${gold}  |  Oil: ${oil}  |  Consumer: {consumer}  |  Bias: {bias}",
+        f"**📈 Macro**  VIX {vix_v}  |  10Y {y10}%  |  CPI {cpi}% ({inflation})  |  Spread {spread}bps  |  Bias: {bias}",
     ]
+    macro_alerts = []
     if isinstance(cpi, (int, float)) and cpi > 5:
-        lines.append(f"⚠️ CPI {cpi}% — rate sensitivity elevated across portfolio")
+        macro_alerts.append(f"CPI {cpi}% elevated — rate-sensitive names at risk")
     if isinstance(spread, (int, float)) and spread < 30:
-        lines.append(f"⚠️ Yield spread {spread}bps — flattening curve, recession risk rising")
+        macro_alerts.append(f"Yield spread {spread}bps — curve flat, recession signal")
     if consumer in ("pessimistic", "extreme_fear"):
-        lines.append(f"⚠️ Consumer sentiment {consumer} — discretionary and consumer-facing exposure at risk")
+        macro_alerts.append(f"Consumer {consumer} — cut discretionary/consumer exposure")
+    for a in macro_alerts:
+        lines.append(f"  ⚠️ {a}")
     if events:
-        lines.append("📅 " + "  |  ".join(
-            f"{e.get('event','?')} {e.get('date','')}" for e in events[:4]
+        lines.append("  📅 " + "  |  ".join(
+            f"{e.get('event','?')} {e.get('date','')}" for e in events[:3]
         ))
 
-    # ── 3. Cash deployment plan ───────────────────────────────────────────────
-    deploy_items = [a for a in agenda if a.get("priority") in ("high", "medium")]
-    if deploy_items:
-        lines += ["", "**🎯 Open Committee Directives**"]
-        for item in deploy_items[:3]:
-            pri = item.get("priority", "").upper()
-            lines.append(f"[{pri}] {item.get('title','')}")
+    # ── 3. Today's action plan (committee directives + planned buys) ──────────
+    high_items = [a for a in agenda if a.get("priority") == "high"]
+    med_items  = [a for a in agenda if a.get("priority") == "medium"]
+    if high_items or med_items:
+        lines += ["", "**🎯 Today's Plan**"]
+        for item in (high_items + med_items)[:3]:
+            pri = "HIGH" if item in high_items else "MED"
+            lines.append(f"  [{pri}] {item.get('title','')}")
+            # Show force-review tickers so Mohammed knows what to expect
+            ft = item.get("force_review_tickers", [])
+            if ft:
+                lines.append(f"    → Tickers: {', '.join(ft)}")
 
-    # ── 4. Key news ───────────────────────────────────────────────────────────
-    stock_news, macro_snippets = [], []
-    for p in positions:
-        sym = p["symbol"]
-        if "/" in sym:
-            continue
-        fh = (cache_data.get(sym, {}).get("financial_data") or {}).get("finnhub") or {}
+    # ── 4. Key news for holdings + planned buy tickers ────────────────────────
+    held_syms    = {p["symbol"] for p in positions if "/" not in p["symbol"]}
+    planned_syms = {t for item in agenda for t in item.get("force_review_tickers", [])}
+    watch_syms   = held_syms | planned_syms
+
+    news_lines, macro_snippets = [], []
+    for sym in sorted(watch_syms):
+        cached = cache_data.get(sym, {})
+        fh = (cached.get("financial_data") or {}).get("finnhub") or {}
         headlines = fh.get("news_headlines") or []
         if headlines:
-            stock_news.append(f"**{sym}**: {headlines[0]}")
+            news_lines.append(f"  **{sym}**: {headlines[0][:120]}")
 
-    for sym, d in list(cache_data.items())[:30]:
+    # 1-2 macro headlines from any cached ticker
+    for sym, d in list(cache_data.items())[:25]:
         for s in (d.get("research_snippets") or []):
-            if any(kw in s.lower() for kw in ("fed", "cpi", "inflation", "rate", "gdp", "recession", "tariff", "macro")):
-                macro_snippets.append(s[:160])
+            if any(kw in s.lower() for kw in ("fed", "cpi", "inflation", "rate cut", "gdp", "tariff", "recession")):
+                macro_snippets.append(s[:150])
                 break
-        if len(macro_snippets) >= 3:
+        if len(macro_snippets) >= 2:
             break
 
-    lines += ["", "**📰 Key News**"]
-    if macro_snippets:
-        lines.append("*Macro:*")
-        lines.extend(f"• {s}" for s in macro_snippets[:3])
-    if stock_news:
-        lines.append("*Holdings:*")
-        lines.extend(f"• {n}" for n in stock_news[:8])
-    if not macro_snippets and not stock_news:
-        lines.append("No cached headlines — will refresh on next cycle.")
+    if macro_snippets or news_lines:
+        lines += ["", "**📰 News**"]
+        for s in macro_snippets:
+            lines.append(f"  🌐 {s}")
+        lines.extend(news_lines[:6])
 
-    # ── 5. Holdings with full context ────────────────────────────────────────
+    # ── 5. Holdings — P&L, urgent flags, stop/target ─────────────────────────
     lines += ["", "**📋 Holdings**"]
 
-    for p in sorted(positions, key=lambda x: abs(x.get("unrealized_plpc", 0) or 0), reverse=True):
+    for p in sorted(positions, key=lambda x: abs(float(x.get("unrealized_plpc", 0) or 0)), reverse=True):
         sym     = p["symbol"]
         cur     = float(p.get("current_price", 0) or 0)
-        entry   = float(p.get("avg_entry", 0) or 0)
         upl_pct = float(p.get("unrealized_plpc", 0) or 0)
         upl_usd = float(p.get("unrealized_pl", 0) or 0)
         qty     = float(p.get("qty", 0) or 0)
         mkt_val = qty * cur
         emoji   = _pl_emoji(upl_pct)
 
-        # Days held
-        days_held = ""
         edt = entry_dt.get(sym)
-        if edt:
-            days = (now - edt).days
-            days_held = f"{days}d"
+        days_held = f"{(now - edt).days}d" if edt else ""
 
-        # Technical signals
-        rsi_str = gc_str = sma_str = range_str = ""
-        try:
-            is_crypto = "/" in sym
-            bars  = alpaca.get_crypto_bars(sym) if is_crypto else alpaca.get_stock_bars(sym)
-            tech  = technical.compute(bars)
-            rsi   = tech.get("rsi")
-            gc    = tech.get("golden_cross")
-            dc    = tech.get("death_cross")
-            sma200 = tech.get("sma200") or 0
-            if rsi:    rsi_str = f"RSI:{rsi:.0f}"
-            if gc:     gc_str  = "GC✅"
-            elif dc:   gc_str  = "DC⚠️"
-            if sma200: sma_str = "↑SMA200" if cur > sma200 else "↓SMA200"
-        except Exception:
-            pass
-
-        # 52-week range
         cached  = cache_data.get(sym, {})
-        yah     = (cached.get("financial_data") or {}).get("yahoo") or {}
-        w52h    = yah.get("52w_high")
-        w52l    = yah.get("52w_low")
-        if w52h and w52l and cur:
-            rng_pct = (cur - w52l) / (w52h - w52l) * 100 if w52h != w52l else 0
-            range_str = f"52wk:{rng_pct:.0f}%"
+        # Latest news headline for this holding
+        fh = (cached.get("financial_data") or {}).get("finnhub") or {}
+        top_news = (fh.get("news_headlines") or [""])[0]
 
-        # Earnings countdown
+        # Earnings alert
         earn_str = ""
         ed = (cached.get("earnings_data") or {})
         dte = ed.get("days_to_earnings")
-        earn_date = ed.get("earnings_date", "")
-        if dte is not None and 0 <= dte <= 30:
-            flag = "🚨" if dte <= 5 else "📅"
-            earn_str = f"{flag}Earnings in {dte}d ({earn_date})"
+        if dte is not None and 0 <= dte <= 14:
+            earn_str = f"  🚨 Earnings in {dte}d ({ed.get('earnings_date','')})"
 
-        # Tranche + stop + upside target
-        tranche = tranche_map.get(sym)
-        stop_val = None
-        stop_str = upside_str = tranche_str = ""
+        # Stop + target from tranche
+        tranche   = tranche_map.get(sym)
+        stop_str  = upside_str = t_label = ""
         if tranche:
             stop_val = _parse_price_stop(tranche.get("thesis_break_criteria") or "")
             if stop_val and cur:
                 dist = (cur - stop_val) / cur * 100
-                stop_str = f"🛑 Stop: ${stop_val:.0f} ({dist:.0f}% down)"
-
+                warn = "🚨" if dist < 5 else "🛑"
+                stop_str = f"  {warn} Stop ${stop_val:.0f} ({dist:.0f}% away)"
             pt = tranche.get("price_target")
-            pt_basis = tranche.get("price_target_basis") or ""
             if pt and cur:
                 upside_pct = (pt - cur) / cur * 100
-                arrow = "🎯" if upside_pct > 0 else "⚠️"
-                upside_str = f"{arrow} Target: ${pt:.0f} ({upside_pct:+.0f}%)"
-                if pt_basis:
-                    upside_str += f"  [{pt_basis[:60]}]"
+                upside_str = f"  🎯 Target ${pt:.0f} ({upside_pct:+.0f}%)"
+            t_label = f" T{tranche.get('current_tranche',1)}/3"
 
-            t_num = tranche.get("current_tranche", 1)
-            tranche_str = f"T{t_num}/3"
-
-        # Analyst consensus
-        recs = (cached.get("financial_data") or {}).get("finnhub", {}).get("analyst_recommendations") or {}
-        rec_str = ""
-        if recs:
-            total = sum(recs.values())
-            if total:
-                buys_n = recs.get("strong_buy", 0) + recs.get("buy", 0)
-                rec_str = f"Analysts:{buys_n}/{total}B"
-
-        # Build lines
-        tech_parts = [x for x in [rsi_str, gc_str, sma_str, range_str] if x]
-        meta_parts = [x for x in [days_held and f"held {days_held}", tranche_str, rec_str] if x]
-
-        header = (
-            f"{emoji} **{sym}**  ${cur:.2f}  {upl_pct:+.1f}% (${upl_usd:+,.0f})"
-            f"  mkt ${mkt_val:,.0f}"
+        meta = "  ".join(x for x in [days_held and f"held {days_held}", t_label.strip()] if x)
+        lines.append(
+            f"{emoji} **{sym}**  ${cur:.2f}  {upl_pct:+.1f}% (${upl_usd:+,.0f})  ${mkt_val:,.0f}"
+            + (f"  [{meta}]" if meta else "")
         )
-        lines.append(header)
-        if tech_parts or meta_parts:
-            lines.append("  " + "  |  ".join(tech_parts + meta_parts))
-        if stop_str:
-            lines.append(f"  {stop_str}")
-        if upside_str:
-            lines.append(f"  {upside_str}")
-        if earn_str:
-            lines.append(f"  {earn_str}")
+        if earn_str:   lines.append(earn_str)
+        if stop_str:   lines.append(stop_str)
+        if upside_str: lines.append(upside_str)
 
     # ── Assemble and send ────────────────────────────────────────────────────
     msg = "\n".join(lines)
     print("\n" + msg)
     db.log_summary("premarket", msg)
-    tg.send(msg)
+    if not dry_run:
+        tg.send(msg)
 
 
 # ── Close-of-day ─────────────────────────────────────────────────────────────
@@ -458,3 +396,11 @@ def run_close():
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("close", body)
+    tg.send(body)
+
+    # EOD health digest — appended to close message
+    try:
+        from monitoring import health
+        health.send_eod_digest()
+    except Exception as e:
+        print(f"  [Health] EOD digest failed: {e}")

@@ -2,6 +2,51 @@ import json
 import anthropic
 import config
 
+# Mirrors the cluster definitions in the FACTOR CLUSTER CONCENTRATION section of _SYSTEM.
+_FACTOR_CLUSTERS: dict[str, set[str]] = {
+    "ai_tech":       {"MSFT","GOOGL","META","AMZN","NVDA","AAPL","TSLA","PLTR","CRM","NOW","ORCL","AI","ANET","SNOW","PSTG"},
+    "semis":         {"AMD","AVGO","ARM","MRVL","TSM","AMAT","LRCX","KLAC","MU","SNPS","KEYS","APH"},
+    "defense":       {"LMT","RTX","NOC","GD","AXON","BWXT","GE","CACI","KTOS","TDG"},
+    "nuclear_energy":{"CCJ","CEG","GEV","VST","TLN"},
+    "ecommerce":     {"SHOP","UBER","SE","GRAB","MELI"},
+    "fintech":       {"HOOD","COIN","NU","MA","MSCI"},
+    "healthcare":    {"LLY","DXCM","VEEV","RXRX"},
+    "cyber":         {"CRWD","PANW","ZS"},
+    "space":         {"RKLB","ASTS","LUNR"},
+    "quantum":       {"IONQ","RGTI"},
+    "voice_ai":      {"SOUN"},
+}
+
+_AI_CAPEX_GROUP: set[str] = {"NVDA","MU","TSM","AVGO","GOOGL","MSFT","META","AMZN","ORCL"}
+
+
+def _compute_cluster_exposure(holdings: list[dict], equity: float) -> str:
+    """
+    Compute each factor cluster's % of gross equity from current holdings.
+    Returns a formatted string for the portfolio status block.
+    """
+    if not holdings or equity <= 0:
+        return ""
+
+    held_pcts = {h["symbol"]: h["pct"] for h in holdings}
+
+    lines = []
+    ai_capex_held = [s for s in _AI_CAPEX_GROUP if s in held_pcts]
+
+    for cluster, members in _FACTOR_CLUSTERS.items():
+        total_pct = sum(held_pcts.get(sym, 0) for sym in members if sym in held_pcts)
+        if total_pct == 0:
+            continue
+        tickers_held = [s for s in members if s in held_pcts]
+        breach = " ⚠️ CLUSTER CAP BREACH (>40%)" if total_pct > 40 else ""
+        lines.append(f"  {cluster:<16} {total_pct:5.1f}%  ({', '.join(tickers_held)}){breach}")
+
+    if len(ai_capex_held) >= 6:
+        lines.append(f"  ⚠️ AI CAPEX CONCENTRATION: {len(ai_capex_held)} holdings "
+                     f"({', '.join(ai_capex_held)}) share hyperscaler guidance risk")
+
+    return ("\nFactor Clusters:\n" + "\n".join(lines)) if lines else ""
+
 _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 _SYSTEM = """You are Kimmy, a disciplined position/swing trading portfolio manager.
@@ -1210,28 +1255,33 @@ def _build_synthesis(symbol: str, signals: dict) -> str:
     elif uw_tide == "bearish":
         bear.append("UW market tide: BEARISH — net put premium dominates market-wide flow")
 
-    # Sector flow context — show any sector relevant to this ticker
+    # Sector flow context — look up this ticker's sector from config.SECTOR_MAP
+    # (always current — no hardcoded ticker list that drifts as basket evolves)
     sector_flows = uw_mkt.get("sector_flows") or {}
-    _sector_map = {
-        "semis":    {"AMD", "AVGO", "ARM", "MRVL", "TSM", "INTC", "NVDA", "MU", "AMAT", "LRCX", "KLAC", "SNPS", "KEYS"},
-        "ai_tech":  {"MSFT", "GOOGL", "META", "AMZN", "PLTR", "CRM", "NOW", "AI", "ANET", "ORCL", "SNOW", "PSTG", "DDOG", "MDB", "NET"},
-        "cyber":    {"CRWD", "PANW", "ZS", "FTNT", "OKTA", "CYBR", "S"},
-        "defense":  {"LMT", "RTX", "NOC", "GD", "AXON", "KTOS", "GE", "CACI", "HII", "DRS", "LDOS", "SAIC", "BAH"},
-        "nuclear":  {"CCJ", "CEG", "BWXT", "SMR", "OKLO", "NNE"},
-        "fintech":  {"HOOD", "COIN", "MELI", "NU", "MA", "MSCI", "SHOP", "UBER", "SQ", "PYPL", "AFRM", "SOFI"},
-        "robotics": {"ABB", "SYM", "TRMB", "ISRG", "PATH"},
-        "biotech":  {"LLY", "DXCM", "VEEV", "RXRX", "MRNA", "BNTX", "REGN", "VRTX"},
-        "quantum":  {"IONQ", "RGTI", "QBTS", "IBM"},
-        "space":    {"RKLB", "ASTS", "LUNR"},
-        "energy":   {"FANG", "COP", "WMB", "FCX", "RGLD", "XOM", "CVX", "OXY"},
+    _ticker_sector = config.SECTOR_MAP.get(symbol, "")
+    # UW uses slightly different key names → map to our internal sector keys
+    _uw_to_internal = {
+        "semis":    ["semis"],
+        "ai_tech":  ["ai_software", "ai_infra", "mega_tech"],
+        "cyber":    ["cyber"],
+        "defense":  ["defense"],
+        "biotech":  ["biotech"],
+        "energy":   ["energy_oil"],
+        "fintech":  ["fintech"],
+        "robotics": ["robotics"],
+        "nuclear":  ["nuclear"],
+        "quantum":  ["quantum"],
+        "space":    ["space"],
     }
-    for sector, members in _sector_map.items():
-        if symbol in members:
-            flow = sector_flows.get(sector)
+    for uw_sector, flow in sector_flows.items():
+        if flow not in ("bullish", "bearish"):
+            continue
+        internal_keys = _uw_to_internal.get(uw_sector, [uw_sector])
+        if _ticker_sector in internal_keys:
             if flow == "bullish":
-                bull.append(f"UW sector: {sector} SECTOR FLOW BULLISH — ETF options showing institutional buying")
-            elif flow == "bearish":
-                bear.append(f"UW sector: {sector} SECTOR FLOW BEARISH — ETF options showing institutional selling/hedging")
+                bull.append(f"UW sector: {uw_sector} SECTOR FLOW BULLISH — ETF options showing institutional buying")
+            else:
+                bear.append(f"UW sector: {uw_sector} SECTOR FLOW BEARISH — ETF options showing institutional selling/hedging")
 
     # ── VIX term structure risk flag ──────────────────────────────────────────
     vts = (mkt.get("vix_term_structure") or {})
@@ -1546,12 +1596,14 @@ Core signal detail:
         }
 
 
-_COMMITTEE_BATCH_SIZE = 20  # max candidates per committee call to prevent JSON errors
+_COMMITTEE_BATCH_SIZE = 8   # max candidates per committee call — smaller batches = fewer JSON parse errors
 
 
 def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
                      macro_regime: dict | None = None,
-                     force_opus: bool = False) -> list:
+                     force_opus: bool = False,
+                     signal_weights: dict | None = None,
+                     recent_stop_exits: list | None = None) -> list:
     """
     One Claude call running all candidates through the 6-agent committee chain.
     CIO → QUANT → CRO → CCO → DEVIL → PM, with confidence aggregation formula.
@@ -1572,16 +1624,26 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
         for i in range(0, len(candidates), _COMMITTEE_BATCH_SIZE):
             batch = candidates[i:i + _COMMITTEE_BATCH_SIZE]
             print(f"  [Committee] Batch {i // _COMMITTEE_BATCH_SIZE + 1}: {len(batch)} candidates")
-            results.extend(_committee_review_batch(batch, port_ctx, mkt_ctx, macro_regime,
-                                                   force_opus=force_opus))
+            results.extend(_committee_review_batch(
+                batch, port_ctx, mkt_ctx, macro_regime,
+                force_opus=force_opus,
+                signal_weights=signal_weights,
+                recent_stop_exits=recent_stop_exits,
+            ))
         return results
-    return _committee_review_batch(candidates, port_ctx, mkt_ctx, macro_regime,
-                                   force_opus=force_opus)
+    return _committee_review_batch(
+        candidates, port_ctx, mkt_ctx, macro_regime,
+        force_opus=force_opus,
+        signal_weights=signal_weights,
+        recent_stop_exits=recent_stop_exits,
+    )
 
 
 def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
                              macro_regime: dict | None = None,
-                             force_opus: bool = False) -> list:
+                             force_opus: bool = False,
+                             signal_weights: dict | None = None,
+                             recent_stop_exits: list | None = None) -> list:
 
     # ── Learning context (what worked / didn't in last 30 days) ──────────────
     try:
@@ -1667,13 +1729,32 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
             f"A BUCKET decision on a quality stock is not free — it has an opportunity cost. "
             f"Deploy capital into high-conviction names even in elevated-risk regimes."
         )
+
+    credit = mkt_ctx.get("credit_spreads") or {}
+    credit_sig = credit.get("credit_signal", "")
+    credit_str = ""
+    if credit_sig == "stress":
+        hyg_d = credit.get("hyg_tlt_5d", "?")
+        lqd_d = credit.get("lqd_tlt_5d", "?")
+        geo_warnings.append(
+            f"⚠️  CREDIT SPREADS WIDENING — HYG/TLT {hyg_d}, LQD/TLT {lqd_d}. "
+            f"Leading risk-off signal: equity stress typically follows within 1-2 weeks. "
+            f"CRO: apply extra caution on high-PE and speculative names."
+        )
+        credit_str = f"Credit: HYG/TLT={credit.get('hyg_tlt_ratio','?')} ({hyg_d}) | LQD/TLT={credit.get('lqd_tlt_ratio','?')} ({lqd_d})"
+    elif credit_sig == "risk_on":
+        credit_str = f"Credit: spreads TIGHTENING (risk-on confirmation)"
+    elif credit_sig:
+        credit_str = f"Credit: spreads {credit_sig}"
+
     warn_str = "\n".join(geo_warnings) if geo_warnings else "No active warnings."
 
     geo_block = (
         f"=== MACRO & GEOPOLITICAL CONTEXT ===\n"
         f"Signal: {m_label.upper()} (score={m_score:.2f}) | Themes: {m_themes}\n"
         f"Headline: {m_head}\n"
-        f"Market: Fear&Greed={fg_score} | VIX={vix_val} | SPY today={spy_day_ret:+.1f}%\n"
+        f"Market: Fear&Greed={fg_score} | VIX={vix_val} | SPY today={spy_day_ret:+.1f}%"
+        + (f" | {credit_str}" if credit_str else "") + "\n"
         f"{warn_str}"
     )
 
@@ -1706,18 +1787,35 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
     lt_cnt  = port_ctx.get("long_term_count",  0)
     mt_cnt  = port_ctx.get("medium_term_count", 0)
 
+    beta     = port_ctx.get("portfolio_beta")
+    dd_pct   = port_ctx.get("portfolio_drawdown_pct", 0)
+    beta_str = f"  Beta={beta:.2f}" if beta is not None else ""
+    beta_warn = (
+        "\n⚠️ CRO: PORTFOLIO BETA BREACH — beta exceeds 1.6 cap. "
+        "New entries that increase beta must be BLOCKED unless they are natural hedges (defense/nuclear)."
+        if beta is not None and beta > 1.6 else ""
+    )
+    dd_warn = (
+        f"\n⚠️ DRAWDOWN CIRCUIT BREAKER: portfolio is {abs(dd_pct):.1f}% below peak. "
+        "Reduce all new entry sizes per drawdown tier rules."
+        if dd_pct < -5 else ""
+    )
+
+    cluster_str = _compute_cluster_exposure(holdings, port_ctx.get("equity", 1))
+
     port_block = (
         f"=== PORTFOLIO STATUS ===\n"
         f"Equity=${port_ctx.get('equity', 0):,.0f}  "
         f"Cash=${port_ctx.get('cash', 0):,.0f}  "
-        f"Positions={port_ctx.get('position_count', 0)}/{config.MAX_POSITIONS}\n"
+        f"Positions={port_ctx.get('position_count', 0)}/{config.MAX_POSITIONS}"
+        f"{beta_str}  DD={dd_pct:+.1f}%\n"
         f"SLEEVES: Long-term={lt_pct:.1f}%/{config.LONG_TERM_PCT_CAP}% "
         f"({lt_cnt}/{config.MAX_POSITIONS_LONG_TERM} slots)  |  "
         f"Medium-term={mt_pct:.1f}%/{config.MEDIUM_TERM_PCT_CAP}% "
         f"({mt_cnt}/{config.MAX_POSITIONS_MEDIUM_TERM} slots)\n"
         f"Speculative={port_ctx.get('speculative_count', 0)} pos / "
         f"{port_ctx.get('speculative_pct', 0):.1f}% (max {config.MAX_SPECULATIVE_PCT}%)"
-        f"{held_str}{sect_str}"
+        f"{held_str}{sect_str}{cluster_str}{beta_warn}{dd_warn}"
     )
 
     # ── Candidate blocks ───────────────────────────────────────────────────────
@@ -1751,6 +1849,50 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
             flags.append("*** INSIDER NET BUYING (Form 4) ***")
         elif insd.get("net_signal") == "bearish":
             flags.append("*** INSIDER NET SELLING — caution ***")
+
+        # ── Stop-loss re-entry gate (CCO) ─────────────────────────────────────
+        if recent_stop_exits:
+            recent = [e for e in recent_stop_exits if e.get("symbol") == sym]
+            if recent:
+                e = recent[0]
+                days_since = e.get("days_since", "?")
+                reason     = e.get("reason", "stop triggered")
+                cooldown_ok = isinstance(days_since, int) and days_since >= 20
+                gate_label  = "✅ cooldown cleared" if cooldown_ok else f"🚫 COOLDOWN ACTIVE ({days_since}d < 20d)"
+                flags.append(
+                    f"⛔ CCO STOP-EXIT HISTORY: exited {days_since}d ago [{reason}] — {gate_label}. "
+                    f"{'Re-entry requires new catalyst.' if cooldown_ok else 'CCO must REJECT unless PERMANENT re-entry justified.'}"
+                )
+
+        # ── Signal quality weights (from adaptive learning) ───────────────────
+        if signal_weights:
+            sig_quality_parts = []
+            uw_sig  = c["signals"].get("options_flow", {}).get("flow_signal", "")
+            uw_dp   = (c["signals"].get("options_flow", {}).get("darkpool") or {}).get("darkpool_signal", "")
+            cong_sig = cong.get("net_signal", "")
+            insd_sig = insd.get("net_signal", "")
+            sent_sig = c["signals"].get("sentiment", {}).get("label", "")
+
+            def _wt(key):
+                w = signal_weights.get(key, 1.0)
+                return f"{w:.2f}x"
+
+            if uw_sig:
+                sig_quality_parts.append(f"UW_flow={_wt('uw_flow')} [{uw_sig}]")
+            if uw_dp:
+                sig_quality_parts.append(f"darkpool={_wt('uw_darkpool')} [{uw_dp}]")
+            if cong_sig:
+                sig_quality_parts.append(f"congress={_wt('congress')} [{cong_sig}]")
+            if insd_sig:
+                sig_quality_parts.append(f"insider={_wt('insider')} [{insd_sig}]")
+            if sent_sig:
+                sig_quality_parts.append(f"sentiment={_wt('sentiment')} [{sent_sig}]")
+
+            if sig_quality_parts:
+                flags.append(
+                    "📊 SIGNAL CREDIBILITY (adaptive weights, >1.0=historically accurate, <1.0=unreliable): "
+                    + "  ".join(sig_quality_parts)
+                )
 
         adv = tech.get("adv_30d")
         adv_str = f"ADV-30d=${adv:,.0f}" if adv else "ADV-30d=unknown"
@@ -1865,68 +2007,87 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
     learning_section = f"\n\n{learning_block}" if learning_block else ""
     prompt = f"{geo_block}{macro_regime_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
 
-    # max_tokens: room for adaptive thinking + structured JSON output per candidate.
-    _max_tokens = 550 * n + 6000  # +200/candidate for richer CRS thesis sections
+    # max_tokens: thinking budget (8000) + output per candidate + overhead.
+    # With extended thinking, max_tokens covers BOTH thinking and output tokens.
+    # For n=8: 8000 (thinking) + 500*8 (output) + 2000 (overhead) = 14000.
+    _thinking_budget = 8000
+    _max_tokens = _thinking_budget + 500 * n + 2000
 
-    try:
-        _model   = "claude-opus-4-7"   if force_opus else "claude-sonnet-4-6"
-        _thinking = ({"type": "adaptive"}
-                     if force_opus else
-                     {"type": "enabled", "budget_tokens": 8000})
-        print(f"  [Committee] model={_model} force_opus={force_opus}")
-        response = _client.messages.create(
-            model=_model,
-            max_tokens=_max_tokens,
-            thinking=_thinking,
-            system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": prompt}],
-        )
-        # Extended thinking returns multiple content blocks — extract the text block only
-        raw = next(
-            (block.text for block in response.content
-             if hasattr(block, "text") and getattr(block, "type", "") == "text"),
-            "",
-        ).strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
+    def _call_committee(use_thinking: bool) -> tuple[list, Exception | None]:
+        """Make one committee API call. Returns (decisions, error)."""
         try:
-            raw = raw[raw.index("["):raw.rindex("]") + 1]
-        except ValueError:
-            pass
-
-        decisions = json.loads(raw)
-        if not isinstance(decisions, list):
-            raise ValueError("Expected JSON array")
-
-        returned = {d.get("symbol"): d for d in decisions if isinstance(d, dict)}
-        result = []
-        for c in candidates:
-            sym = c["symbol"]
-            d   = returned.get(sym)
-            if d:
-                result.append(_normalise_committee_decision(sym, d))
-            else:
-                result.append(_hold_decision(sym, "Not returned by committee"))
-        return result
-
-    except Exception as e:
-        print(f"  [Committee] Error ({e}) — falling back to individual decisions")
-        result = []
-        for c in candidates:
+            _model    = "claude-opus-4-7" if force_opus else "claude-sonnet-4-6"
+            _thinking = ({"type": "adaptive"} if force_opus else
+                         ({"type": "enabled", "budget_tokens": _thinking_budget} if use_thinking else
+                          {"type": "enabled", "budget_tokens": 3000}))
+            _tok = _max_tokens if use_thinking else (500 * n + 3000)
+            print(f"  [Committee] model={_model} force_opus={force_opus} thinking={use_thinking} max_tokens={_tok}")
+            response = _client.messages.create(
+                model=_model,
+                max_tokens=_tok,
+                thinking=_thinking,
+                system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = next(
+                (block.text for block in response.content
+                 if hasattr(block, "text") and getattr(block, "type", "") == "text"),
+                "",
+            ).strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
             try:
-                d = decide(c["symbol"], c["signals"], port_ctx)
-                d["symbol"] = c["symbol"]
-                d.setdefault("cio_confidence", d.get("confidence", 0))
-                d.setdefault("da_severity", "Low")
-                d.setdefault("target_pct", d.get("allocation_pct", 0))
-                d["_committee_fallback"] = str(e)
-                result.append(d)
-            except Exception as e2:
-                result.append(_hold_decision(c["symbol"], f"Error: {e2}"))
+                raw = raw[raw.index("["):raw.rindex("]") + 1]
+            except ValueError:
+                pass
+
+            decisions = json.loads(raw)
+            if not isinstance(decisions, list):
+                raise ValueError("Expected JSON array")
+
+            returned = {d.get("symbol"): d for d in decisions if isinstance(d, dict)}
+            result = []
+            for c in candidates:
+                sym = c["symbol"]
+                d   = returned.get(sym)
+                if d:
+                    result.append(_normalise_committee_decision(sym, d))
+                else:
+                    result.append(_hold_decision(sym, "Not returned by committee"))
+            return result, None
+        except Exception as e:
+            return [], e
+
+    # ── Attempt 1: full thinking budget ──────────────────────────────────────
+    result, err1 = _call_committee(use_thinking=True)
+    if err1 is None:
         return result
+
+    # ── Attempt 2: reduced thinking budget (JSON parse errors are often
+    # caused by the model getting lost in long thinking chains) ───────────────
+    print(f"  [Committee] Attempt 1 failed ({err1}) — retrying with reduced thinking")
+    result, err2 = _call_committee(use_thinking=False)
+    if err2 is None:
+        return result
+
+    # ── Full fallback: individual Haiku decide() calls ────────────────────────
+    print(f"  [Committee] Both attempts failed ({err2}) — falling back to individual decisions")
+    result = []
+    for c in candidates:
+        try:
+            d = decide(c["symbol"], c["signals"], port_ctx)
+            d["symbol"] = c["symbol"]
+            d.setdefault("cio_confidence", d.get("confidence", 0))
+            d.setdefault("da_severity", "Low")
+            d.setdefault("target_pct", d.get("allocation_pct", 0))
+            d["_committee_fallback"] = str(err2)
+            result.append(d)
+        except Exception as e2:
+            result.append(_hold_decision(c["symbol"], f"Error: {e2}"))
+    return result
 
 
 def _safe_float(val) -> float | None:
