@@ -282,8 +282,8 @@ def run_post_cycle_check(cycle_stats: dict, decisions: list):
                 [
                     "This usually means Claude's JSON output was malformed",
                     "Check recent logs: grep 'Committee.*Error' /root/trading-agent/logs/*.log",
-                    "If persistent, reduce _COMMITTEE_BATCH_SIZE in agent/claude_agent.py (currently 20 → try 10)",
-                    "Monitor next cycle — single occurrence is normal, recurring means prompt issue",
+                    "_COMMITTEE_BATCH_SIZE is already 8 with 2-attempt retry (reduced from 20 on 2026-04-30)",
+                    "If still recurring: check for model outage or prompt size regression",
                 ],
                 urgency=URGENCY_TODAY,
                 once_per_day=True,
