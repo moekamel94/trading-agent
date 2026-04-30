@@ -2007,73 +2007,161 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
     learning_section = f"\n\n{learning_block}" if learning_block else ""
     prompt = f"{geo_block}{macro_regime_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
 
-    # max_tokens: thinking budget (8000) + output per candidate + overhead.
-    # With extended thinking, max_tokens covers BOTH thinking and output tokens.
-    # For n=8: 8000 (thinking) + 500*8 (output) + 2000 (overhead) = 14000.
-    _thinking_budget = 8000
-    _max_tokens = _thinking_budget + 500 * n + 2000
+    # max_tokens sizing:
+    #   Attempt 1 (extended thinking):  thinking_budget + 750*n output + 1500 overhead
+    #   Attempt 2 (no thinking):        750*n output + 1500 overhead only
+    # 750 tokens per candidate is calibrated from observed output size (~600-800 tok/candidate).
+    # Not sharing a budget between thinking and output is the root cause of all prior truncations.
+    _thinking_budget = 5000                            # enough for 8 candidates; was 8000
+    _per_candidate   = 750
+    _overhead        = 1500
+    _tok_with_think  = _thinking_budget + _per_candidate * n + _overhead
+    _tok_no_think    = _per_candidate * n + _overhead  # all tokens go to output
+
+    def _extract_raw(response) -> str:
+        """Pull the text block from a response (thinking or plain)."""
+        raw = next(
+            (block.text for block in response.content
+             if hasattr(block, "text") and getattr(block, "type", "") == "text"),
+            "",
+        ).strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        try:
+            raw = raw[raw.index("["):raw.rindex("]") + 1]
+        except ValueError:
+            pass
+        return raw
+
+    def _repair_truncated_json(raw: str) -> str | None:
+        """
+        If JSON was truncated mid-output, salvage complete objects.
+        Looks for the last well-formed '}' that closes a top-level object,
+        then closes the array. Better to return 6/8 decisions than none.
+        """
+        # Walk backwards to find the last position where a complete object ends
+        depth = 0
+        last_obj_end = -1
+        in_string = False
+        escape_next = False
+        for i, ch in enumerate(raw):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    last_obj_end = i
+        if last_obj_end == -1:
+            return None
+        candidate = raw[:last_obj_end + 1]
+        # Ensure it starts with '[' and wrap it
+        stripped = candidate.lstrip()
+        if not stripped.startswith('['):
+            candidate = '[' + candidate
+        return candidate + ']'
+
+    def _parse_decisions(raw: str) -> list:
+        """Parse raw JSON → list of committee decisions."""
+        decisions = json.loads(raw)
+        if not isinstance(decisions, list):
+            raise ValueError("Expected JSON array")
+        return decisions
+
+    def _build_result(decisions: list) -> list:
+        returned = {d.get("symbol"): d for d in decisions if isinstance(d, dict)}
+        result = []
+        for c in candidates:
+            sym = c["symbol"]
+            d   = returned.get(sym)
+            if d:
+                result.append(_normalise_committee_decision(sym, d))
+            else:
+                result.append(_hold_decision(sym, "Not returned by committee"))
+        return result
 
     def _call_committee(use_thinking: bool) -> tuple[list, Exception | None]:
         """Make one committee API call. Returns (decisions, error)."""
         try:
-            _model    = "claude-opus-4-7" if force_opus else "claude-sonnet-4-6"
-            _thinking = ({"type": "adaptive"} if force_opus else
-                         ({"type": "enabled", "budget_tokens": _thinking_budget} if use_thinking else
-                          {"type": "enabled", "budget_tokens": 3000}))
-            _tok = _max_tokens if use_thinking else (500 * n + 3000)
-            print(f"  [Committee] model={_model} force_opus={force_opus} thinking={use_thinking} max_tokens={_tok}")
-            response = _client.messages.create(
-                model=_model,
-                max_tokens=_tok,
-                thinking=_thinking,
-                system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = next(
-                (block.text for block in response.content
-                 if hasattr(block, "text") and getattr(block, "type", "") == "text"),
-                "",
-            ).strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
+            _model = "claude-opus-4-7" if force_opus else "claude-sonnet-4-6"
+            if force_opus:
+                create_kwargs: dict = {
+                    "model":      _model,
+                    "max_tokens": _tok_with_think,
+                    "thinking":   {"type": "adaptive"},
+                    "system":     [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                    "messages":   [{"role": "user", "content": prompt}],
+                }
+            elif use_thinking:
+                create_kwargs = {
+                    "model":      _model,
+                    "max_tokens": _tok_with_think,
+                    "thinking":   {"type": "enabled", "budget_tokens": _thinking_budget},
+                    "system":     [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                    "messages":   [{"role": "user", "content": prompt}],
+                }
+            else:
+                # Attempt 2: no extended thinking — all max_tokens go to output
+                create_kwargs = {
+                    "model":      _model,
+                    "max_tokens": _tok_no_think,
+                    "system":     [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                    "messages":   [{"role": "user", "content": prompt}],
+                }
+
+            print(f"  [Committee] model={_model} thinking={'yes' if use_thinking else 'no'} "
+                  f"max_tokens={create_kwargs['max_tokens']}")
+            response = _client.messages.create(**create_kwargs)
+            raw = _extract_raw(response)
+
+            # ── Primary parse ──────────────────────────────────────────────
             try:
-                raw = raw[raw.index("["):raw.rindex("]") + 1]
-            except ValueError:
+                decisions = _parse_decisions(raw)
+                return _build_result(decisions), None
+            except (json.JSONDecodeError, ValueError):
                 pass
 
-            decisions = json.loads(raw)
-            if not isinstance(decisions, list):
-                raise ValueError("Expected JSON array")
+            # ── JSON repair: salvage partial output before giving up ────────
+            repaired = _repair_truncated_json(raw)
+            if repaired:
+                try:
+                    decisions = _parse_decisions(repaired)
+                    recovered = len([d for d in decisions if isinstance(d, dict)])
+                    print(f"  [Committee] JSON repaired — recovered {recovered}/{n} candidates")
+                    return _build_result(decisions), None
+                except (json.JSONDecodeError, ValueError):
+                    pass
 
-            returned = {d.get("symbol"): d for d in decisions if isinstance(d, dict)}
-            result = []
-            for c in candidates:
-                sym = c["symbol"]
-                d   = returned.get(sym)
-                if d:
-                    result.append(_normalise_committee_decision(sym, d))
-                else:
-                    result.append(_hold_decision(sym, "Not returned by committee"))
-            return result, None
+            raise json.JSONDecodeError("Unrecoverable JSON", raw, 0)
+
         except Exception as e:
             return [], e
 
-    # ── Attempt 1: full thinking budget ──────────────────────────────────────
+    # ── Attempt 1: extended thinking ─────────────────────────────────────────
     result, err1 = _call_committee(use_thinking=True)
     if err1 is None:
         return result
 
-    # ── Attempt 2: reduced thinking budget (JSON parse errors are often
-    # caused by the model getting lost in long thinking chains) ───────────────
-    print(f"  [Committee] Attempt 1 failed ({err1}) — retrying with reduced thinking")
+    # ── Attempt 2: no thinking — all tokens available for output ────────────
+    print(f"  [Committee] Attempt 1 failed ({err1}) — retrying without thinking")
     result, err2 = _call_committee(use_thinking=False)
     if err2 is None:
         return result
 
-    # ── Full fallback: individual Haiku decide() calls ────────────────────────
+    # ── Full fallback: individual Haiku decide() calls (last resort) ─────────
     print(f"  [Committee] Both attempts failed ({err2}) — falling back to individual decisions")
     result = []
     for c in candidates:

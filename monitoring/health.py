@@ -29,6 +29,10 @@ from datetime import datetime, timezone, timedelta
 
 _lock = threading.Lock()
 
+# Record when this process started — used to suppress missed-job alerts for
+# jobs scheduled before startup (e.g. morning jobs after a mid-day restart).
+_PROCESS_START_UTC = datetime.now(timezone.utc)
+
 # ── In-process accumulators (reset each calendar day) ────────────────────────
 
 _api_quotas:      dict[str, list[str]] = defaultdict(list)    # api_name → [timestamp, ...]
@@ -181,6 +185,12 @@ def check_missed_jobs() -> list[str]:
         check_after = expected + timedelta(minutes=grace)
         if now_et < check_after:
             continue   # too early to call it missed
+
+        # If this process started AFTER the job's window, we cannot retroactively
+        # run it — suppress the alert to avoid noise after mid-day restarts.
+        expected_utc = expected.astimezone(timezone.utc)
+        if _PROCESS_START_UTC > expected_utc + timedelta(minutes=grace):
+            continue   # job's window passed before we started — not our fault
 
         last_run_str = _job_heartbeats.get(job) or _db_last_heartbeat(job)
         if not last_run_str:
