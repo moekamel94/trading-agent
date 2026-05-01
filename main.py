@@ -2970,40 +2970,67 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         msg_parts.append("**📈 Scale-in Opportunities**")
         msg_parts.extend(tranche_alerts)
 
-    # ── MT basket pruning: remove non-held tickers with 3+ consecutive filter failures ──
+    # ── Basket pruning: remove tickers from full basket after consecutive filter failures ──
+    # Mega caps are never pruned. Thresholds by tier: large_growth=5, mid_growth/MT=3, spec=2.
     try:
-        _mt_set    = set(basket_mgr.load_mt())
-        _held_now  = {p["symbol"] for p in positions}
-        _mt_failed = _filter_failed_syms & _mt_set - _held_now
-        if _mt_failed:
-            import json as _bpj, os as _bpos
-            _fail_path = _bpos.path.join(_bpos.path.dirname(__file__), "basket", ".filter_failures.json")
+        import json as _bpj
+        _held_now     = {p["symbol"] for p in positions}
+        _lt_set       = set(basket_mgr.load())
+        _mt_set       = set(basket_mgr.load_mt())
+        _full_basket  = _lt_set | _mt_set
+        # Only consider non-held tickers that actually failed a filter this cycle
+        _failed_candidates = _filter_failed_syms & _full_basket - _held_now
+
+        if _failed_candidates:
             try:
-                _fail_counts: dict = _bpj.load(open(_fail_path))
+                _fail_counts: dict = _bpj.load(open(basket_mgr.FAIL_COUNTS_FILE))
             except Exception:
                 _fail_counts = {}
-            # Increment failures, reset passing tickers
-            for _s in _mt_set:
-                if _s in _mt_failed:
+
+            # Thresholds by tier
+            def _prune_threshold(sym: str) -> int | None:
+                _tier = config.TICKER_TIERS.get(sym, "mid_growth")
+                if _tier == "mega":          return None   # never prune mega caps
+                if _tier == "large_growth":  return 5
+                if _tier == "speculative":   return 2
+                return 3   # mid_growth and MT-only tickers
+
+            # Increment failure counts; reset tickers that passed filters this cycle
+            for _s in _full_basket:
+                if _s in _failed_candidates:
                     _fail_counts[_s] = _fail_counts.get(_s, 0) + 1
-                elif _s in _fail_counts and _s not in _mt_failed:
-                    _fail_counts[_s] = 0   # reset on pass
-            # Prune tickers with 3+ consecutive failures
-            _to_prune = [s for s, c in _fail_counts.items() if c >= 3 and s in _mt_set and s not in _held_now]
+                elif _s in _fail_counts:
+                    _fail_counts[_s] = 0   # passed this cycle — reset streak
+
+            # Determine what to prune
+            _to_prune = []
+            for _s, _cnt in _fail_counts.items():
+                if _s not in _full_basket or _s in _held_now:
+                    continue
+                _thresh = _prune_threshold(_s)
+                if _thresh is not None and _cnt >= _thresh:
+                    _to_prune.append(_s)
+
             if _to_prune:
-                _cur_mt   = basket_mgr.load_mt()
-                _cur_meta = basket_mgr.load_mt_metadata()
-                _new_mt   = [s for s in _cur_mt if s not in _to_prune]
-                _new_meta = {k: v for k, v in _cur_meta.items() if k not in _to_prune}
-                basket_mgr.save_mt(_new_mt, _new_meta)
+                # Add to permanent exclusion list (survives monthly LT refresh)
+                basket_mgr.add_excluded(_to_prune)
+                # Also physically remove from MT basket
+                _cur_mt   = [s for s in basket_mgr.load_mt() if s not in _to_prune]
+                _cur_meta = {k: v for k, v in basket_mgr.load_mt_metadata().items()
+                             if k not in _to_prune}
+                basket_mgr.save_mt(_cur_mt, _cur_meta)
+                # Clear counts for pruned tickers
                 for _ps in _to_prune:
-                    del _fail_counts[_ps]
-                _prune_msg = (f"🗑️ **MT Basket Pruned** — {len(_to_prune)} ticker(s) removed "
-                              f"after 3 consecutive filter failures: {', '.join(_to_prune)}")
+                    _fail_counts.pop(_ps, None)
+                _prune_msg = (
+                    f"🗑️ **Basket Pruned** — {len(_to_prune)} ticker(s) dropped after "
+                    f"consecutive filter failures (will not return on monthly refresh): "
+                    f"{', '.join(sorted(_to_prune))}"
+                )
                 print(f"  [BasketPrune] {_prune_msg}")
                 discord.send(_prune_msg)
-            # Save updated counts
-            _bpj.dump(_fail_counts, open(_fail_path, "w"), indent=2)
+
+            _bpj.dump(_fail_counts, open(basket_mgr.FAIL_COUNTS_FILE, "w"), indent=2)
     except Exception as _bp_err:
         print(f"  [BasketPrune] error: {_bp_err}")
 
@@ -3260,27 +3287,9 @@ def main():
                 try: discord.send(f"🔄 Startup catchup ran missed jobs: {', '.join(missed_jobs)}")
                 except Exception: pass
 
-            # ── Replay missed trading cycle if market is open ─────────────────
-            open_time  = now_et.replace(hour=9,  minute=35, second=0, microsecond=0)
-            close_time = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
-            if not (open_time <= now_et <= close_time):
-                print(f"[Startup] Cycle catchup skipped — market closed ({now_et.strftime('%H:%M ET')})")
-                return
-            try:
-                db.init()
-                snaps = db.get_snapshots(limit=1)
-                if snaps:
-                    last_ts  = datetime.fromisoformat(snaps[0]["ts"])
-                    age_mins = (datetime.utcnow() - last_ts).total_seconds() / 60
-                    if age_mins < 180:
-                        print(f"[Startup] Cycle catchup skipped — last cycle was {age_mins:.0f} min ago")
-                        return
-            except Exception:
-                pass
-            print("[Startup] Market open + no recent cycle — running catchup cycle now")
-            try: discord.send("🔄 Restarted during market hours — running catchup cycle")
-            except Exception: pass
-            _safe_cycle()
+            # ── No automatic cycle catchup on restart — cycles run on schedule only ──
+            # Use /runcycle in Discord or restart at a scheduled time to trigger manually.
+            print("[Startup] Catchup cycle disabled — waiting for next scheduled cycle.")
 
         # misfire_grace_time: covers executor delays (not process restarts —
         # those are handled by _startup_catchup above)

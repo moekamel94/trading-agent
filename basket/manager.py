@@ -12,9 +12,11 @@ from datetime import datetime
 import config
 from basket.tier_criteria import TIER_CRITERIA
 
-BASKET_FILE    = os.path.join(os.path.dirname(__file__), "basket.json")
-BASKET_MT_FILE = os.path.join(os.path.dirname(__file__), "basket_mt.json")
-UW_PENDING_FILE = os.path.join(os.path.dirname(__file__), "uw_pending.json")
+BASKET_FILE       = os.path.join(os.path.dirname(__file__), "basket.json")
+BASKET_MT_FILE    = os.path.join(os.path.dirname(__file__), "basket_mt.json")
+UW_PENDING_FILE   = os.path.join(os.path.dirname(__file__), "uw_pending.json")
+EXCLUDED_FILE     = os.path.join(os.path.dirname(__file__), ".basket_excluded.json")
+FAIL_COUNTS_FILE  = os.path.join(os.path.dirname(__file__), ".filter_failures.json")
 
 # Always scanned regardless of anything else
 _PINNED: list[str] = []
@@ -195,7 +197,31 @@ def refresh() -> list[str]:
     return merged
 
 
+def load_excluded() -> set:
+    """Return the set of tickers excluded from ALL baskets (LT and MT)."""
+    try:
+        return set(json.load(open(EXCLUDED_FILE)))
+    except Exception:
+        return set()
+
+
+def add_excluded(tickers: list[str]) -> None:
+    """Add tickers to the permanent exclusion list."""
+    current = load_excluded()
+    current.update(t.upper() for t in tickers)
+    json.dump(sorted(current), open(EXCLUDED_FILE, "w"), indent=2)
+
+
+def remove_excluded(tickers: list[str]) -> None:
+    """Remove tickers from the exclusion list (re-allows them in future refreshes)."""
+    current = load_excluded()
+    for t in tickers:
+        current.discard(t.upper())
+    json.dump(sorted(current), open(EXCLUDED_FILE, "w"), indent=2)
+
+
 def load() -> list[str]:
+    excluded = load_excluded()
     if os.path.exists(BASKET_FILE):
         try:
             with open(BASKET_FILE) as f:
@@ -203,9 +229,9 @@ def load() -> list[str]:
         except (json.JSONDecodeError, OSError):
             print("[Basket] basket.json corrupted — rebuilding")
             return refresh()
-        tickers = data.get("tickers", [])
+        tickers = [t for t in data.get("tickers", []) if t not in excluded]
         for sym in _PINNED:
-            if sym not in tickers:
+            if sym not in tickers and sym not in excluded:
                 tickers.insert(0, sym)
         return tickers
     return refresh()
@@ -213,11 +239,12 @@ def load() -> list[str]:
 
 def load_mt() -> list[str]:
     """Load the medium-term catalyst basket. Returns list of ticker symbols."""
+    excluded = load_excluded()
     if os.path.exists(BASKET_MT_FILE):
         try:
             with open(BASKET_MT_FILE) as f:
                 data = json.load(f)
-            return data.get("tickers", [])
+            return [t for t in data.get("tickers", []) if t not in excluded]
         except (json.JSONDecodeError, OSError):
             return []
     return []
