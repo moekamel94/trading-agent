@@ -78,6 +78,44 @@ def init():
             symbol      TEXT,
             detail      TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS signal_outcomes (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts              TEXT NOT NULL,
+            symbol          TEXT NOT NULL,
+            entry_price     REAL NOT NULL,
+            uw_flow         TEXT,
+            uw_darkpool     TEXT,
+            congress_signal TEXT,
+            insider_signal  TEXT,
+            sentiment_label TEXT,
+            regime_label    TEXT,
+            sector_key      TEXT,
+            sector_weight   REAL,
+            price_7d        REAL,
+            price_14d       REAL,
+            return_7d       REAL,
+            return_14d      REAL,
+            outcome_updated TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS signal_weights (
+            signal_source   TEXT PRIMARY KEY,
+            weight          REAL NOT NULL DEFAULT 1.0,
+            hit_rate_30d    REAL,
+            hit_rate_90d    REAL,
+            sample_count    INTEGER DEFAULT 0,
+            last_updated    TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS review_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts              TEXT NOT NULL,
+            period_start    TEXT NOT NULL,
+            period_end      TEXT NOT NULL,
+            report          TEXT NOT NULL,
+            changes_applied TEXT
+        );
         """)
         # Migrations: add columns to existing position_tranches tables
         for _col, _defn in [
@@ -246,6 +284,48 @@ def get_trades(limit=100):
     with _conn() as c:
         rows = c.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(zip(["id","ts","symbol","action","asset_type","qty","price","allocation","confidence","rationale"], r)) for r in rows]
+
+
+def get_recent_stop_exits(days: int = 60) -> list[dict]:
+    """
+    Return SELL trades within the last `days` days whose rationale indicates a
+    stop-loss or thesis-break exit. Used by CCO to enforce the 20-day re-entry cooldown.
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT ts, symbol, rationale FROM trades
+               WHERE action='SELL' AND ts >= ?
+               AND (rationale LIKE '%stop_loss%'
+                    OR rationale LIKE '%stop triggered%'
+                    OR rationale LIKE '%MidStop%'
+                    OR rationale LIKE '%thesis_break%'
+                    OR rationale LIKE '%dead_money%'
+                    OR rationale LIKE '%trailing_stop%'
+                    OR rationale LIKE '%ATR_stop%'
+                    OR rationale LIKE '%atr_stop%')
+               ORDER BY ts DESC""",
+            (cutoff,)
+        ).fetchall()
+
+    result = []
+    now = datetime.now(timezone.utc)
+    for ts_str, symbol, rationale in rows:
+        try:
+            ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts_dt.tzinfo is None:
+                ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+            days_since = (now - ts_dt).days
+        except Exception:
+            days_since = None
+        result.append({
+            "symbol":     symbol,
+            "ts":         ts_str,
+            "days_since": days_since,
+            "reason":     (rationale or "")[:80],
+        })
+    return result
 
 
 def get_snapshots(limit=30):
@@ -463,3 +543,152 @@ def get_signals(limit=50):
             "fundamentals": json.loads(r[6] or "{}"),
         })
     return result
+
+
+# ── Signal outcome tracking ───────────────────────────────────────────────────
+
+def record_signal_outcome(symbol: str, entry_price: float, signals: dict,
+                           regime_label: str, sector_key: str, sector_weight: float):
+    """Snapshot signal state at trade entry for later outcome measurement."""
+    uw   = signals.get("options_flow", {})
+    dp   = (uw.get("darkpool") or {}).get("darkpool_signal", "no_data")
+    cong = signals.get("congressional", {}).get("net_signal", "neutral")
+    insd = signals.get("insider", {}).get("signal", "neutral")
+    sent = signals.get("sentiment", {}).get("label", "neutral")
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO signal_outcomes
+               (ts, symbol, entry_price, uw_flow, uw_darkpool, congress_signal,
+                insider_signal, sentiment_label, regime_label, sector_key, sector_weight)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (datetime.utcnow().isoformat(), symbol, entry_price,
+             uw.get("flow_signal", "no_data"), dp, cong, insd, sent,
+             regime_label, sector_key, sector_weight),
+        )
+
+
+def update_signal_outcomes(symbol: str, price_7d: float | None, price_14d: float | None):
+    """Fill in retrospective price outcomes for a symbol's most recent unresolved entry."""
+    now = datetime.utcnow().isoformat()
+    with _conn() as c:
+        row = c.execute(
+            """SELECT id, entry_price FROM signal_outcomes
+               WHERE symbol=? AND outcome_updated IS NULL
+               ORDER BY id DESC LIMIT 1""",
+            (symbol,)
+        ).fetchone()
+        if not row:
+            return
+        rec_id, entry = row
+        r7  = round((price_7d  - entry) / entry * 100, 2) if price_7d  and entry else None
+        r14 = round((price_14d - entry) / entry * 100, 2) if price_14d and entry else None
+        c.execute(
+            """UPDATE signal_outcomes
+               SET price_7d=?, price_14d=?, return_7d=?, return_14d=?, outcome_updated=?
+               WHERE id=?""",
+            (price_7d, price_14d, r7, r14, now, rec_id),
+        )
+
+
+def get_outcomes_for_review(days: int = 30) -> list[dict]:
+    """Fetch resolved outcomes from the last N days for learning analysis."""
+    since = datetime.utcnow().strftime(f"%Y-%m-%d")
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT ts, symbol, entry_price, uw_flow, uw_darkpool, congress_signal,
+                      insider_signal, sentiment_label, regime_label, sector_key,
+                      return_7d, return_14d
+               FROM signal_outcomes
+               WHERE outcome_updated IS NOT NULL
+                 AND ts >= date('now', ?)
+               ORDER BY ts DESC""",
+            (f"-{days} days",)
+        ).fetchall()
+    cols = ["ts","symbol","entry_price","uw_flow","uw_darkpool","congress_signal",
+            "insider_signal","sentiment_label","regime_label","sector_key",
+            "return_7d","return_14d"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_pending_outcomes() -> list[dict]:
+    """Return entries that still need outcome prices filled in."""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT id, ts, symbol, entry_price
+               FROM signal_outcomes WHERE outcome_updated IS NULL
+               ORDER BY ts ASC"""
+        ).fetchall()
+    return [{"id": r[0], "ts": r[1], "symbol": r[2], "entry_price": r[3]} for r in rows]
+
+
+# ── Adaptive signal weights ───────────────────────────────────────────────────
+
+def upsert_signal_weight(source: str, weight: float,
+                          hit_rate_30d: float | None, hit_rate_90d: float | None,
+                          sample_count: int):
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO signal_weights
+               (signal_source, weight, hit_rate_30d, hit_rate_90d, sample_count, last_updated)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(signal_source) DO UPDATE SET
+                 weight=excluded.weight, hit_rate_30d=excluded.hit_rate_30d,
+                 hit_rate_90d=excluded.hit_rate_90d, sample_count=excluded.sample_count,
+                 last_updated=excluded.last_updated""",
+            (source, weight, hit_rate_30d, hit_rate_90d, sample_count,
+             datetime.utcnow().isoformat()),
+        )
+
+
+def get_signal_weights() -> dict[str, float]:
+    """Return {signal_source: weight} — defaults to 1.0 for unknown sources."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT signal_source, weight FROM signal_weights"
+        ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+# ── Review log ────────────────────────────────────────────────────────────────
+
+def log_review(period_start: str, period_end: str, report: dict, changes: list):
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO review_log (ts, period_start, period_end, report, changes_applied) VALUES (?,?,?,?,?)",
+            (datetime.utcnow().isoformat(), period_start, period_end,
+             json.dumps(report), json.dumps(changes)),
+        )
+
+
+def get_last_review_date() -> str | None:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT ts FROM review_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return row[0][:10] if row else None
+
+
+def get_last_committee_decision(symbol: str) -> dict | None:
+    """
+    Return the most recent committee decision for a symbol from decision_log.
+    Used to give the committee last-cycle context for held positions.
+    """
+    with _conn() as c:
+        row = c.execute(
+            """SELECT ts, action, confidence, rationale, cio_conf, quant_dec, da_severity, allocation_pct
+               FROM decision_log WHERE symbol=? ORDER BY ts DESC LIMIT 1""",
+            (symbol,),
+        ).fetchone()
+    if not row:
+        return None
+    ts, action, conf, rationale, cio_conf, quant_dec, da_sev, alloc = row
+    return {
+        "ts":          ts,
+        "action":      action,
+        "confidence":  conf,
+        "rationale":   rationale or "",
+        "cio_conf":    cio_conf,
+        "quant_dec":   quant_dec or "",
+        "da_severity": da_sev or "",
+        "allocation_pct": alloc or 0,
+    }

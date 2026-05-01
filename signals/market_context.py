@@ -111,20 +111,69 @@ def earnings_soon(symbol: str) -> dict:
         return {}
 
 
+def _credit_spreads() -> dict:
+    """
+    Credit spread proxy using HYG (high-yield) and LQD (investment-grade) vs TLT.
+    Widening spreads (HYG/TLT falling, LQD/TLT falling) precede equity stress by 1-2 weeks.
+    Returns spread level and 5-day direction as a leading risk-off indicator.
+    """
+    try:
+        tickers = yf.download(["HYG", "LQD", "TLT"], period="30d", progress=False, auto_adjust=True)
+        closes  = tickers["Close"]
+        if closes.empty or len(closes) < 6:
+            return {}
+
+        def _ratio_and_trend(num: str, den: str):
+            if num not in closes.columns or den not in closes.columns:
+                return None, None
+            ratio = closes[num] / closes[den]
+            ratio = ratio.dropna()
+            if len(ratio) < 6:
+                return None, None
+            current = float(ratio.iloc[-1])
+            prior5  = float(ratio.iloc[-6])
+            pct_chg = round((current / prior5 - 1) * 100, 2)
+            direction = "widening" if pct_chg < -0.5 else ("tightening" if pct_chg > 0.5 else "stable")
+            return round(current, 4), direction
+
+        hyg_ratio, hyg_dir = _ratio_and_trend("HYG", "TLT")
+        lqd_ratio, lqd_dir = _ratio_and_trend("LQD", "TLT")
+
+        risk_signal = "neutral"
+        if hyg_dir == "widening" and lqd_dir == "widening":
+            risk_signal = "stress"
+        elif hyg_dir == "widening":
+            risk_signal = "elevated"
+        elif hyg_dir == "tightening" and lqd_dir == "tightening":
+            risk_signal = "risk_on"
+
+        return {
+            "hyg_tlt_ratio":   hyg_ratio,
+            "hyg_tlt_5d":      hyg_dir,
+            "lqd_tlt_ratio":   lqd_ratio,
+            "lqd_tlt_5d":      lqd_dir,
+            "credit_signal":   risk_signal,
+        }
+    except Exception:
+        return {}
+
+
 def compute() -> dict:
     """Run all market-wide signals in parallel. Call once at cycle start."""
     from signals.momentum_news import global_macro_momentum
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        ft_fg    = ex.submit(_fear_and_greed)
-        ft_vix   = ex.submit(_vix)
-        ft_econ  = ex.submit(_economic_calendar)
-        ft_macro = ex.submit(global_macro_momentum)
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        ft_fg      = ex.submit(_fear_and_greed)
+        ft_vix     = ex.submit(_vix)
+        ft_econ    = ex.submit(_economic_calendar)
+        ft_macro   = ex.submit(global_macro_momentum)
+        ft_credit  = ex.submit(_credit_spreads)
 
-    fg    = ft_fg.result()
-    vix   = ft_vix.result()
-    econ  = ft_econ.result()
-    macro = ft_macro.result()
+    fg     = ft_fg.result()
+    vix    = ft_vix.result()
+    econ   = ft_econ.result()
+    macro  = ft_macro.result()
+    credit = ft_credit.result()
 
     score = fg.get("score")
     if score is not None:
@@ -141,10 +190,15 @@ def compute() -> dict:
     if macro.get("available"):
         print(f"  Geopolitical: {macro.get('label','?')} (score={macro.get('score','?')}) | themes={macro.get('themes',[])} | headline={str(macro.get('top_headlines', ['']))[:80]}")
 
+    if credit.get("credit_signal") == "stress":
+        print(f"  ⚠️ Credit spreads WIDENING — HYG/TLT {credit.get('hyg_tlt_5d')} | "
+              f"LQD/TLT {credit.get('lqd_tlt_5d')} — leading risk-off signal")
+
     return {
         "fear_and_greed":        fg,
         "vix":                   vix,
         "upcoming_macro_events": econ,
         "market_risk":           risk,
         "macro_momentum":        macro,
+        "credit_spreads":        credit,
     }

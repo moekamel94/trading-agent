@@ -206,10 +206,6 @@ def earnings_momentum(symbol: str) -> dict:
     Full earnings momentum signal for one ticker.
     Returns combined score from Finnhub EPS surprise + news headlines.
     """
-    if "/" in symbol:
-        # Crypto — no earnings
-        return {"available": False, "reason": "crypto_no_earnings"}
-
     with ThreadPoolExecutor(max_workers=2) as ex:
         ft_eps  = ex.submit(_finnhub_earnings_surprise, symbol)
         ft_news = ex.submit(_earnings_news_search, symbol)

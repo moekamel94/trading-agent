@@ -115,6 +115,75 @@ def close_proposal(proposal_id: int, reason: str):
         )
 
 
+def _init_live_trades():
+    with _conn() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS options_live_trades (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts              TEXT NOT NULL,
+                contract_symbol TEXT NOT NULL,
+                symbol          TEXT NOT NULL,
+                direction       TEXT NOT NULL,
+                expiry          TEXT NOT NULL,
+                strike          REAL NOT NULL,
+                qty             INTEGER NOT NULL DEFAULT 1,
+                entry_price     REAL NOT NULL,
+                target_price    REAL NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'open',
+                closed_ts       TEXT,
+                close_reason    TEXT,
+                close_price     REAL
+            )
+        """)
+
+
+def log_live_trade(
+    contract_symbol: str,
+    symbol: str,
+    direction: str,
+    expiry: str,
+    strike: float,
+    entry_price: float,
+    target_price: float,
+    qty: int = 1,
+) -> int:
+    _init_live_trades()
+    with _conn() as c:
+        cur = c.execute(
+            """INSERT INTO options_live_trades
+               (ts, contract_symbol, symbol, direction, expiry, strike, qty,
+                entry_price, target_price)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                contract_symbol, symbol, direction, expiry,
+                strike, qty, entry_price, target_price,
+            ),
+        )
+        return cur.lastrowid
+
+
+def get_active_live_trades() -> list:
+    _init_live_trades()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM options_live_trades WHERE status='open' ORDER BY ts DESC"
+        ).fetchall()
+        cols = [d[1] for d in c.execute("PRAGMA table_info(options_live_trades)").fetchall()]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def close_live_trade(trade_id: int, reason: str, close_price: float = 0.0):
+    _init_live_trades()
+    with _conn() as c:
+        c.execute(
+            """UPDATE options_live_trades
+               SET status='closed', closed_ts=?, close_reason=?, close_price=?
+               WHERE id=?""",
+            (datetime.now(timezone.utc).isoformat(), reason, close_price, trade_id),
+        )
+
+
 def was_recently_proposed(symbol: str, direction: str, hours: int = 72) -> bool:
     """Prevent duplicate proposals for the same ticker+direction within N hours."""
     init()

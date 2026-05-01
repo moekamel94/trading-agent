@@ -387,7 +387,7 @@ def _db_last_heartbeat(job_name: str) -> str | None:
 def _send_immediate_alert(msg: str):
     """Send an urgent alert now (not batched into EOD). Used for high-severity only."""
     try:
-        from notifications import discord_bot as tg
-        tg.send(msg)
+        from notifications import discord_bot as discord
+        discord.send(msg)
     except Exception:
         print(f"  [HEALTH] Discord send failed — alert dropped: {msg[:100]}")

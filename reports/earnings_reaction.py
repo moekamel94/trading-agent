@@ -30,7 +30,7 @@ import yfinance as yf
 
 import config
 from database import db
-from notifications import discord_bot as tg
+from notifications import discord_bot as discord
 
 
 _FMP_BASE    = "https://financialmodelingprep.com/stable"
@@ -313,19 +313,40 @@ Rules:
 
 # ── Main entry point ─────────────────────────────────────────────────────────
 
+def _has_relevant_earnings_today(held_symbols: set[str], basket_symbols: set[str]) -> bool:
+    """
+    Lightweight calendar pre-check. Returns True only if a held or basket symbol
+    is scheduled to report overnight (yesterday AH or today pre-market).
+    Avoids fetching enrichment data on days with nothing relevant.
+    """
+    today     = datetime.now(timezone.utc).date()
+    yesterday = today - timedelta(days=1)
+    relevant  = held_symbols | basket_symbols
+    data = _fmp_get("earnings-calendar", {"from": str(yesterday), "to": str(today)})
+    if not data or not isinstance(data, list):
+        return False
+    return any(item.get("symbol") in relevant for item in data)
+
+
 def run_earnings_reaction(dry_run: bool = False) -> dict:
     """
     Fetch overnight earnings, enrich, send to committee, return reaction plan.
-    Sends a Discord alert unless dry_run=True.
+    Only runs when a held position or basket candidate has reported — silent otherwise.
     """
+    # Current portfolio state (needed for pre-check)
+    held_tranches  = db.get_all_tranches()
+    held_symbols   = {t["symbol"] for t in held_tranches}
+    basket_symbols = set(config.TICKER_TIERS.keys())
+
+    # Fast exit: don't fetch enrichment data if nothing we care about reported
+    if not _has_relevant_earnings_today(held_symbols, basket_symbols):
+        print("  [Earnings] No held/basket symbols reporting today — skipping.")
+        return {"summary": "No relevant earnings.", "immediate_actions": [], "entry_opportunities": [], "sector_reads": []}
+
     print("\n" + "="*60)
     print("OVERNIGHT EARNINGS REACTION")
     print("="*60)
 
-    # Current portfolio state
-    held_tranches  = db.get_all_tranches()
-    held_symbols   = {t["symbol"] for t in held_tranches}
-    basket_symbols = set(config.TICKER_TIERS.keys())
     held_context   = _build_held_context(held_tranches)
 
     # Fetch and enrich earnings
@@ -333,7 +354,7 @@ def run_earnings_reaction(dry_run: bool = False) -> dict:
     events = _enrich_earnings_events(raw, held_symbols, basket_symbols)
 
     if not events:
-        print("  No relevant earnings overnight.")
+        print("  No relevant earnings overnight — skipping.")
         return {"summary": "No relevant earnings overnight.", "immediate_actions": [], "entry_opportunities": [], "sector_reads": []}
 
     held_events   = [e for e in events if e["classification"] == "held_position"]
@@ -345,18 +366,16 @@ def run_earnings_reaction(dry_run: bool = False) -> dict:
           f"{len(basket_events)} basket, "
           f"{len(sector_events)} sector reads")
 
-    # Only make the Sonnet call if we have something actionable:
-    # held positions that reported, or basket candidates with significant moves.
+    # Only run the committee if there's something actionable:
+    # - a held position reported (always act), OR
+    # - a basket candidate with a significant beat/miss or ±3%+ gap (entry opportunity)
+    # Sector reads alone are not enough to trigger a Sonnet call or Discord alert.
     significant_basket = [e for e in basket_events
                           if abs(e.get("premarket_gap_pct") or 0) >= 3
                           or e.get("eps_surprise", {}).get("result") in ("beat", "miss")]
     if not held_events and not significant_basket:
-        msg = (f"No held positions reported overnight. "
-               f"{len(basket_events)} basket / {len(sector_events)} sector reads — no action needed.")
-        print(f"  {msg}")
-        if not dry_run:
-            tg.send(f"📊 Earnings Reaction: {msg}")
-        return {"summary": msg, "immediate_actions": [], "entry_opportunities": [], "sector_reads": []}
+        print(f"  No actionable events ({len(basket_events)} basket, {len(sector_events)} sector reads) — skipping.")
+        return {"summary": "No actionable earnings.", "immediate_actions": [], "entry_opportunities": [], "sector_reads": []}
 
     # Limit basket events to significant ones to keep the prompt focused
     active_events = held_events + significant_basket + sector_events[:3]
@@ -475,4 +494,4 @@ def _send_discord_alert(report: dict, events: list[dict]) -> None:
             lines.append(f"{s.get('reporting_company','')} → **{action}**"
                          + (f" (affects {affected})" if affected else ""))
 
-    tg.send("\n".join(lines))
+    discord.send("\n".join(lines))

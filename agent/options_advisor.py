@@ -691,7 +691,7 @@ def run(
     mkt_ctx: dict,
     signals_map: dict,
     op_db,
-    tg,
+    discord,
 ) -> int:
     """
     Phase 4: screen → score → Claude → log + notify.
@@ -809,7 +809,7 @@ def run(
         )
 
         msg = _format_proposal(result, item, proposal_id, equity)
-        tg.send(msg)
+        discord.send(msg)
         print(f"  [OptionsAdvisor] PROPOSAL #{proposal_id}: {sym} {dirn.upper()} "
               f"score={final_score}/100 | {result.get('bull_case','')[:80]}")
         sent += 1
@@ -821,7 +821,7 @@ def run(
 # Phase 5 — sell signal monitoring
 # ═══════════════════════════════════════════════════════════════════════════
 
-def check_sell_signals(decisions: list, signals_map: dict, op_db, tg, cfg) -> int:
+def check_sell_signals(decisions: list, signals_map: dict, op_db, discord, cfg) -> int:
     """
     Phase 5: check every active proposal against current committee + UW data.
     Fires sell alerts for: committee reversal, UW flow flip, DTE warnings.
@@ -954,7 +954,7 @@ def check_sell_signals(decisions: list, signals_map: dict, op_db, tg, cfg) -> in
         lines.append("")
         lines.append("Review your position — decide to close, roll, or hold.")
 
-        tg.send("\n".join(lines))
+        discord.send("\n".join(lines))
         print(f"  [OptionsMonitor] SELL ALERT #{pid}: {sym} {dirn.upper()} | {sell_reasons[0]}")
 
         if force_close:

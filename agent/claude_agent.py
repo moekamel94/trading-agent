@@ -293,14 +293,43 @@ ADD only if the thesis has gotten STRONGER since entry, not just the price.
 
 ═══════════════════════════════════════════════════════
 TRIM RULE (PM enforces):
-Trim 33% of a position when ANY condition is met:
-• Position has grown to ≥ 1.4× its original target weight (winner drift)
-• Position gains > 50% in < 30 days (parabolic — protect the gain)
-• Position exceeds 8% hard cap AND risk is elevated (thesis weakening)
-Trim back toward target weight, not to zero. Let the core position run.
+The risk manager now protects winners from mechanical size-based trims: a position that
+has grown large because the stock is winning is NOT trimmed automatically while momentum
+is intact. Only trim when the THESIS is weakening, not because the position got big.
+
+Output action=TRIM (reduces 33%) when:
+• Thesis is weakening but not fully broken — you want to reduce exposure, not exit
+• Risk is newly elevated (macro shift, new competitor, guidance revision)
+• Position exceeds 15% of portfolio (winner hard-cap breach — momentum or not)
+
+Do NOT output TRIM just because the position grew beyond its original target weight or
+had a large gain quickly — if the winner is still trending, let it run.
 When trimming: output action=TRIM. The agent sells 33% of the held position automatically.
-NOTE: The hard-cap trim (>8%) fires mechanically every cycle regardless of committee —
+NOTE: The hard-cap trim fires mechanically every cycle regardless of committee —
 you only need to output TRIM if you want to reduce a position for thesis/risk reasons.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+WINNER ONGOING EVALUATION — when a winner is no longer serving our goal:
+Our goal is 2× SPY when SPY is positive. A stock that is up but no longer capable of
+OUTPERFORMING SPY materially is a failed position — it should be replaced by a better one.
+
+Declare a winner "no longer serving our goal" (output action=SELL with reason) when ANY of:
+• Revenue growth decelerating 2 consecutive quarters — structural slowdown, not cyclical
+• Company is losing market share to a named competitor — moat narrowing
+• The sector has been downgraded to AVOID in the current macro regime (sector weight < 0.40)
+  AND the stock itself is underperforming its sector over 30 days
+• Narrative has shifted from "growth" to "cost-cutting" or "restructuring"
+• The stock now tracks SPY closely (moved in-line with index) — no longer an alpha source
+• Future Growth Score dropped below 40 — structural deterioration of outlook
+• Earnings miss + guidance cut in the same quarter — execution failure, thesis broken
+• Congress net selling + insider concentrated selling in the same week
+• A clearly superior opportunity in the same capital would generate 2× more alpha
+  (e.g., sector leader being replaced by its faster-growing challenger)
+
+IMPORTANT: Being a winner does NOT protect a stock from SELL. If the thesis that made it
+a winner has degraded, exit decisively. Holding a fading winner ties up capital that
+should be in tomorrow's winner. SELL with a clear rationale — the risk manager will execute.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -321,6 +350,37 @@ Do NOT average down unless:
 • Fundamental thesis is FULLY intact
 • Drop is market-wide (high SPY/QQQ correlation, not stock-specific)
 • Conviction re-scored independently at 8+
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+STOP-LOSS REVIEW — committee decides, not the risk manager:
+When a stock hits its stop-loss, it is flagged 🚨 STOP-LOSS TRIGGERED in your candidate list.
+The risk manager does NOT automatically sell — it brings the decision to you first.
+
+You must make an EXPLICIT choice. Three options:
+
+SELL — thesis is broken or confidence has dropped:
+  • The drop is stock-specific (not correlated with SPY/sector)
+  • Fundamentals have deteriorated since entry
+  • Pre-recorded thesis-break triggers have been hit
+  • You would not buy this stock at the current price fresh today
+
+HOLD — temporary / market-wide dip, thesis fully intact:
+  • SPY and/or the whole sector dropped with it (this is correlation, not thesis failure)
+  • Fundamentals and competitive position are unchanged
+  • The catalyst that drove the original BUY is still upcoming and intact
+  • You must state the SPECIFIC reason in your rationale — generic "thesis intact" is not enough
+
+BUY — add to the position (conviction add on weakness):
+  • Requires conviction ≥ 9
+  • Drop is clearly market-wide or sector-wide, NOT stock-specific
+  • Fundamentals are unchanged or improved since entry
+  • Adds must respect the add-cadence rule (≥10 trading days since last add)
+  • If BUY: set allocation_pct to the additional shares amount (not full position size)
+
+Emergency auto-sell (2× tier stop) fires regardless of your decision.
+A HOLD or BUY here carries MORE accountability than a fresh entry — you are overriding
+a risk signal. Your rationale must be specific and falsifiable.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -698,13 +758,6 @@ NO fixed take-profit ceiling — let winners run until a real exit fires.
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
-BTC/USD — pure momentum + macro, no fundamentals:
-• Hard blocks: VIX > 38, F&G < 20, RSI < 30 or > 75, death cross
-• Must pass: 2 of 3 momentum checks, price above SMA50 OR SMA200
-• Exit: RSI > 82 + MACD bearish, or death cross
-═══════════════════════════════════════════════════════
-
-═══════════════════════════════════════════════════════
 EARNINGS MOMENTUM SIGNAL (earnings_momentum):
 You now receive the actual most-recent quarterly earnings result for every stock.
 Use this as a strong directional signal:
@@ -820,7 +873,7 @@ Speculative:    conf 7→1.5% | 8→2% | 9→2.5% | 10→3%  (min conf 7 — no 
 • Max 5 speculative positions | Max 10% portfolio in speculative tier
 • Spec tier kill switch: if spec tier down >40% from peak → halve all spec sizes, freeze new entries 90 days
 • Max 25% portfolio in any single sector
-• Max 20% crypto, 20% options
+• Max 20% options
 ═══════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════
@@ -908,7 +961,7 @@ Return exactly this JSON:
   "action": "BUY" | "SELL" | "HOLD",
   "confidence": <integer 1-10>,
   "allocation_pct": <float 0.0-8.0>,
-  "asset_type": "stock" | "crypto" | "option",
+  "asset_type": "stock" | "option",
   "option_direction": "call" | "put" | null,
   "rationale": "<one concise sentence stating which signals drove the decision>"
 }
@@ -1552,7 +1605,6 @@ Ticker: {symbol}
 Portfolio: equity=${portfolio.get('equity', 0):,.2f}  cash=${portfolio.get('cash', 0):,.2f}
 Open positions: {portfolio.get('position_count', 0)} / {config.MAX_POSITIONS} (concentration target: top 5 drive returns)
 Options exposure: {portfolio.get('options_pct', 0):.1f}% / {config.MAX_OPTIONS_PCT}%
-Crypto exposure:  {portfolio.get('crypto_pct', 0):.1f}% / {config.MAX_CRYPTO_PCT}%
 Speculative tier: {portfolio.get('speculative_count', 0)} positions / {portfolio.get('speculative_pct', 0):.1f}% (max {config.MAX_SPECULATIVE_PCT}%)
 {holdings_str}
 
@@ -1596,7 +1648,7 @@ Core signal detail:
         }
 
 
-_COMMITTEE_BATCH_SIZE = 8   # max candidates per committee call — smaller batches = fewer JSON parse errors
+_COMMITTEE_BATCH_SIZE = 8   # token math verified: 1500/candidate; batch=8 fits in 16500 max_tokens
 
 
 def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
@@ -1618,25 +1670,19 @@ def committee_review(candidates: list, port_ctx: dict, mkt_ctx: dict,
     if not candidates:
         return []
 
-    # Split into batches to avoid malformed JSON on very large prompts
-    if len(candidates) > _COMMITTEE_BATCH_SIZE:
-        results = []
-        for i in range(0, len(candidates), _COMMITTEE_BATCH_SIZE):
-            batch = candidates[i:i + _COMMITTEE_BATCH_SIZE]
-            print(f"  [Committee] Batch {i // _COMMITTEE_BATCH_SIZE + 1}: {len(batch)} candidates")
-            results.extend(_committee_review_batch(
-                batch, port_ctx, mkt_ctx, macro_regime,
-                force_opus=force_opus,
-                signal_weights=signal_weights,
-                recent_stop_exits=recent_stop_exits,
-            ))
-        return results
-    return _committee_review_batch(
-        candidates, port_ctx, mkt_ctx, macro_regime,
-        force_opus=force_opus,
-        signal_weights=signal_weights,
-        recent_stop_exits=recent_stop_exits,
-    )
+    results = []
+    for i in range(0, len(candidates), _COMMITTEE_BATCH_SIZE):
+        batch = candidates[i:i + _COMMITTEE_BATCH_SIZE]
+        tier = "opus" if force_opus else "sonnet"
+        print(f"  [Committee] Batch {i // _COMMITTEE_BATCH_SIZE + 1}/{(len(candidates)-1)//_COMMITTEE_BATCH_SIZE+1} "
+              f"({tier}, {len(batch)} candidates): {[c['symbol'] for c in batch]}")
+        results.extend(_committee_review_batch(
+            batch, port_ctx, mkt_ctx, macro_regime,
+            force_opus=force_opus,
+            signal_weights=signal_weights,
+            recent_stop_exits=recent_stop_exits,
+        ))
+    return results
 
 
 def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
@@ -1829,6 +1875,22 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
         tier   = config.TICKER_TIERS.get(sym, "mid_growth")
 
         flags = []
+
+        # Stop-review flag — highest priority, shown first
+        stop_review = c.get("_stop_review")
+        if stop_review:
+            held_info = next((h for h in holdings if h["symbol"] == sym), None)
+            pl_str = f" | current P&L: {held_info['pl_pct']:+.1f}%" if held_info else ""
+            flags.append(
+                f"🚨 STOP-LOSS TRIGGERED — COMMITTEE REVIEW REQUIRED{pl_str}\n"
+                f"   Stop reason: {stop_review}\n"
+                f"   You MUST output one of:\n"
+                f"   • SELL — if thesis is broken or this is stock-specific weakness\n"
+                f"   • HOLD — if drop is market-wide/sector-wide AND thesis is fully intact "
+                f"(state specific reason)\n"
+                f"   • BUY — only if conviction ≥ 9, drop is market-wide, fundamentals unchanged"
+            )
+
         if sym in held_syms:
             held = next((h for h in holdings if h["symbol"] == sym), None)
             if held:
@@ -1897,8 +1959,33 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
         adv = tech.get("adv_30d")
         adv_str = f"ADV-30d=${adv:,.0f}" if adv else "ADV-30d=unknown"
         flag_str = ("\n  " + "\n  ".join(flags)) if flags else ""
+
+        # Last-cycle decision context — shown for held positions so committee can
+        # explicitly compare and say add more / hold at size / trim / sell.
+        last_cycle_str = ""
+        ld = c.get("_last_decision")
+        if ld and ld.get("action") != "NEW_POSITION":
+            _ld_ts   = (ld.get("ts") or "")[:16].replace("T", " ")
+            _ld_act  = ld.get("action", "?")
+            _ld_conf = ld.get("confidence", "?")
+            _ld_rat  = (ld.get("rationale") or "")[:200]
+            _ld_q    = ld.get("quant_dec", "")
+            _ld_sev  = ld.get("da_severity", "")
+            last_cycle_str = (
+                f"\n[LAST COMMITTEE DECISION @ {_ld_ts}]"
+                f" {_ld_act} conf={_ld_conf}/10"
+                + (f" | QUANT={_ld_q}" if _ld_q else "")
+                + (f" | DA={_ld_sev}" if _ld_sev else "")
+                + f"\nRationale: {_ld_rat}"
+                f"\nPM MANDATE: Review vs current data. Has the thesis strengthened or "
+                f"weakened? Output ADD (action=BUY) if conviction increased, HOLD if "
+                f"unchanged, TRIM if partially deteriorated, SELL if thesis broken."
+            )
+        elif ld and ld.get("action") == "NEW_POSITION":
+            last_cycle_str = "\n[NEW POSITION — no prior committee review. Assess full thesis.]"
+
         cand_blocks.append(
-            f"--- [{i}] {sym} (tier={tier}, {adv_str}) ---{flag_str}\n{synth}"
+            f"--- [{i}] {sym} (tier={tier}, {adv_str}) ---{flag_str}{last_cycle_str}\n{synth}"
         )
 
     candidates_text = "\n\n".join(cand_blocks)
@@ -2008,15 +2095,15 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
     prompt = f"{geo_block}{macro_regime_block}\n\n{port_block}{learning_section}{agenda_block}\n\n=== CANDIDATES ({n}) ===\n\n{candidates_text}\n\n{schema}"
 
     # max_tokens sizing:
-    #   Attempt 1 (extended thinking):  thinking_budget + 750*n output + 1500 overhead
-    #   Attempt 2 (no thinking):        750*n output + 1500 overhead only
-    # 750 tokens per candidate is calibrated from observed output size (~600-800 tok/candidate).
-    # Not sharing a budget between thinking and output is the root cause of all prior truncations.
-    _thinking_budget = 5000                            # enough for 8 candidates; was 8000
-    _per_candidate   = 750
+    #   Sonnet (held positions):  thinking_budget(3000) + 1500*n + 1500 overhead
+    #   Haiku  (scan candidates): 1500*n + 1500 overhead only (no extended thinking)
+    # 1500 tokens/candidate measured from actual output (CRS has 5×2-3 sentence fields +
+    # thesis_summary paragraph). Haiku is 4× cheaper — used for non-held scan screening.
+    _thinking_budget = 3000
+    _per_candidate   = 1500
     _overhead        = 1500
     _tok_with_think  = _thinking_budget + _per_candidate * n + _overhead
-    _tok_no_think    = _per_candidate * n + _overhead  # all tokens go to output
+    _tok_no_think    = _per_candidate * n + _overhead
 
     def _extract_raw(response) -> str:
         """Pull the text block from a response (thinking or plain)."""
@@ -2114,7 +2201,6 @@ def _committee_review_batch(candidates: list, port_ctx: dict, mkt_ctx: dict,
                     "messages":   [{"role": "user", "content": prompt}],
                 }
             else:
-                # Attempt 2: no extended thinking — all max_tokens go to output
                 create_kwargs = {
                     "model":      _model,
                     "max_tokens": _tok_no_think,

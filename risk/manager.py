@@ -3,8 +3,6 @@ Entry/exit criteria and position sizing for Kimmy.
 
 Entry uses a 3-layer scoring system — stocks don't need to be perfect everywhere,
 they need to be strong overall. Hard blocks are reserved for true extremes.
-
-BTC has its own separate criteria block at the bottom.
 """
 from datetime import date, datetime
 import config
@@ -14,8 +12,27 @@ import os as _os
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _is_btc(symbol: str) -> bool:
-    return "BTC" in symbol.upper()
+def _is_still_winner(tech: dict, pct: float) -> bool:
+    """
+    True when a profitable position still shows upward momentum.
+    Used to skip mechanical size/gain trims — let winners keep winning.
+    Returns False (allow trim) only when momentum has clearly broken down.
+    """
+    if pct <= 0:
+        return False
+    if tech.get("death_cross"):
+        return False
+    rsi  = tech.get("rsi")
+    r1m  = tech.get("return_1m")
+    macd = tech.get("macd_cross")
+    # All three reversal signals together → momentum clearly turning
+    if macd == "bearish" and (rsi is not None and rsi < 50) and (r1m is not None and r1m < -5):
+        return False
+    if r1m is not None and r1m < -12:
+        return False  # sharp 1-month reversal regardless of MACD
+    if rsi is not None and rsi < 35:
+        return False  # deeply oversold despite net profit — thesis broken
+    return True
 
 
 def check_sector_regime_alignment(symbol: str) -> tuple[bool, str]:
@@ -75,23 +92,31 @@ def check_entry_criteria(signals: dict, bucket: str = None) -> tuple[bool, str]:
     Mega and speculative are always long_term.
     """
     sym = signals.get("_symbol", "")
-    if _is_btc(sym):
-        return check_btc_entry(signals)
     tier = config.TICKER_TIERS.get(sym, "mid_growth")
 
     # Sector-regime alignment gate (BUY only in regime-winning sectors)
     # Mega-caps are exempt — they are held through regimes, not entered on regime signal.
+    _sector_weight = 0.60  # default neutral
     if tier != "mega":
         regime_ok, regime_reason = check_sector_regime_alignment(sym)
         if not regime_ok:
             return False, regime_reason
+        # Capture weight for downstream RSI relaxation on CONCENTRATE sectors
+        try:
+            from signals import macro_regime as _mr2
+            _sw = _mr2.compute().get("sector_weights", {})
+            _sec = config.SECTOR_MAP.get(sym)
+            if _sec and _sw:
+                _sector_weight = _sw.get(_sec, 0.60)
+        except Exception:
+            pass
 
     if tier == "speculative":
         return _check_speculative_entry(signals)
     if tier == "mid_growth":
-        ok, reason = _check_mid_growth_entry(signals)
+        ok, reason = _check_mid_growth_entry(signals, sector_weight=_sector_weight)
     else:
-        ok, reason = _check_standard_entry(signals)
+        ok, reason = _check_standard_entry(signals, sector_weight=_sector_weight)
     if not ok:
         return False, reason
     if bucket == "medium_term" and tier not in ("mega", "speculative"):
@@ -99,7 +124,7 @@ def check_entry_criteria(signals: dict, bucket: str = None) -> tuple[bool, str]:
     return True, reason
 
 
-def _check_standard_entry(signals: dict) -> tuple[bool, str]:
+def _check_standard_entry(signals: dict, sector_weight: float = 0.60) -> tuple[bool, str]:
     """Mega / large_growth: strict 3-layer scoring."""
 
     tech = signals.get("technical", {})
@@ -124,9 +149,13 @@ def _check_standard_entry(signals: dict) -> tuple[bool, str]:
             return False, f"Panic mode (VIX={vix_val:.0f}, extreme_fear) — only mega-caps during market panic"
 
     # ── Hard Block 2: RSI extremes ─────────────────────────────────────────
+    # CONCENTRATE sectors (weight ≥ 0.70) get a lower RSI floor: an oversold
+    # defense/energy/nuclear stock during the matching regime is a buy signal,
+    # not a disqualifier. Normal floor = 25; CONCENTRATE floor = 15.
     rsi = tech.get("rsi")
     if rsi is not None:
-        if rsi < config.CRITERIA_RSI_MIN:
+        rsi_floor = 15 if sector_weight >= 0.70 else config.CRITERIA_RSI_MIN
+        if rsi < rsi_floor:
             return False, f"RSI {rsi:.1f} — extreme panic/crash territory"
         if rsi > config.CRITERIA_RSI_MAX:
             return False, f"RSI {rsi:.1f} — extreme overbought"
@@ -239,7 +268,7 @@ def _check_standard_entry(signals: dict) -> tuple[bool, str]:
 
 # ── Mid-growth entry criteria ──────────────────────────────────────────────────
 
-def _check_mid_growth_entry(signals: dict) -> tuple[bool, str]:
+def _check_mid_growth_entry(signals: dict, sector_weight: float = 0.60) -> tuple[bool, str]:
     """
     Mid-growth: relaxed fundamentals (2/5), wider PE/margin tolerance,
     only 1/3 technical needed. Revenue acceleration > perfect margins.
@@ -265,7 +294,8 @@ def _check_mid_growth_entry(signals: dict) -> tuple[bool, str]:
 
     rsi = tech.get("rsi")
     if rsi is not None:
-        if rsi < config.CRITERIA_RSI_MIN:
+        rsi_floor = 15 if sector_weight >= 0.70 else config.CRITERIA_RSI_MIN
+        if rsi < rsi_floor:
             return False, f"RSI {rsi:.1f} — extreme panic"
         if rsi > config.CRITERIA_RSI_MAX:
             return False, f"RSI {rsi:.1f} — extreme overbought"
@@ -557,68 +587,6 @@ def check_reunderwriting_alerts(days_held_map: dict) -> list[dict]:
     return alerts
 
 
-# ── BTC entry criteria ─────────────────────────────────────────────────────────
-
-def check_btc_entry(signals: dict) -> tuple[bool, str]:
-    """BTC-specific entry criteria — crypto has no fundamentals, pure momentum/sentiment."""
-    tech = signals.get("technical", {})
-    mkt  = signals.get("market_context", {})
-    sent = signals.get("sentiment", {})
-    soc  = signals.get("social", {})
-
-    # Hard Block 1: Macro panic — equity panic drags BTC down
-    vix_val = (mkt.get("vix") or {}).get("vix")
-    if vix_val and vix_val > config.BTC_VIX_MAX:
-        return False, f"VIX={vix_val:.1f} — equity panic, BTC likely to drop"
-
-    # Hard Block 2: Market Fear & Greed extreme
-    fg = (mkt.get("fear_and_greed") or {}).get("score")
-    if fg is not None and fg < config.BTC_FG_PANIC:
-        return False, f"Extreme fear (F&G={fg:.0f}) — no BTC buys in panic"
-
-    # Hard Block 3: RSI extremes (crypto-specific range)
-    rsi = tech.get("rsi")
-    if rsi is not None:
-        if rsi < config.BTC_RSI_MIN:
-            return False, f"BTC RSI {rsi:.1f} — capitulation territory, wait for base"
-        if rsi > config.BTC_RSI_MAX:
-            return False, f"BTC RSI {rsi:.1f} — overbought, wait for pullback"
-
-    # Hard Block 4: Downtrend confirmed
-    if tech.get("death_cross"):
-        return False, "BTC death cross (SMA50 < SMA200) — macro downtrend active"
-
-    # Hard Block 5: MACD bearish crossover AND negative sentiment (double confirm)
-    if tech.get("macd_cross") == "bearish" and (sent.get("label") == "negative" or soc.get("combined_label") == "bearish"):
-        return False, "BTC MACD bearish + negative sentiment — momentum turning down"
-
-    # Momentum check (need 2 of 3)
-    mom_score = 0
-    r1m = tech.get("return_1m")
-    if r1m is None or r1m > -10:
-        mom_score += 1
-    r3m = tech.get("return_3m")
-    if r3m is None or r3m > -15:
-        mom_score += 1
-    if tech.get("macd_cross") != "bearish":
-        mom_score += 1
-
-    if mom_score < 2:
-        return False, f"BTC momentum weak: {mom_score}/3"
-
-    # Trend check
-    price  = tech.get("price")
-    sma50  = tech.get("sma50")
-    sma200 = tech.get("sma200")
-    above_sma50  = price and sma50  and price > sma50
-    above_sma200 = price and sma200 and price > sma200
-
-    if not above_sma50 and not above_sma200:
-        return False, "BTC below both SMA50 and SMA200 — no uptrend"
-
-    return True, f"BTC criteria passed (RSI={f'{rsi:.1f}' if rsi is not None else 'N/A'}, mom={mom_score}/3)"
-
-
 # ── Exit monitoring ────────────────────────────────────────────────────────────
 
 def check_hard_cap_violations(positions: list, equity: float) -> list[dict]:
@@ -632,15 +600,20 @@ def check_hard_cap_violations(positions: list, equity: float) -> list[dict]:
         return violations
     for p in positions:
         sym = p.get("symbol", "")
-        if "/" in sym:  # skip crypto
-            continue
         qty   = abs(float(p.get("qty") or 0))
         price = float(p.get("current_price") or 0)
         if qty <= 0 or price <= 0:
             continue
         pos_pct = qty * price / equity * 100
-        if pos_pct > config.MAX_POSITION_PCT + 0.1:   # 0.1% buffer avoids float-rounding noise
-            target_mv  = equity * config.MAX_POSITION_PCT / 100
+
+        # Winner protection: a position that appreciated into a large winner uses a
+        # higher hard-cap threshold — don't trim just because the stock did well.
+        unrealized_pct = float(p.get("unrealized_plpc") or 0)
+        is_winner  = unrealized_pct >= config.WINNER_CAP_EXEMPT_GAIN
+        cap        = config.WINNER_POSITION_CAP_PCT if is_winner else config.MAX_POSITION_PCT
+
+        if pos_pct > cap + 0.1:   # 0.1% buffer avoids float-rounding noise
+            target_mv  = equity * cap / 100
             current_mv = qty * price
             excess_mv  = current_mv - target_mv
             trim_qty   = round(excess_mv / price, 6)
@@ -651,8 +624,9 @@ def check_hard_cap_violations(positions: list, equity: float) -> list[dict]:
                     "excess_mv":   round(excess_mv, 2),
                     "current_pct": round(pos_pct, 1),
                     "reason": (
-                        f"hard_cap: {pos_pct:.1f}% > {config.MAX_POSITION_PCT}% limit — "
-                        f"trimming {trim_qty:.4f} sh (${excess_mv:,.0f}) back to {config.MAX_POSITION_PCT}%"
+                        f"hard_cap: {pos_pct:.1f}% > {cap}% limit "
+                        f"({'winner cap' if is_winner else 'standard cap'}) — "
+                        f"trimming {trim_qty:.4f} sh (${excess_mv:,.0f}) back to {cap}%"
                     ),
                 })
     return violations
@@ -702,42 +676,60 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
         rsi  = tech.get("rsi")
         bucket = bucket_map.get(sym, "long_term")
 
-        if _is_btc(sym):
-            stop = config.BTC_STOP_LOSS_PCT
-            tier = "crypto"
+        tier = config.TICKER_TIERS.get(sym, "mid_growth")
+        # Medium-term uses a tighter fixed stop regardless of tier
+        if bucket == "medium_term":
+            stop = config.MEDIUM_TERM_STOP_LOSS_PCT
         else:
-            tier = config.TICKER_TIERS.get(sym, "mid_growth")
-            # Medium-term uses a tighter fixed stop regardless of tier
-            if bucket == "medium_term":
-                stop = config.MEDIUM_TERM_STOP_LOSS_PCT
-            else:
-                stop = config.STOP_LOSS_BY_TIER.get(tier, config.STOP_LOSS_PCT)
+            stop = config.STOP_LOSS_BY_TIER.get(tier, config.STOP_LOSS_PCT)
 
-        # ATR-based stop (preferred) — replaces fixed % when ATR is available
+        # ATR-based stop (preferred) — replaces fixed % when ATR is available.
+        # Stop triggers a committee STOP_REVIEW rather than an immediate sell — the committee
+        # decides: SELL (thesis broken), HOLD (temporary dip), or BUY (add on conviction).
+        # Exception: if the loss already exceeds STOP_EMERGENCY_MULT × the tier stop, auto-sell
+        # immediately without review to prevent catastrophic loss while committee deliberates.
         atr          = tech.get("atr")
         current_price = tech.get("price")
         entry_price   = float(p.get("avg_entry_price") or p.get("avg_entry") or 0)
         atr_stop_hit  = False
-        if not _is_btc(sym) and atr and entry_price > 0 and current_price and current_price > 0:
+        if atr and entry_price > 0 and current_price and current_price > 0:
             mult = (config.ATR_STOP_MULT_MEGA_LARGE
                     if tier in ("mega", "large_growth")
                     else config.ATR_STOP_MULT_MID_SPEC)
             atr_stop_price = entry_price - (mult * atr)
             if current_price <= atr_stop_price:
-                exits.append({"symbol": sym, "action": "SELL",
-                               "reason": f"ATR_stop: price ${current_price:.2f} ≤ stop ${atr_stop_price:.2f} "
-                                         f"(entry ${entry_price:.2f} - {mult}×ATR ${atr:.2f})"})
+                emergency_pct = stop * config.STOP_EMERGENCY_MULT
+                if pct <= -emergency_pct:
+                    exits.append({"symbol": sym, "action": "SELL",
+                                   "reason": f"EMERGENCY_STOP: {pct:.1f}% loss exceeds {emergency_pct:.0f}% "
+                                             f"emergency threshold (2× {stop:.0f}% tier stop) — "
+                                             f"auto-exit without committee review"})
+                else:
+                    exits.append({"symbol": sym, "action": "STOP_REVIEW",
+                                   "reason": f"ATR_stop: price ${current_price:.2f} ≤ stop ${atr_stop_price:.2f} "
+                                             f"(entry ${entry_price:.2f} − {mult}×ATR ${atr:.2f}) | "
+                                             f"loss {pct:.1f}% | committee decides: SELL / HOLD / BUY"})
                 atr_stop_hit = True
 
         if atr_stop_hit:
             continue
 
-        # Fallback fixed % stop (when ATR unavailable)
+        # Fallback fixed % stop (when ATR unavailable).
         if pct <= -stop:
-            exits.append({"symbol": sym, "action": "SELL", "reason": f"stop_loss ({pct:.1f}%)"})
+            emergency_pct = stop * config.STOP_EMERGENCY_MULT
+            if pct <= -emergency_pct:
+                exits.append({"symbol": sym, "action": "SELL",
+                               "reason": f"EMERGENCY_STOP: {pct:.1f}% loss exceeds {emergency_pct:.0f}% "
+                                         f"emergency threshold (2× {stop:.0f}% tier stop) — auto-exit"})
+            else:
+                exits.append({"symbol": sym, "action": "STOP_REVIEW",
+                               "reason": f"stop_loss: {pct:.1f}% hit {stop:.0f}% tier stop | "
+                                         f"committee decides: SELL / HOLD / BUY"})
             continue
 
-        # Trim rule: winner grown too large OR parabolic gain
+        # Trim rule: winner grown too large OR parabolic gain.
+        # Winner protection: if the stock is still trending up, skip the mechanical trim —
+        # let winners keep winning. The trailing stop and technical exit gates handle the turn.
         days = days_held_map.get(sym, 0)
         pos_pct_of_portfolio = abs(p.get("market_value", 0)) / max(p.get("portfolio_equity", 1), 1) * 100 \
             if p.get("portfolio_equity") else None
@@ -746,14 +738,20 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
         max_tier_alloc = max(config.TIER_ALLOC.get(tier, {}).values(), default=config.MAX_POSITION_PCT)
         trim_threshold = max_tier_alloc * config.TRIM_TRIGGER_MULTIPLE
         if pos_pct_of_portfolio >= trim_threshold:
-            exits.append({"symbol": sym, "action": "TRIM",
-                           "reason": f"trim_rule: position {pos_pct_of_portfolio:.1f}% ≥ {trim_threshold:.1f}% "
-                                     f"(1.4× max tier alloc {max_tier_alloc:.1f}%) — trim 33%"})
-            continue
+            if _is_still_winner(tech, pct):
+                pass  # winner outgrew target weight but momentum intact — let it run
+            else:
+                exits.append({"symbol": sym, "action": "TRIM",
+                               "reason": f"trim_rule: position {pos_pct_of_portfolio:.1f}% ≥ {trim_threshold:.1f}% "
+                                         f"(1.4× max tier alloc {max_tier_alloc:.1f}%) — trim 33%"})
+                continue
         if pct >= config.TRIM_FAST_GAIN_PCT and days < 30:
-            exits.append({"symbol": sym, "action": "TRIM",
-                           "reason": f"trim_rule: +{pct:.1f}% gain in {days}d (<30d parabolic) — trim 33%"})
-            continue
+            if _is_still_winner(tech, pct):
+                pass  # parabolic winner still trending — let it run
+            else:
+                exits.append({"symbol": sym, "action": "TRIM",
+                               "reason": f"trim_rule: +{pct:.1f}% gain in {days}d (<30d parabolic) — trim 33%"})
+                continue
 
         # Dead money: speculative → REVIEW; medium-term → shorter 45d window; others → sell
         days = days_held_map.get(sym, 0)
@@ -803,8 +801,8 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
                                "reason": f"trailing_stop ({tier}): up {pct:.1f}% overall but 1M={r1m:.1f}%"})
                 continue
 
-        # Technical exits on profitable positions (need 2 signals for stocks)
-        if pct > 0 and not _is_btc(sym):
+        # Technical exits on profitable positions (need 2 signals)
+        if pct > 0:
             bearish_signals = 0
             if tech.get("macd_cross") == "bearish":
                 bearish_signals += 1
@@ -816,15 +814,6 @@ def check_stops(positions: list, signals_map: dict = None, days_held_map: dict =
                 bearish_signals += 1
             if bearish_signals >= 2:
                 exits.append({"symbol": sym, "action": "SELL", "reason": f"technical_exit ({bearish_signals} bearish signals: RSI={f'{rsi:.0f}' if rsi else '?'}, MACD={tech.get('macd_cross')})"})
-                continue
-
-        # BTC: single strong signal is enough
-        if pct > 0 and _is_btc(sym):
-            if rsi and rsi > 82 and tech.get("macd_cross") == "bearish":
-                exits.append({"symbol": sym, "action": "SELL", "reason": f"BTC RSI={rsi:.0f} + MACD bearish — trimming profit"})
-                continue
-            if tech.get("death_cross"):
-                exits.append({"symbol": sym, "action": "SELL", "reason": "BTC death cross — exiting"})
                 continue
 
     return exits
@@ -914,8 +903,6 @@ def validate(decision: dict, portfolio: dict) -> dict:
             decision = {**decision, "_beta_reduced": True}
         if asset_type == "option" and portfolio.get("options_pct", 0) >= config.MAX_OPTIONS_PCT:
             return _hold(decision, "max options exposure reached")
-        if asset_type == "crypto" and portfolio.get("crypto_pct", 0) >= config.MAX_CRYPTO_PCT:
-            return _hold(decision, "max crypto exposure reached")
 
         # Tier lookup
         tier = config.TICKER_TIERS.get(symbol, "mid_growth")

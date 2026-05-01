@@ -13,10 +13,6 @@ TASKS = [
     ("TradingAgent_Premarket", ["--premarket"],      "weekly",  "MON,TUE,WED,THU,FRI",   "09:00"),
     ("TradingAgent_Cycle",     [],                  "weekly",  "MON,TUE,WED,THU,FRI",   "09:35"),
     ("TradingAgent_Close",     ["--close-summary"], "weekly",  "MON,TUE,WED,THU,FRI",   "16:05"),
-    ("TradingAgent_BTC_0000",  ["--btc-check"],     "daily",   None,                     "00:00"),
-    ("TradingAgent_BTC_0600",  ["--btc-check"],     "daily",   None,                     "06:00"),
-    ("TradingAgent_BTC_1200",  ["--btc-check"],     "daily",   None,                     "12:00"),
-    ("TradingAgent_BTC_1800",  ["--btc-check"],     "daily",   None,                     "18:00"),
 ]
 
 def create_task(name, args, schedule, days, time_et):

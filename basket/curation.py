@@ -31,7 +31,21 @@ from basket.tier_criteria import (
 )
 
 _FMP     = "https://financialmodelingprep.com/stable"
+_UW_BASE = "https://api.unusualwhales.com"
 _TIMEOUT = 12
+
+# UW screener sector → internal sector keys (UW uses standard GICS names)
+_UW_SECTOR_TO_INTERNAL: dict[str, list[str]] = {
+    "Technology":             ["ai_software", "semis", "cyber", "ai_infra", "quantum", "voice_ai", "mega_tech"],
+    "Healthcare":             ["healthcare", "biotech"],
+    "Energy":                 ["energy_oil", "nuclear"],
+    "Basic Materials":        ["commodities_metals"],
+    "Industrials":            ["defense", "robotics", "space"],
+    "Consumer Cyclical":      ["ecommerce"],
+    "Financial Services":     ["fintech"],
+    "Communication Services": ["ai_software", "ecommerce"],
+    "Utilities":              ["nuclear", "energy_oil"],
+}
 
 _THESIS_STATE_PATH = os.path.join(os.path.dirname(__file__), "thesis_state.json")
 
@@ -43,10 +57,305 @@ _THESIS_SECTORS = [
 
 _ETHICAL_EXCLUSIONS = {"APP"}
 
+# Maps our internal sector keys → FMP screener {sector, industry?} params.
+# Multiple entries per key = run one screener pass per entry (combine results).
+# Industry strings must match FMP's taxonomy exactly.
+_SECTOR_TO_FMP: dict[str, list[dict]] = {
+    "defense":            [{"sector": "Industrials",        "industry": "Aerospace & Defense"}],
+    "energy_oil":         [{"sector": "Energy"}],
+    "commodities_metals": [{"sector": "Basic Materials"}],
+    "cyber":              [{"sector": "Technology",         "industry": "Security & Protection Services"},
+                           {"sector": "Technology",         "industry": "Software-Infrastructure"}],
+    "nuclear":            [{"sector": "Utilities"},
+                           {"sector": "Basic Materials",    "industry": "Uranium"}],
+    "ai_software":        [{"sector": "Technology",         "industry": "Software-Application"},
+                           {"sector": "Technology",         "industry": "Software-Infrastructure"}],
+    "semis":              [{"sector": "Technology",         "industry": "Semiconductors"},
+                           {"sector": "Technology",         "industry": "Semiconductor Equipment & Materials"}],
+    "healthcare":         [{"sector": "Healthcare",         "industry": "Drug Manufacturers-General"},
+                           {"sector": "Healthcare",         "industry": "Medical Devices"},
+                           {"sector": "Healthcare",         "industry": "Health Information Services"}],
+    "biotech":            [{"sector": "Healthcare",         "industry": "Biotechnology"}],
+    "fintech":            [{"sector": "Financial Services", "industry": "Capital Markets"},
+                           {"sector": "Financial Services", "industry": "Financial Data & Stock Exchanges"},
+                           {"sector": "Financial Services", "industry": "Credit Services"}],
+    "ecommerce":          [{"sector": "Consumer Cyclical",  "industry": "Internet Retail"}],
+    "robotics":           [{"sector": "Industrials",        "industry": "Specialty Industrial Machinery"},
+                           {"sector": "Industrials",        "industry": "Electrical Equipment & Parts"}],
+    "ai_infra":           [{"sector": "Technology",         "industry": "Communication Equipment"},
+                           {"sector": "Technology",         "industry": "Computer Hardware"}],
+    "space":              [{"sector": "Industrials",        "industry": "Aerospace & Defense"}],
+}
+
+# yfinance sector → list of internal sector keys (for unknown tickers)
+_YF_SECTOR_TO_INTERNAL: dict[str, list[str]] = {
+    "Technology":           ["ai_software", "semis", "cyber", "ai_infra", "quantum", "voice_ai", "mega_tech"],
+    "Healthcare":           ["healthcare", "biotech"],
+    "Energy":               ["energy_oil", "nuclear"],
+    "Basic Materials":      ["commodities_metals"],
+    "Industrials":          ["defense", "robotics", "space"],
+    "Consumer Cyclical":    ["ecommerce"],
+    "Financial Services":   ["fintech"],
+    "Communication Services": ["ai_software", "ecommerce"],
+    "Utilities":            ["nuclear", "energy_oil"],
+}
+
+# GICS Sub-Industry → internal sector keys (for S&P 500 CSV fallback)
+_GICS_SUB_TO_INTERNAL: dict[str, list[str]] = {
+    # Information Technology
+    "Application Software":                       ["ai_software"],
+    "Systems Software":                           ["ai_software", "cyber"],
+    "Internet Services & Infrastructure":         ["ai_infra", "ai_software"],
+    "Communications Equipment":                   ["ai_infra"],
+    "Technology Hardware, Storage & Peripherals": ["ai_infra"],
+    "Electronic Components":                      ["ai_infra"],
+    "Electronic Equipment & Instruments":         ["ai_infra"],
+    "Semiconductors":                             ["semis"],
+    "Semiconductor Materials & Equipment":        ["semis"],
+    "IT Consulting & Other Services":             ["ai_software"],
+    # Defense / Space
+    "Aerospace & Defense":                        ["defense", "space"],
+    # Energy
+    "Integrated Oil & Gas":                       ["energy_oil"],
+    "Oil & Gas Equipment & Services":             ["energy_oil"],
+    "Oil & Gas Exploration & Production":         ["energy_oil"],
+    "Oil & Gas Refining & Marketing":             ["energy_oil"],
+    "Oil & Gas Storage & Transportation":         ["energy_oil"],
+    # Metals / Commodities
+    "Gold":                                       ["commodities_metals"],
+    "Copper":                                     ["commodities_metals"],
+    "Steel":                                      ["commodities_metals"],
+    "Aluminum":                                   ["commodities_metals"],
+    "Diversified Metals & Mining":                ["commodities_metals"],
+    "Fertilizers & Agricultural Chemicals":       ["commodities_metals"],
+    # Healthcare
+    "Pharmaceuticals":                            ["healthcare"],
+    "Health Care Equipment":                      ["healthcare"],
+    "Health Care Technology":                     ["healthcare"],
+    "Life Sciences Tools & Services":             ["healthcare"],
+    "Health Care Services":                       ["healthcare"],
+    # Biotech
+    "Biotechnology":                              ["biotech"],
+    # Fintech
+    "Financial Exchanges & Data":                 ["fintech"],
+    "Transaction & Payment Processing Services":  ["fintech"],
+    "Investment Banking & Brokerage":             ["fintech"],
+    "Asset Management & Custody Banks":           ["fintech"],
+    # E-commerce / Consumer
+    "Broadline Retail":                           ["ecommerce"],
+    "Internet Retail":                            ["ecommerce"],
+    "Interactive Media & Services":               ["ai_software"],
+    # Robotics / Industrial
+    "Industrial Machinery & Supplies & Components": ["robotics"],
+    "Electrical Components & Equipment":          ["robotics"],
+    "Electronic Manufacturing Services":          ["robotics"],
+}
+
+# Curated growth/speculative tickers NOT in S&P 500 — keyed by internal sector.
+# These are known high-quality names the S&P 500 CSV won't capture.
+_SECTOR_EXTENDED_UNIVERSE: dict[str, list[str]] = {
+    "defense":            ["RKLB", "KTOS", "AVAV", "ACHR", "JOBY", "SPCE"],
+    "space":              ["RKLB", "ACHR", "JOBY", "LUNR", "ASTS", "LLAP"],
+    "cyber":              ["CRWD", "S", "PANW", "FTNT", "ZS", "OKTA", "CYBR", "NET", "TENB"],
+    "ai_software":        ["PLTR", "AI", "PATH", "BBAI", "SOUN", "GFAI", "AMBA"],
+    "semis":              ["NVDA", "AMD", "AEHR", "WOLF", "OLED", "CREE", "IMOS", "MPWR"],
+    "ai_infra":           ["SMCI", "DELL", "HPE", "POWI", "CDNS", "SNPS"],
+    "nuclear":            ["CCJ", "NNE", "BWXT", "SMR", "OKLO"],
+    "energy_oil":         ["AR", "VTLE", "CRGY", "CTRA", "EQT", "SWN", "DINO", "VET"],
+    "commodities_metals": ["MP", "UUUU", "NEM", "AEM", "WPM", "PAAS", "SBSW", "HL"],
+    "biotech":            ["RXRX", "BEAM", "EDIT", "CRSP", "NTLA", "VERV", "TDTX"],
+    "healthcare":         ["VEEV", "HIMS", "ACCD", "PHR", "OMED", "IRTC"],
+    "fintech":            ["HOOD", "COIN", "AFRM", "UPST", "SQ", "SOFI", "DAVE"],
+    "ecommerce":          ["SHOP", "ETSY", "W", "WISH", "POSH", "CARG"],
+    "robotics":           ["IRBT", "ISRG", "NVEI", "TNDM", "BLBD", "LAZR", "LIDR"],
+    "quantum":            ["IONQ", "QUBT", "RGTI", "IBM", "HON"],
+    "voice_ai":           ["SOUN", "AMZN", "MSFT", "GOOGL", "CEVA"],
+}
+
 
 def _winning_sectors(sector_weights: dict, min_weight: float = 0.55) -> set[str]:
     """Return sector keys that are regime-active (weight >= min_weight)."""
     return {s for s, w in sector_weights.items() if w >= min_weight}
+
+
+# ── News-driven discovery ─────────────────────────────────────────────────────
+
+# Keywords used to decide which news articles are relevant to a given sector
+_NEWS_SECTOR_KEYWORDS: dict[str, list[str]] = {
+    "defense":            ["defense", "military", "pentagon", "missile", "drone",
+                           "weapon", "war", "navy", "army", "contract", "lockheed",
+                           "raytheon", "northrop", "general dynamics"],
+    "energy_oil":         ["oil", "energy", "petroleum", "crude", "barrel", "opec",
+                           "lng", "pipeline", "refin", "chevron", "exxon", "conoco"],
+    "commodities_metals": ["gold", "copper", "steel", "aluminum", "mining", "metal",
+                           "commodity", "iron ore", "silver", "uranium"],
+    "cyber":              ["cyber", "hack", "breach", "ransomware", "security",
+                           "malware", "phish", "zero-day", "crowdstrike"],
+    "nuclear":            ["nuclear", "uranium", "reactor", "smr", "fission",
+                           "cameco", "enrichment"],
+    "semis":              ["semiconductor", "chip", "wafer", "foundry", "fab",
+                           "nvidia", "intel", "tsmc", "amd"],
+    "ai_software":        ["artificial intelligence", " ai ", "llm", "large language",
+                           "openai", "palantir", "model", "generative"],
+    "biotech":            ["biotech", "clinical trial", "fda approval", "therapy",
+                           "cancer drug", "gene editing", "crispr"],
+    "healthcare":         ["healthcare", "medical device", "pharma", "hospital",
+                           "health insurance", "drug approval"],
+    "fintech":            ["payment", "fintech", "crypto", "blockchain", "exchange",
+                           "trading platform", "coinbase", "robinhood"],
+}
+
+_KNOWN_ETFS = {
+    "XLE", "XLK", "XLF", "XLV", "XLI", "XLB", "XLU", "XLP", "XLY", "XLC",
+    "NUCL", "SDEF", "ITA", "XAR", "CIBR", "BUG", "HACK", "SOXX", "SMH",
+    "GDX", "GDXJ", "SLV", "GLD", "USO", "OIH", "XOP", "ARKK", "ARKG",
+    "BOTZ", "ROBO", "IBB", "XBI", "KBE", "REMX", "COPX", "PICK",
+}
+
+_NEWS_DISCOVERY_CACHE = "/tmp/kimmy_news_discovery.json"
+_FINNHUB_NEWS_CACHE   = "/tmp/kimmy_finnhub_news.json"
+
+
+def _fetch_finnhub_news() -> list[dict]:
+    """Fetch Finnhub general news (100 articles). Cached in /tmp for 2h."""
+    import time as _time
+    if os.path.exists(_FINNHUB_NEWS_CACHE):
+        if _time.time() - os.path.getmtime(_FINNHUB_NEWS_CACHE) < 7200:
+            try:
+                with open(_FINNHUB_NEWS_CACHE) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    if not config.FINNHUB_API_KEY:
+        return []
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/news",
+            params={"category": "general", "token": config.FINNHUB_API_KEY},
+            timeout=12,
+        )
+        if r.status_code != 200:
+            return []
+        articles = r.json() if isinstance(r.json(), list) else []
+        with open(_FINNHUB_NEWS_CACHE, "w") as f:
+            json.dump(articles, f)
+        return articles
+    except Exception:
+        return []
+
+
+def _news_driven_tickers(winning_sector_keys: set[str], basket_set: set,
+                          regime_label: str, regime_shift: bool) -> list[dict]:
+    """
+    Scan today's Finnhub news headlines, ask Haiku to extract company tickers
+    that are in winning sectors. This is the truly dynamic discovery layer —
+    not preselected. A company that wins a contract or surges on Iran news
+    today will appear here even if it's in none of our static lists.
+
+    Results cached 4h in /tmp to avoid repeated Haiku calls in the same session.
+    """
+    import time as _time, re as _re
+
+    # Return cached result if fresh enough
+    if os.path.exists(_NEWS_DISCOVERY_CACHE):
+        try:
+            with open(_NEWS_DISCOVERY_CACHE) as f:
+                cached = json.load(f)
+            age = _time.time() - os.path.getmtime(_NEWS_DISCOVERY_CACHE)
+            # Invalidate cache on regime shift or if > 4h old
+            if age < 14400 and not regime_shift and cached.get("regime_label") == regime_label:
+                return cached.get("tickers", [])
+        except Exception:
+            pass
+
+    articles = _fetch_finnhub_news()
+    if not articles:
+        return []
+
+    # Filter articles to those touching winning sectors (headline + first 200 chars of summary)
+    relevant_headlines: list[str] = []
+    for a in articles[:80]:
+        text = (a.get("headline", "") + " " + (a.get("summary", "") or "")[:200]).lower()
+        for sk in winning_sector_keys:
+            if any(kw in text for kw in _NEWS_SECTOR_KEYWORDS.get(sk, [])):
+                h = a.get("headline", "").strip()
+                if h and h not in relevant_headlines:
+                    relevant_headlines.append(h[:160])
+                break
+
+    if len(relevant_headlines) < 3:
+        print("  [SectorScan/News] Too few relevant headlines — skipping news layer")
+        return []
+
+    relevant_headlines = relevant_headlines[:25]
+    sectors_str = ", ".join(sorted(winning_sector_keys))
+
+    prompt = (
+        f"Current macro regime: {regime_label}\n"
+        f"Sectors with BUY signal: {sectors_str}\n\n"
+        "Today's relevant news headlines:\n"
+        + "\n".join(f"- {h}" for h in relevant_headlines)
+        + "\n\n"
+        "Task: identify US-listed individual COMPANY stocks (NOT ETFs, NOT funds) "
+        "that are in the winning sectors above AND are likely to benefit from these news. "
+        "Think about:\n"
+        "- Defense contractors winning new contracts\n"
+        "- Oil/energy companies gaining from supply disruptions\n"
+        "- Cybersecurity firms benefiting from threat escalation\n"
+        "- Companies directly mentioned or strongly implied\n\n"
+        "Return ONLY valid JSON (no explanation):\n"
+        '[{"ticker": "SYM", "sector_key": "sector_name", "rationale": "1 sentence"}]\n'
+        "Rules: max 8 tickers, only real US NASDAQ/NYSE-listed company stocks, "
+        "no ETFs, no SPACs, no foreign-listed stocks."
+    )
+
+    try:
+        resp = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY).messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        m = _re.search(r'\[.*?\]', raw, _re.DOTALL)
+        if not m:
+            return []
+        candidates = json.loads(m.group(0))
+    except Exception as e:
+        print(f"  [SectorScan/News] Haiku call failed: {e}")
+        return []
+
+    results: list[dict] = []
+    for c in candidates:
+        sym = (c.get("ticker") or "").upper().strip()
+        sk  = (c.get("sector_key") or "").lower().strip().replace(" ", "_")
+        if not sym or not sym.isalpha() or len(sym) > 5:
+            continue
+        if sym in basket_set or sym in _KNOWN_ETFS:
+            continue
+        # Accept exact sector key or a close match
+        if sk not in winning_sector_keys:
+            matched = next((wsk for wsk in winning_sector_keys if wsk in sk or sk in wsk), None)
+            if not matched:
+                continue
+            sk = matched
+        results.append({
+            "symbol":     sym,
+            "sector_key": sk,
+            "source":     "news_driven",
+            "rationale":  (c.get("rationale") or "")[:120],
+        })
+
+    print(f"  [SectorScan/News] {len(results)} news-driven tickers from "
+          f"{len(relevant_headlines)} relevant headlines")
+
+    # Cache result
+    try:
+        with open(_NEWS_DISCOVERY_CACHE, "w") as f:
+            json.dump({"regime_label": regime_label, "tickers": results}, f)
+    except Exception:
+        pass
+
+    return results
 
 
 # ── Thesis state helpers ──────────────────────────────────────────────────────
@@ -66,27 +375,72 @@ def _thesis_intact(symbol: str, thesis_state: dict) -> bool:
 
 # ── FMP screener helpers ──────────────────────────────────────────────────────
 
+_MONTHLY_UNIVERSE_BY_TIER: dict[str, list[str]] = {
+    "mega":        ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "TSM", "ORCL"],
+    "large_growth":["PLTR", "CRWD", "NET", "DDOG", "SNOW", "ZS", "PANW", "FTNT", "AXON", "MSTR",
+                    "AMD", "ANET", "MRVL", "SMCI", "ARM", "ASML", "LRCX", "KLAC", "AMAT", "TER",
+                    "LMT", "RTX", "NOC", "GD", "HII", "LDOS", "CACI", "SAIC", "AXON", "KTOS"],
+    "mid_growth":  ["IONQ", "RXRX", "BEAM", "EDIT", "CRSP", "NTLA", "HIMS", "ACCD", "PHR", "IRTC",
+                    "RKLB", "KTOS", "AVAV", "AR", "EQT", "VTLE", "CRGY", "CTRA", "SWN",
+                    "MP", "UUUU", "CCJ", "NNE", "BWXT", "SMR", "OKLO",
+                    "HOOD", "COIN", "AFRM", "UPST", "SOFI", "DAVE",
+                    "SHOP", "SQ", "MELI", "GRAB", "NWSA"],
+    "speculative": ["IONQ", "QUBT", "RGTI", "LUNR", "ASTS", "SOUN", "LLAP",
+                    "RXRX", "BEAM", "NNE", "OKLO", "SMR", "MP", "UUUU",
+                    "RKLB", "KTOS", "ACHR", "JOBY", "LILM",
+                    "HOOD", "DAVE", "ACCD", "HIMS", "GFAI", "BBAI"],
+}
+
+
 def _fmp_screener(tier: str) -> list[dict]:
-    """Run FMP screener with tier-appropriate thresholds."""
-    if not config.FMP_API_KEY:
-        return []
+    """
+    Run FMP screener with tier-appropriate thresholds.
+    Falls back to a curated universe + yfinance fundamentals if the FMP
+    screener endpoint returns non-200 (free tier restriction or endpoint change).
+    """
     crit = TIER_CRITERIA.get(tier, TIER_CRITERIA["mid_growth"])
-    params = {
-        "marketCapMoreThan":    int(crit.get("min_mcap", 500e6)),
-        "revenueGrowthMoreThan": crit.get("min_rev_growth", 0.15),
-        "country":  "US",
-        "exchange": "NASDAQ,NYSE",
-        "limit":    60,
-        "apikey":   config.FMP_API_KEY,
-    }
-    if tier == "speculative":
-        params["marketCapLessThan"] = int(crit.get("max_mcap", 25e9))
-    try:
-        resp = requests.get(f"{_FMP}/stock-screener", params=params, timeout=_TIMEOUT)
-        return resp.json() if resp.status_code == 200 else []
-    except Exception as e:
-        print(f"  [Curation] Screener error ({tier}): {e}")
-        return []
+
+    if config.FMP_API_KEY:
+        params = {
+            "marketCapMoreThan":     int(crit.get("min_mcap", 500e6)),
+            "revenueGrowthMoreThan": crit.get("min_rev_growth", 0.15),
+            "country":  "US",
+            "exchange": "NASDAQ,NYSE",
+            "limit":    60,
+            "apikey":   config.FMP_API_KEY,
+        }
+        if tier == "speculative":
+            params["marketCapLessThan"] = int(crit.get("max_mcap", 25e9))
+        try:
+            resp = requests.get(f"{_FMP}/stock-screener", params=params, timeout=_TIMEOUT)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    return data
+        except Exception as e:
+            print(f"  [Curation] FMP screener error ({tier}): {e}")
+
+    # Fallback: curated universe + quick yfinance fundamentals
+    print(f"  [Curation] FMP screener unavailable for '{tier}' — using curated universe fallback")
+    universe = _MONTHLY_UNIVERSE_BY_TIER.get(tier, _MONTHLY_UNIVERSE_BY_TIER["large_growth"])
+    results = []
+    for sym in universe:
+        try:
+            info = yf.Ticker(sym).info or {}
+            results.append({
+                "symbol":       sym,
+                "companyName":  info.get("longName", sym),
+                "sector":       info.get("sector", ""),
+                "industry":     info.get("industry", ""),
+                "marketCap":    info.get("marketCap", 0),
+                "revenueGrowth": info.get("revenueGrowth"),
+                "grossMargins":  info.get("grossMargins"),
+                "trailingPE":   info.get("trailingPE"),
+                "source":       "curated_universe",
+            })
+        except Exception:
+            results.append({"symbol": sym, "source": "curated_universe"})
+    return results
 
 
 def _quick_fundamentals(symbol: str) -> dict:
@@ -536,7 +890,7 @@ def run_weekly(existing_basket: list[str],
 
     print("\n  [WeeklyCuration] Scoring basket tickers (tier-aware)...")
     thesis_state = _load_thesis_state()
-    stocks = [s for s in existing_basket if not s.startswith("BTC")]
+    stocks = existing_basket
     scored = [_weekly_score_ticker(s, cached_research, thesis_state) for s in stocks]
 
     # Load macro regime for sector routing
@@ -1324,3 +1678,383 @@ Output ONLY valid JSON:
           f"applied={ready_syms}, proposed={newly_proposed}, added={[c['symbol'] for c in replacements]}")
 
     return final_tickers, final_meta, discord_msg
+
+
+# ── Regime-driven sector opportunity scan ────────────────────────────────────
+
+_SP500_CSV_URL  = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
+_SP500_CACHE    = "/tmp/kimmy_sp500_constituents.csv"
+
+
+def _fetch_sp500_by_sector(winning_keys: set[str]) -> dict[str, list[str]]:
+    """
+    Fetch S&P 500 CSV (cached in /tmp for 24h), return {sector_key: [tickers]}.
+    Uses GICS Sub-Industry → internal sector mapping for precision.
+    """
+    import io, csv as _csv, time as _time
+
+    # 24-hour cache to avoid hammering GitHub
+    if os.path.exists(_SP500_CACHE):
+        if _time.time() - os.path.getmtime(_SP500_CACHE) < 86400:
+            with open(_SP500_CACHE) as f:
+                raw = f.read()
+        else:
+            raw = None
+    else:
+        raw = None
+
+    if raw is None:
+        try:
+            r = requests.get(_SP500_CSV_URL, timeout=15)
+            if r.status_code == 200:
+                raw = r.text
+                with open(_SP500_CACHE, "w") as f:
+                    f.write(raw)
+            else:
+                print(f"  [SectorScan] S&P 500 CSV fetch failed: {r.status_code}")
+                return {}
+        except Exception as e:
+            print(f"  [SectorScan] S&P 500 CSV error: {e}")
+            return {}
+
+    by_sector: dict[str, list[str]] = {k: [] for k in winning_keys}
+    reader = _csv.DictReader(io.StringIO(raw))
+    for row in reader:
+        sym      = (row.get("Symbol") or "").upper().strip()
+        sub_ind  = row.get("GICS Sub-Industry", "")
+        if not sym or not sym.isalpha():
+            continue
+        internal_keys = _GICS_SUB_TO_INTERNAL.get(sub_ind, [])
+        for key in internal_keys:
+            if key in winning_keys:
+                by_sector[key].append(sym)
+
+    return by_sector
+
+
+def _uw_screener_scan(winning: list[tuple], min_mcap: int, basket_set: set,
+                      max_per_sector: int, regime_label: str, regime_shift: bool) -> list[dict]:
+    """
+    Layer 1 (primary): UW options-flow screener.
+    Filters by sector, market cap, and net bullish options premium.
+    Works on the $150 UW plan — no FMP Professional needed.
+    Returns stocks where smart money (options flow) is net bullish in winning sectors.
+    """
+    if not config.UNUSUAL_WHALES_API_KEY:
+        return []
+
+    import requests as _req
+    headers = {"Authorization": f"Bearer {config.UNUSUAL_WHALES_API_KEY}", "Accept": "application/json"}
+
+    try:
+        r = _req.get(f"{_UW_BASE}/api/screener/stocks", headers=headers,
+                     params={"limit": 500}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return []
+        rows = r.json().get("data", r.json()) if isinstance(r.json(), dict) else r.json()
+        if not isinstance(rows, list) or not rows:
+            return []
+    except Exception:
+        return []
+
+    winning_keys = {s for s, _ in winning}
+    weight_map   = dict(winning)
+
+    # Build set of UW sectors that map to our winning internal sectors
+    target_uw_sectors: set[str] = set()
+    for uw_sec, internal_keys in _UW_SECTOR_TO_INTERNAL.items():
+        if any(k in winning_keys for k in internal_keys):
+            target_uw_sectors.add(uw_sec)
+
+    discoveries: list[dict] = []
+    seen:        set[str]   = set()
+    per_sector:  dict       = {}
+
+    for row in rows:
+        sym = (row.get("ticker") or "").upper()
+        if not sym or not sym.isalpha() or len(sym) > 5:
+            continue
+        if row.get("issue_type") == "ETF" or row.get("is_index"):
+            continue
+        if sym in basket_set or sym in seen:
+            continue
+
+        uw_sector = row.get("sector", "")
+        if uw_sector not in target_uw_sectors:
+            continue
+
+        mcap = float(row.get("marketcap") or 0)
+        if mcap < min_mcap:
+            continue
+
+        # Options flow quality gate: net bullish (call premium > put premium)
+        call_prem = float(row.get("call_premium") or 0)
+        put_prem  = float(row.get("put_premium")  or 0)
+        net_call  = float(row.get("net_call_premium") or 0)
+        if call_prem <= 0 or net_call <= 0:
+            continue
+
+        # Map to best-fit internal sector key
+        internal_keys = _UW_SECTOR_TO_INTERNAL.get(uw_sector, [])
+        best_key = next((k for k in internal_keys if k in winning_keys), None)
+        if not best_key:
+            continue
+
+        if per_sector.get(best_key, 0) >= max_per_sector:
+            continue
+
+        seen.add(sym)
+        per_sector[best_key] = per_sector.get(best_key, 0) + 1
+        weight = weight_map.get(best_key, 0.70)
+        iv_rank = float(row.get("iv_rank") or 0)
+        pc_ratio = float(row.get("put_call_ratio") or 1.0)
+
+        discoveries.append({
+            "symbol":        sym,
+            "sector_key":    best_key,
+            "sector_weight": weight,
+            "market_cap":    mcap,
+            "rev_growth":    None,
+            "regime_label":  regime_label,
+            "regime_shift":  regime_shift,
+            "source":        "uw_screener",
+            "note": (
+                f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                f"UW flow bullish | {best_key} ({weight:.2f}) | "
+                f"net_call=${net_call/1e6:.1f}M | IV_rank={iv_rank:.0f} | P/C={pc_ratio:.2f}"
+            ),
+        })
+
+    if discoveries:
+        print(f"  [SectorScan] Layer 1 (UW screener): {len(discoveries)} flow-confirmed opportunities")
+    return discoveries
+
+
+def _fmp_sector_scan(winning: list[tuple], min_mcap: int, min_rev_growth: float,
+                     basket_set: set, max_per_sector: int,
+                     regime_label: str, regime_shift: bool) -> list[dict]:
+    """FMP stock-screener (requires Professional plan — inactive on Starter)."""
+    discoveries: list[dict] = []
+    seen_syms:   set[str]   = set()
+    per_sector:  dict       = {}
+
+    for sector_key, weight in sorted(winning, key=lambda x: -x[1]):
+        fmp_param_list = _SECTOR_TO_FMP.get(sector_key)
+        if not fmp_param_list:
+            continue
+        for fmp_params in fmp_param_list:
+            if per_sector.get(sector_key, 0) >= max_per_sector:
+                break
+            params = {
+                "marketCapMoreThan":     int(min_mcap),
+                "revenueGrowthMoreThan": round(min_rev_growth, 3),
+                "country":               "US",
+                "exchange":              "NASDAQ,NYSE",
+                "limit":                 40,
+                "apikey":                config.FMP_API_KEY,
+                **fmp_params,
+            }
+            try:
+                resp = requests.get(f"{_FMP}/stock-screener", params=params, timeout=_TIMEOUT)
+                if resp.status_code != 200:
+                    return []   # signal caller to try fallback
+                results = resp.json() if isinstance(resp.json(), list) else []
+            except Exception:
+                return []
+            for row in results:
+                sym = (row.get("symbol") or "").upper()
+                if not sym or not sym.isalpha() or len(sym) > 5:
+                    continue
+                if sym in basket_set or sym in seen_syms:
+                    continue
+                if per_sector.get(sector_key, 0) >= max_per_sector:
+                    break
+                seen_syms.add(sym)
+                per_sector[sector_key] = per_sector.get(sector_key, 0) + 1
+                discoveries.append({
+                    "symbol":        sym,
+                    "sector_key":    sector_key,
+                    "sector_weight": weight,
+                    "market_cap":    row.get("marketCap", 0),
+                    "rev_growth":    row.get("revenueGrowth"),
+                    "regime_label":  regime_label,
+                    "regime_shift":  regime_shift,
+                    "source":        "fmp_screener",
+                    "note":          (
+                        f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                        f"FMP scan: {regime_label} | {sector_key} ({weight:.2f}) | "
+                        f"mcap ${row.get('marketCap', 0)/1e9:.1f}B"
+                    ),
+                })
+    return discoveries
+
+
+def _universe_sector_scan(winning: list[tuple], basket_set: set, max_per_sector: int,
+                          regime_label: str, regime_shift: bool) -> list[dict]:
+    """
+    Fallback path when FMP screener is unavailable.
+    Sources: S&P 500 CSV (GICS classification) + curated extended universe
+    for growth/speculative names outside S&P 500.
+    No revenue filter here — committee does the qualifying after onboarding research.
+    """
+    winning_keys = {s for s, _ in winning}
+    weight_map   = dict(winning)
+
+    # Layer 1: S&P 500 with GICS sub-industry precision
+    sp500_by_sector = _fetch_sp500_by_sector(winning_keys)
+
+    # Layer 2: Curated extended universe (growth/speculative names)
+    extended_by_sector: dict[str, list[str]] = {}
+    for key in winning_keys:
+        extended_by_sector[key] = _SECTOR_EXTENDED_UNIVERSE.get(key, [])
+
+    discoveries: list[dict] = []
+    seen_syms:   set[str]   = set()
+    per_sector:  dict       = {}
+
+    for sector_key, weight in sorted(winning, key=lambda x: -x[1]):
+        # Interleave S&P 500 and extended universe: 1 sp500 then 1 extended alternating
+        sp500_pool    = [s for s in sp500_by_sector.get(sector_key, [])
+                         if s not in basket_set and s not in seen_syms]
+        extended_pool = [s for s in extended_by_sector.get(sector_key, [])
+                         if s not in basket_set and s not in seen_syms]
+
+        # Alternate sources so we always get at least one from each layer
+        combined: list[tuple[str, str]] = []
+        i, j = 0, 0
+        while (i < len(sp500_pool) or j < len(extended_pool)) and len(combined) < max_per_sector * 2:
+            if i < len(sp500_pool):
+                combined.append((sp500_pool[i], "sp500_csv"))
+                i += 1
+            if j < len(extended_pool):
+                combined.append((extended_pool[j], "extended_universe"))
+                j += 1
+
+        for sym, source in combined:
+            if per_sector.get(sector_key, 0) >= max_per_sector:
+                break
+            if sym in seen_syms or sym in basket_set:
+                continue
+            if not sym.isalpha() or len(sym) > 5:
+                continue
+            seen_syms.add(sym)
+            per_sector[sector_key] = per_sector.get(sector_key, 0) + 1
+            discoveries.append({
+                "symbol":        sym,
+                "sector_key":    sector_key,
+                "sector_weight": weight,
+                "market_cap":    None,   # filled by onboarding research
+                "rev_growth":    None,
+                "regime_label":  regime_label,
+                "regime_shift":  regime_shift,
+                "source":        source,
+                "note":          (
+                    f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                    f"Universe scan: {regime_label} | {sector_key} ({weight:.2f}) | src={source}"
+                ),
+            })
+
+    return discoveries
+
+
+def run_sector_opportunity_scan(macro: dict, existing_basket: list[str],
+                                max_per_sector: int = 3) -> list[dict]:
+    """
+    Scan the broader market for stocks in regime-winning sectors that are NOT
+    already in the basket. Bridge between macro regime and new stock discovery.
+
+    Flow:
+      1. Try FMP stock-screener (requires Starter+ plan) — returns [] if 404/403.
+      2. Fall back to S&P 500 CSV (GICS sub-industry map) + curated extended
+         universe. No pre-qualification filter — onboarding research handles that.
+
+    Called daily from main.py. Results go to MT basket for committee review.
+    Returns list of dicts: [{symbol, sector_key, sector_weight, source, note}]
+    """
+    from basket.tier_criteria import get_tier_criteria
+
+    sector_weights = macro.get("sector_weights", {})
+    regime_label   = macro.get("regime_label", "growth_driven")
+    regime_shift   = macro.get("regime_shift", False)
+
+    winning = [(s, w) for s, w in sector_weights.items() if w >= 0.70]
+    if not winning:
+        print("  [SectorScan] No winning sectors (≥0.70) — skipping")
+        return []
+
+    thresholds     = get_tier_criteria("large_growth", regime_label)
+    min_rev_growth = max(0.0, thresholds.get("min_rev_growth", 0.15) - 0.05)
+    min_mcap       = 2_000_000_000
+
+    basket_set = set(existing_basket) | _ETHICAL_EXCLUSIONS
+
+    # Layer 1a: UW options-flow screener — net-bullish stocks in winning sectors
+    discoveries: list[dict] = []
+    if config.UNUSUAL_WHALES_API_KEY:
+        discoveries = _uw_screener_scan(
+            winning, min_mcap, basket_set, max_per_sector, regime_label, regime_shift,
+        )
+
+    # Layer 1b: FMP screener — only active on Professional plan ($49/month)
+    if not discoveries and config.FMP_API_KEY:
+        fmp_disc = _fmp_sector_scan(
+            winning, min_mcap, min_rev_growth, basket_set,
+            max_per_sector, regime_label, regime_shift,
+        )
+        if fmp_disc:
+            discoveries = fmp_disc
+
+    # Layer 2: S&P 500 CSV + extended curated universe (fallback when screeners unavailable)
+    if not discoveries:
+        print("  [SectorScan] Layer 2: S&P 500 + extended universe")
+        discoveries = _universe_sector_scan(
+            winning, basket_set, max_per_sector, regime_label, regime_shift,
+        )
+
+    # Layer 3: News-driven discovery — always runs, adds to whatever Layer 1/2 found.
+    # This catches companies mentioned in today's news that are in NO preselected list.
+    if config.FINNHUB_API_KEY and config.ANTHROPIC_API_KEY:
+        seen_syms    = {d["symbol"] for d in discoveries}
+        winning_keys = {s for s, _ in winning}
+        weight_map   = dict(winning)
+        news_hits    = _news_driven_tickers(
+            winning_keys, basket_set | seen_syms, regime_label, regime_shift,
+        )
+        for nd in news_hits:
+            sym = nd["symbol"]
+            if sym in seen_syms:
+                continue
+            seen_syms.add(sym)
+            sk     = nd["sector_key"]
+            weight = weight_map.get(sk, 0.70)
+            discoveries.append({
+                "symbol":        sym,
+                "sector_key":    sk,
+                "sector_weight": weight,
+                "market_cap":    None,
+                "rev_growth":    None,
+                "regime_label":  regime_label,
+                "regime_shift":  regime_shift,
+                "source":        "news_driven",
+                "note": (
+                    f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                    f"News-driven: {regime_label} | {sk} ({weight:.2f}) | "
+                    f"{nd.get('rationale', '')}"
+                ),
+            })
+        if news_hits:
+            print(f"  [SectorScan] Layer 3 (News): {len(news_hits)} additional tickers from today's headlines")
+
+    per_sector_count: dict = {}
+    for d in discoveries:
+        sk = d["sector_key"]
+        per_sector_count[sk] = per_sector_count.get(sk, 0) + 1
+
+    print(f"  [SectorScan] TOTAL {len(discoveries)} new opportunities across "
+          f"{len(per_sector_count)} winning sectors | regime={regime_label.upper()}")
+    for sk in sorted(per_sector_count):
+        syms   = [d["symbol"] for d in discoveries if d["sector_key"] == sk]
+        layers = [d["source"][:3].upper() for d in discoveries if d["sector_key"] == sk]
+        print(f"    {sk} ({per_sector_count[sk]}): {list(zip(syms, layers))}")
+
+    return discoveries

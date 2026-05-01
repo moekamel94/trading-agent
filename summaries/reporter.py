@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 import database.db as db
 from broker import alpaca
 from signals import technical
-from notifications import discord_bot as tg
+from notifications import discord_bot as discord
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ def run_premarket(dry_run: bool = False):
         portfolio = alpaca.get_portfolio()
         positions = alpaca.get_positions()
     except Exception as e:
-        tg.send(f"⚠️ Pre-market: portfolio fetch failed — {e}")
+        discord.send(f"⚠️ Pre-market: portfolio fetch failed — {e}")
         return
 
     equity   = portfolio.get("equity", 0)
@@ -355,7 +355,7 @@ def run_premarket(dry_run: bool = False):
     print("\n" + msg)
     db.log_summary("premarket", msg)
     if not dry_run:
-        tg.send(msg)
+        discord.send(msg)
 
 
 # ── Close-of-day ─────────────────────────────────────────────────────────────
@@ -396,7 +396,7 @@ def run_close():
     body = "\n".join(lines)
     print("\n" + body)
     db.log_summary("close", body)
-    tg.send(body)
+    discord.send(body)
 
     # EOD health digest — appended to close message
     try:

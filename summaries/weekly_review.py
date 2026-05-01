@@ -18,12 +18,10 @@ import database.db as db
 import database.research_cache as research_cache
 from broker import alpaca
 from signals import technical
-from notifications import discord_bot as tg
+from notifications import discord_bot as discord
 
 
 def _get_bars(symbol: str):
-    if "/" in symbol:
-        return alpaca.get_crypto_bars(symbol)
     return alpaca.get_stock_bars(symbol)
 
 
@@ -36,14 +34,14 @@ def run():
         portfolio  = alpaca.get_portfolio()
         positions  = alpaca.get_positions()
     except Exception as e:
-        tg.send(f"❌ Weekly review failed — could not fetch portfolio: {e}")
+        discord.send(f"❌ Weekly review failed — could not fetch portfolio: {e}")
         return
 
     equity = portfolio["equity"]
     cash   = portfolio["cash"]
 
     if not positions:
-        tg.send("📋 Weekly Review: No open positions — fully in cash.")
+        discord.send("📋 Weekly Review: No open positions — fully in cash.")
         return
 
     # Build a detailed snapshot of every position
@@ -188,7 +186,7 @@ OUTPUT FORMAT — respond in this exact JSON:
             raw = raw.strip()
         result = json.loads(raw)
     except Exception as e:
-        tg.send(f"❌ Weekly review Claude call failed: {e}")
+        discord.send(f"❌ Weekly review Claude call failed: {e}")
         return
 
     actions   = result.get("actions", [])
@@ -286,6 +284,6 @@ OUTPUT FORMAT — respond in this exact JSON:
 
     msg = "\n".join(lines)
     print(msg)
-    tg.send(msg)
+    discord.send(msg)
     db.log_summary("weekly_review", msg)
     print("\nWeekly review complete.")

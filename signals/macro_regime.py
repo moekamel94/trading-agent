@@ -435,18 +435,32 @@ def compute(force_refresh: bool = False) -> dict:
             with open(_CACHE_PATH) as f:
                 cached = json.load(f)
             if cached.get("date") == today:
+                # Back-fill keys added after the cache was first written
+                cached.setdefault("regime_shift", False)
+                cached.setdefault("prev_regime_label", None)
                 return cached
         except Exception:
             pass
 
     print("  [MacroRegime] Fetching macro data (FRED + yfinance)...")
     data: dict = {}
+    _fred_miss = 0
 
     # FRED series (monthly/weekly data — authoritative but lagged)
     for series_id, key in _FRED_SERIES.items():
         result = _fred_series(series_id)
         if result:
             data[key] = result
+        else:
+            _fred_miss += 1
+
+    if _fred_miss > 3:
+        try:
+            from monitoring import health
+            health.record_signal_degraded("MACRO", "macro_regime.fred",
+                                          f"{_fred_miss}/{len(_FRED_SERIES)} FRED series failed")
+        except Exception:
+            pass
 
     # yfinance (daily/live — DXY, gold, oil, VIX, treasury live)
     data.update(_yf_prices())
@@ -463,14 +477,29 @@ def compute(force_refresh: bool = False) -> dict:
     regime_label    = _derive_regime_label(regime, geo)
     sector_weights  = _derive_sector_weights(regime_label)
 
+    # Detect regime shift: compare to previous day's cached label
+    regime_shift       = False
+    prev_regime_label  = regime_label
+    try:
+        if os.path.exists(_CACHE_PATH):
+            with open(_CACHE_PATH) as _pf:
+                _prev = json.load(_pf)
+            if _prev.get("date") != today:          # it's from a different day
+                prev_regime_label = _prev.get("regime_label", regime_label)
+                regime_shift = prev_regime_label != regime_label
+    except Exception:
+        pass
+
     output = {
-        "date":            today,
-        "regime":          regime,
-        "regime_label":    regime_label,
-        "sector_weights":  sector_weights,
-        "geo_flags":       geo,
-        "raw":             data,
-        "upcoming_events": calendar,
+        "date":              today,
+        "regime":            regime,
+        "regime_label":      regime_label,
+        "sector_weights":    sector_weights,
+        "geo_flags":         geo,
+        "raw":               data,
+        "upcoming_events":   calendar,
+        "regime_shift":      regime_shift,
+        "prev_regime_label": prev_regime_label if regime_shift else None,
     }
 
     # Cache to disk

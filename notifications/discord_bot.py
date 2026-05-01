@@ -109,7 +109,7 @@ _BASE = (
     "- Run shell commands on the cloud server\n"
     "- Read and write files on the server\n"
     "- Execute Python code snippets\n"
-    "- Manage his trading agent (portfolio, positions, trades, BTC)\n"
+    "- Manage his trading agent (portfolio, positions, trades)\n"
     "- Help with any task, plan, or decision\n\n"
     "Rules:\n"
     "- For shell commands or file writes that change state: use request_approval first\n"
@@ -306,11 +306,6 @@ _TOOLS = [
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
-        "name": "get_btc",
-        "description": "Get BTC/USD current price, RSI, and open BTC position.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
         "name": "get_trade_history",
         "description": "Get recent trade history.",
         "input_schema": {
@@ -323,7 +318,11 @@ _TOOLS = [
     },
     {
         "name": "run_trading_cycle",
-        "description": "Trigger a full trading cycle. Use request_approval first.",
+        "description": (
+            "Trigger a full trading cycle using the best model (Opus 4.7). "
+            "Always uses Opus when run manually — scheduled cycles use Sonnet to save cost. "
+            "Use request_approval first."
+        ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -557,22 +556,13 @@ async def _exec_tool(name: str, inputs: dict, channel=None) -> str:
             pos = alpaca.get_positions()
             return json.dumps(pos) if pos else "No open positions."
 
-        elif name == "get_btc":
-            from broker import alpaca
-            from signals import technical
-            bars = alpaca.get_crypto_bars("BTC/USD")
-            tech = technical.compute(bars)
-            pos = alpaca.get_positions()
-            btc = next((p for p in pos if "BTC" in p["symbol"]), None)
-            return json.dumps({"price": tech.get("price"), "rsi": tech.get("rsi"), "position": btc})
-
         elif name == "get_trade_history":
             import database.db as db
             return json.dumps(db.get_recent_trades(inputs.get("limit", 10)), default=str)
 
         elif name == "run_trading_cycle":
-            subprocess.Popen([sys.executable, "main.py"], cwd=_DEFAULT_DIR)
-            return "Trading cycle started."
+            subprocess.Popen([sys.executable, "main.py", "--force-opus"], cwd=_DEFAULT_DIR)
+            return "Trading cycle started with Opus 4.7 (manual run)."
 
         elif name == "trade_option":
             import sys as _sys
@@ -732,16 +722,29 @@ def _send_webhook(text: str):
     """Send via Discord webhook — works without a running event loop."""
     import requests
     clean = re.sub(r"<[^>]+>", "", text)
+    # Split into ≤2000-char chunks so Discord accepts long thesis messages
+    chunks = [clean[i:i+1990] for i in range(0, len(clean), 1990)]
     try:
-        r = requests.post(
-            config.DISCORD_WEBHOOK_URL,
-            json={"content": f"```\n{clean[:1900]}\n```"},
-            timeout=10,
-        )
-        if r.status_code not in (200, 204):
-            print(f"  [Discord] Webhook error {r.status_code}: {r.text[:100]}")
+        for chunk in chunks:
+            r = requests.post(
+                config.DISCORD_WEBHOOK_URL,
+                json={"content": chunk},
+                timeout=10,
+            )
+            if r.status_code not in (200, 204):
+                print(f"  [Discord] Webhook error {r.status_code}: {r.text[:100]}")
+                try:
+                    from monitoring.self_healer import queue_discord_message
+                    queue_discord_message(chunk)
+                except Exception:
+                    pass
     except Exception as e:
         print(f"  [Discord] Webhook failed: {e}")
+        try:
+            from monitoring.self_healer import queue_discord_message
+            queue_discord_message(clean[:2000])
+        except Exception:
+            pass
 
 
 def send(text: str):
@@ -760,7 +763,10 @@ def send(text: str):
             ch = _bot_instance.get_channel(config.DISCORD_ALERT_CHANNEL_ID)
             if ch:
                 clean = re.sub(r"<[^>]+>", "", text)
-                await ch.send(f"```\n{clean[:1900]}\n```")
+                # Split into ≤2000-char chunks so long thesis messages are never truncated
+                chunks = [clean[i:i+1990] for i in range(0, len(clean), 1990)]
+                for chunk in chunks:
+                    await ch.send(chunk)
                 return
         print(f"  [Discord] Bot not ready — alert dropped:\n{text[:80]}")
 

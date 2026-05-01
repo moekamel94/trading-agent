@@ -41,20 +41,36 @@ _BASE_URL = "https://api.unusualwhales.com"
 # Per-ticker caches
 _baseline_cache:      dict[str, dict] = {}   # {symbol: {ts, p30, p90}}
 _darkpool_cache:      dict[str, dict] = {}   # {symbol: {ts, result}}
-_short_cache:         dict[str, dict] = {}   # {symbol: {ts, result}} — refreshes every 4h
-_iv_cache:            dict[str, dict] = {}   # {symbol: {ts, result}} — refreshes every 2h
-_oi_cache:            dict[str, dict] = {}   # {symbol: {ts, result}} — refreshes every 2h
+_short_cache:         dict[str, dict] = {}   # {symbol: {ts, result}}
+_iv_cache:            dict[str, dict] = {}   # {symbol: {ts, result}}
+_oi_cache:            dict[str, dict] = {}   # {symbol: {ts, result}}
+_flow_cache:          dict[str, dict] = {}   # {symbol: {ts, trades}} — short TTL dedup cache
 
-# Market-wide context cache — refreshes every 30 min
+# Market-wide context cache
 _market_context_cache: dict = {}
 
-# VIX term structure cache — refreshes every 30 min
+# VIX term structure cache
 _vts_cache: dict = {}
 
 _SHADOW_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uw_shadow.db")
 
-# Shadow mode DB path (same directory as main DB)
-_SHADOW_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uw_shadow.db")
+
+def _is_market_hours() -> bool:
+    """True during regular trading hours Mon-Fri 9:30-16:00 ET."""
+    try:
+        import zoneinfo
+        now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        if now.weekday() >= 5:
+            return False
+        t = now.hour * 60 + now.minute
+        return 570 <= t <= 960  # 9:30 to 16:00
+    except Exception:
+        return False
+
+
+def _ttl(after_hours_h: float, market_hours_h: float) -> float:
+    """Return appropriate TTL in hours based on whether market is open."""
+    return market_hours_h if _is_market_hours() else after_hours_h
 
 
 # ── Shadow mode DB ─────────────────────────────────────────────────────────────
@@ -126,22 +142,31 @@ def get_shadow_hit_rate(lookback_days: int = 90) -> dict:
 
 def _headers() -> dict:
     return {
-        "Authorization": f"Token {config.UNUSUAL_WHALES_API_KEY}",
+        "Authorization": f"Bearer {config.UNUSUAL_WHALES_API_KEY}",
         "Accept":        "application/json, text/plain",
     }
 
 
-def _fetch_flow(symbol: str, days: int = 7) -> list[dict]:
+def _fetch_flow(symbol: str, days: int = 7, use_cache: bool = True) -> list[dict]:
     """
     Fetch recent options flow for a ticker.
     Unusual Whales API: GET /api/stock/{ticker}/options-flow
-    Returns a list of trade records sorted newest-first.
-    Falls back gracefully to [] on any error.
+    Short in-memory dedup cache (5 min during market hours, 30 min AH) prevents
+    redundant calls within the same intraday scan cycle.
     """
     if not config.UNUSUAL_WHALES_API_KEY:
         return []
+    if use_cache:
+        cached = _flow_cache.get(symbol)
+        if cached:
+            ttl_min = 5 if _is_market_hours() else 30
+            age_min = (datetime.utcnow() - datetime.fromisoformat(cached["ts"])).total_seconds() / 60
+            if age_min < ttl_min:
+                trades = cached["trades"]
+                cutoff = datetime.utcnow() - timedelta(days=days)
+                return [t for t in trades if _trade_after(t, cutoff)]
     try:
-        url = f"{_BASE_URL}/api/stock/{symbol}/options-flow"
+        url = f"{_BASE_URL}/api/stock/{symbol}/flow-alerts"
         params = {"limit": 200}
         r = requests.get(url, headers=_headers(), params=params, timeout=_TIMEOUT)
         if r.status_code == 401:
@@ -154,24 +179,25 @@ def _fetch_flow(symbol: str, days: int = 7) -> list[dict]:
             return []
         data = r.json()
         # API may return {data: [...]} or directly [...]
-        trades = data.get("data", data) if isinstance(data, dict) else data
-        if not isinstance(trades, list):
+        all_trades = data.get("data", data) if isinstance(data, dict) else data
+        if not isinstance(all_trades, list):
             return []
-        # Filter to last N days
+        # Store full response in dedup cache (unfiltered — filter per caller's days param)
+        _flow_cache[symbol] = {"ts": datetime.utcnow().isoformat(), "trades": all_trades}
         cutoff = datetime.utcnow() - timedelta(days=days)
-        result = []
-        for t in trades:
-            ts_str = t.get("created_at") or t.get("timestamp") or ""
-            try:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00").replace("+00:00", ""))
-                if ts >= cutoff:
-                    result.append(t)
-            except Exception:
-                result.append(t)  # include if date unparseable
-        return result
+        return [t for t in all_trades if _trade_after(t, cutoff)]
     except Exception as e:
         print(f"  [UW] fetch error {symbol}: {e}")
         return []
+
+
+def _trade_after(t: dict, cutoff: datetime) -> bool:
+    ts_str = t.get("created_at") or t.get("timestamp") or ""
+    try:
+        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00").replace("+00:00", ""))
+        return ts >= cutoff
+    except Exception:
+        return True  # include if date unparseable
 
 
 def _fetch_30d_baseline(symbol: str) -> tuple[float, float]:
@@ -269,7 +295,7 @@ def get_short_interest(symbol: str) -> dict:
     cached = _short_cache.get(symbol)
     if cached:
         age_h = (datetime.utcnow() - datetime.fromisoformat(cached["ts"])).total_seconds() / 3600
-        if age_h < 4:
+        if age_h < _ttl(after_hours_h=4.0, market_hours_h=1.0):
             return cached["result"]
 
     for endpoint in (f"/api/stock/{symbol}/short-interest", f"/api/stock/{symbol}/shorts",
@@ -346,7 +372,7 @@ def get_iv_data(symbol: str) -> dict:
     cached = _iv_cache.get(symbol)
     if cached:
         age_h = (datetime.utcnow() - datetime.fromisoformat(cached["ts"])).total_seconds() / 3600
-        if age_h < 2:
+        if age_h < _ttl(after_hours_h=2.0, market_hours_h=0.25):
             return cached["result"]
 
     for endpoint in (f"/api/stock/{symbol}/iv-rank", f"/api/stock/{symbol}/options/iv",
@@ -421,7 +447,7 @@ def get_oi_changes(symbol: str) -> dict:
     cached = _oi_cache.get(symbol)
     if cached:
         age_h = (datetime.utcnow() - datetime.fromisoformat(cached["ts"])).total_seconds() / 3600
-        if age_h < 2:
+        if age_h < _ttl(after_hours_h=2.0, market_hours_h=0.25):
             return cached["result"]
 
     for endpoint in (
@@ -558,8 +584,8 @@ def get_uw_market_context() -> dict:
     result = dict(_empty)
 
     # ── Market tide / net flow ────────────────────────────────────────────────
-    for endpoint in ("/api/market/tide", "/api/market/net-flow", "/api/market/overview",
-                     "/api/market/general"):
+    for endpoint in ("/api/market/market-tide", "/api/market/tide", "/api/market/net-flow",
+                     "/api/market/overview", "/api/market/general"):
         try:
             r = requests.get(f"{_BASE_URL}{endpoint}", headers=_headers(), timeout=_TIMEOUT)
             if r.status_code == 404:
@@ -568,8 +594,32 @@ def get_uw_market_context() -> dict:
                 break
             data = r.json()
             payload = data.get("data", data) if isinstance(data, dict) else data
+
+            # market-tide returns a list of 5-min intervals with net_call_premium/net_put_premium
             if isinstance(payload, list) and payload:
-                payload = payload[0]
+                # Aggregate all intervals to compute cumulative tide
+                total_call = sum(float(row.get("net_call_premium") or 0) for row in payload)
+                total_put  = sum(float(row.get("net_put_premium")  or 0) for row in payload)
+                total_vol  = sum(int(row.get("net_volume") or 0)         for row in payload)
+                if total_call != 0 or total_put != 0:
+                    # net positive call premium + positive volume = bullish
+                    call_dom = total_call > total_put * 1.1
+                    put_dom  = total_put  > total_call * 1.1
+                    vol_bull = total_vol > 0
+                    if call_dom and vol_bull:
+                        result["market_tide"] = "bullish"
+                    elif put_dom and not vol_bull:
+                        result["market_tide"] = "bearish"
+                    else:
+                        result["market_tide"] = "neutral"
+                    # derive synthetic P/C from aggregated premium
+                    if total_call > 0:
+                        pc = round(abs(total_put) / abs(total_call), 3) if total_call != 0 else None
+                        result["market_put_call_ratio"] = pc
+                    break
+                # Fall through if no meaningful data in list
+                payload = payload[-1]  # use most recent entry as fallback dict
+
             if not isinstance(payload, dict):
                 continue
 
@@ -857,7 +907,7 @@ def get_darkpool(symbol: str, days: int = 3) -> dict:
     cached = _darkpool_cache.get(symbol)
     if cached:
         age_h = (datetime.utcnow() - datetime.fromisoformat(cached["ts"])).total_seconds() / 3600
-        if age_h < 6:
+        if age_h < _ttl(after_hours_h=6.0, market_hours_h=0.5):
             return cached["result"]
 
     try:
@@ -944,7 +994,7 @@ def get_market_sweep_feed(min_premium: int = 500_000, limit: int = 100) -> list[
         return []
 
     # Try two likely endpoint variants; UW API path may vary by plan tier
-    for endpoint in ("/api/options-flow/alerts", "/api/options-flow/recent"):
+    for endpoint in ("/api/option-trades/flow-alerts", "/api/options-flow/alerts", "/api/options-flow/recent"):
         try:
             r = requests.get(
                 f"{_BASE_URL}{endpoint}",
@@ -1036,3 +1086,184 @@ def conviction_bonus(flow_result: dict) -> float:
         return 0.5
 
     return 0.0
+
+
+# ── Intraday scanner helpers ──────────────────────────────────────────────────
+
+def get_ticker_snapshot(symbol: str) -> dict:
+    """
+    Fetch all UW signals for one ticker in a single call bundle.
+    Used by the intraday scanner — returns flow + darkpool + iv + oi + short.
+    Respects market-hours TTLs (shorter during trading hours for higher refresh rate).
+    """
+    flow    = compute(symbol)
+    dp      = get_darkpool(symbol)
+    iv      = get_iv_data(symbol)
+    oi      = get_oi_changes(symbol)
+    short   = get_short_interest(symbol)
+    return {
+        "symbol":  symbol,
+        "ts":      datetime.utcnow().isoformat(),
+        **flow,
+        "darkpool_signal":       dp.get("darkpool_signal"),
+        "large_print_count":     dp.get("large_print_count"),
+        "large_print_5m_count":  dp.get("large_print_5m_count", 0),
+        "total_prints_3d":       dp.get("total_prints_3d"),
+        "total_notional_3d":     dp.get("total_notional_3d"),
+        "iv_rank":               iv.get("iv_rank"),
+        "iv_percentile":         iv.get("iv_percentile"),
+        "implied_move_pct":      iv.get("implied_move_pct"),
+        "oi_call_change_pct":    oi.get("call_oi_change_pct"),
+        "oi_put_change_pct":     oi.get("put_oi_change_pct"),
+        "short_interest_pct":    short.get("short_interest_pct"),
+        "short_squeeze_score":   short.get("short_squeeze_score"),
+    }
+
+
+def scan_discovery_universe(symbols: list[str]) -> list[dict]:
+    """
+    Bulk darkpool scan for a list of symbols (e.g., S&P 500 top 100).
+    Returns only tickers with 'accumulation' or 'strong_accumulation' signals.
+    No flow call — just darkpool to keep cost per ticker at 1 API call.
+    """
+    hits = []
+    for sym in symbols:
+        try:
+            dp = get_darkpool(sym)
+            if dp.get("darkpool_signal") in ("accumulation", "strong_accumulation"):
+                hits.append({
+                    "symbol":               sym,
+                    "darkpool_signal":      dp["darkpool_signal"],
+                    "large_print_count":    dp.get("large_print_count", 0),
+                    "large_print_5m_count": dp.get("large_print_5m_count", 0),
+                    "total_notional_3d":    dp.get("total_notional_3d", 0),
+                })
+        except Exception:
+            continue
+    return hits
+
+
+def get_market_oi_buildup(min_mcap: int = 2_000_000_000, top_n: int = 50) -> list[dict]:
+    """
+    Scan market-wide OI changes to find stocks where call open interest is
+    building unusually fast — early positioning signal before a move.
+
+    Returns top_n stocks ranked by OI change magnitude, filtered to calls only
+    and stocks with market cap >= min_mcap.  Each dict: {symbol, oi_change_pct,
+    oi_diff, premium, days_increasing, source}.
+    """
+    if not config.UNUSUAL_WHALES_API_KEY:
+        return []
+    try:
+        r = requests.get(
+            f"{_BASE_URL}/api/market/oi-change",
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return []
+        rows = r.json().get("data", r.json()) if isinstance(r.json(), dict) else r.json()
+        if not isinstance(rows, list):
+            return []
+
+        # Keep only call-side OI builds (option_symbol contains 'C')
+        seen_syms: set[str] = set()
+        results: list[dict] = []
+        for row in rows:
+            opt_sym = row.get("option_symbol", "")
+            if "C" not in opt_sym.upper()[-12:]:   # rough call detector from OCC symbol
+                continue
+            sym = (row.get("underlying_symbol") or "").upper()
+            if not sym or sym in seen_syms or "/" in sym:
+                continue
+            seen_syms.add(sym)
+
+            oi_change  = float(row.get("oi_change") or 0)
+            oi_diff    = int(row.get("oi_diff_plain") or 0)
+            premium    = float(row.get("prev_total_premium") or 0)
+            days_up    = int(row.get("days_of_oi_increases") or 0)
+
+            if oi_change < 10 or oi_diff < 500:   # filter noise
+                continue
+
+            results.append({
+                "symbol":          sym,
+                "oi_change_pct":   round(oi_change, 1),
+                "oi_diff":         oi_diff,
+                "premium":         premium,
+                "days_increasing": days_up,
+                "source":          "uw_oi_buildup",
+            })
+            if len(results) >= top_n:
+                break
+
+        return results
+    except Exception as e:
+        print(f"  [UW] oi_buildup error: {e}")
+        return []
+
+
+def get_earnings_beat_rate(symbol: str) -> dict:
+    """
+    Compute EPS beat rate from last 4 reported quarters via UW earnings endpoint.
+    Beat = reported_eps > estimated_eps.
+
+    Returns: {beat_rate: float 0-1, beat_count: int, total_quarters: int,
+              avg_surprise_pct: float, next_earnings_date: str|None}
+    """
+    _empty = {"beat_rate": None, "beat_count": 0, "total_quarters": 0,
+              "avg_surprise_pct": None, "next_earnings_date": None}
+    if not config.UNUSUAL_WHALES_API_KEY:
+        return _empty
+    try:
+        r = requests.get(
+            f"{_BASE_URL}/api/stock/{symbol}/earnings",
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return _empty
+        rows = r.json().get("data", r.json()) if isinstance(r.json(), dict) else r.json()
+        if not isinstance(rows, list) or not rows:
+            return _empty
+
+        next_date = None
+        reported  = []
+        for row in rows:
+            rep = row.get("reported_eps")
+            est = row.get("estimated_eps")
+            surp = row.get("surprise_percentage")
+            date = row.get("report_date") or row.get("fiscal_date_ending")
+
+            if rep is None and est is not None and date:
+                if next_date is None:
+                    next_date = date   # upcoming — no actual result yet
+                continue
+
+            if rep is not None and est is not None:
+                try:
+                    beat = float(rep) > float(est)
+                    surprise_pct = float(surp) if surp is not None else (
+                        (float(rep) - float(est)) / abs(float(est)) * 100 if float(est) != 0 else 0
+                    )
+                    reported.append({"beat": beat, "surprise_pct": surprise_pct})
+                except (ValueError, TypeError):
+                    pass
+            if len(reported) >= 4:
+                break
+
+        if not reported:
+            return {**_empty, "next_earnings_date": next_date}
+
+        beat_count = sum(1 for r in reported if r["beat"])
+        avg_surp   = round(sum(r["surprise_pct"] for r in reported) / len(reported), 2)
+        return {
+            "beat_rate":          round(beat_count / len(reported), 2),
+            "beat_count":         beat_count,
+            "total_quarters":     len(reported),
+            "avg_surprise_pct":   avg_surp,
+            "next_earnings_date": next_date,
+        }
+    except Exception as e:
+        print(f"  [UW] earnings_beat_rate error {symbol}: {e}")
+        return _empty

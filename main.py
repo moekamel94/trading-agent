@@ -5,10 +5,10 @@ Entry point.
   python main.py --monthly    # run full deep research, update cache, refresh basket
   python main.py --schedule   # start APScheduler
   python main.py --discord    # start Discord bot + scheduler
-  python main.py --btc-check  # check BTC position only
 """
 import sys
 import argparse
+import threading
 from datetime import datetime, timezone
 
 import config
@@ -28,7 +28,7 @@ from summaries import reporter
 from summaries import weekly_review
 from basket import manager as basket_mgr
 from basket import curation as basket_curation
-from notifications import discord_bot as tg
+from notifications import discord_bot as discord
 
 # Load S&P 500 list once at startup for options eligibility check
 _SP500 = config.get_sp500_tickers()
@@ -95,10 +95,6 @@ def _portfolio_context(portfolio, positions):
         abs(p["qty"] * p["current_price"])
         for p in positions if p.get("asset_class") == "us_option"
     )
-    crypto_value = sum(
-        abs(p["qty"] * p["current_price"])
-        for p in positions if p.get("asset_class") == "crypto"
-    )
     # Sector concentration
     sector_pcts: dict = {}
     for p in positions:
@@ -133,8 +129,6 @@ def _portfolio_context(portfolio, positions):
     total_weight = 0.0
     for p in positions:
         sym = p["symbol"]
-        if "/" in sym:
-            continue  # skip crypto — no meaningful beta
         val = abs(p["qty"] * p["current_price"])
         weight = val / equity if equity > 0 else 0
         cached = research_cache.load(sym) or {}
@@ -161,7 +155,6 @@ def _portfolio_context(portfolio, positions):
         **portfolio,
         "position_count":    len(positions),
         "options_pct":       (options_value / equity * 100) if equity else 0,
-        "crypto_pct":        (crypto_value  / equity * 100) if equity else 0,
         "sector_pcts":       sector_pcts,
         "speculative_count": len(spec_positions),
         "speculative_pct":   (spec_val / equity * 100) if equity else 0,
@@ -172,13 +165,7 @@ def _portfolio_context(portfolio, positions):
     }
 
 
-def _is_crypto(symbol: str) -> bool:
-    return "/" in symbol
-
-
 def _get_bars(symbol: str):
-    if _is_crypto(symbol):
-        return alpaca.get_crypto_bars(symbol)
     return alpaca.get_stock_bars(symbol)
 
 
@@ -291,7 +278,7 @@ def run_gap_scan():
             for c in alerts["catalyst_alerts"][:4]:
                 _alert_lines.append(f"  **{c['ticker']}** — {c['milestone']} due {c['due']}")
 
-        tg.send("\n".join(_alert_lines))
+        discord.send("\n".join(_alert_lines))
     # Store for 09:50 cycle pickup
     import json as _json, os as _os
     _alerts_path = _os.path.join(_os.path.dirname(__file__), ".gap_alerts.json")
@@ -326,7 +313,15 @@ def run_midday_check():
         action = exit_order.get("action", "SELL")
         print(f"  [MIDDAY EXIT] {sym} — {action} | {reason}")
         if action == "REVIEW":
-            tg.send(f"🔍 MIDDAY REVIEW **{sym}** | {reason}")
+            discord.send(f"🔍 MIDDAY REVIEW **{sym}** | {reason}")
+            continue
+        if action == "STOP_REVIEW":
+            discord.send(
+                f"⚠️ **STOP-LOSS TRIGGERED — AWAITING COMMITTEE REVIEW**\n"
+                f"**{sym}** hit its stop-loss at midday. Position held — daily committee will decide.\n"
+                f"📌 {reason}\n"
+                f"Emergency auto-sell fires if loss reaches 2× the tier stop."
+            )
             continue
         try:
             pos_raw  = pos_lookup.get(sym)
@@ -337,17 +332,23 @@ def run_midday_check():
                 if trim_qty > 0:
                     alpaca.place_market_order(sym, trim_qty, "SELL")
                     db.log_trade(sym, "SELL", "stock", trim_qty, price, 0, 0, f"[MidTrim] {reason}")
-                    tg.send(f"✂️ MIDDAY TRIM {sym} | {reason}")
+                    discord.send(f"✂️ MIDDAY TRIM {sym} | {reason}")
                     triggered.append(sym)
             elif action == "SELL" and qty > 0:
                 alpaca.place_market_order(sym, qty, "SELL")
                 db.log_trade(sym, "SELL", "auto", qty, price, 0, 10, f"[MidStop] {reason}")
-                tg.send(f"🔴 MIDDAY STOP {sym} | {reason}")
+                discord.send(f"🔴 MIDDAY STOP {sym} | {reason}")
                 triggered.append(sym)
         except Exception as e:
             print(f"    [MIDDAY] order error {sym}: {e}")
     if not triggered:
         print("[MIDDAY CHECK] No stops triggered — positions healthy")
+        try:
+            n = len(positions)
+            syms = ", ".join(p["symbol"] for p in positions) if positions else "none"
+            discord.send(f"✅ **MIDDAY CHECK** — {n} position{'s' if n != 1 else ''} healthy, no stops triggered\n📋 {syms}")
+        except Exception:
+            pass
 
     # Re-underwriting check: flag long-term large_growth positions at the 90-day gate
     _run_reunderwriting_alerts(positions, held_tech_map)
@@ -375,7 +376,7 @@ def _run_reunderwriting_alerts(positions: list, held_tech_map: dict):
         sym    = alert["symbol"]
         reason = alert["reason"]
         print(f"  [REUNDERWRITE] {sym} — {reason}")
-        tg.send(f"🔄 RE-UNDERWRITE **{sym}** | {reason}")
+        discord.send(f"🔄 RE-UNDERWRITE **{sym}** | {reason}")
         db.update_reunderwriting_date(sym)  # prevent re-alert for 80 days
 
 
@@ -395,7 +396,7 @@ def run_spec_research():
     db.init()
     spec_tickers = [s for s, t in config.TICKER_TIERS.items() if t == "speculative"]
     print(f"  Refreshing {len(spec_tickers)} speculative tickers: {spec_tickers}")
-    tg.send(f"Bi-weekly spec refresh starting — {spec_tickers}")
+    discord.send(f"Bi-weekly spec refresh starting — {spec_tickers}")
 
     done = 0
     for symbol in spec_tickers:
@@ -452,7 +453,7 @@ def run_spec_research():
     _os.environ.pop("KIMMY_MONTHLY", None)
     msg = f"Bi-weekly spec refresh complete — {done}/{len(spec_tickers)} refreshed"
     print(msg)
-    tg.send(msg)
+    discord.send(msg)
 
 
 def run_monthly_research():
@@ -474,14 +475,14 @@ def run_monthly_research():
 
     db.init()
     stock_basket = basket_mgr.load_combined()   # LT + MT for research coverage
-    stocks = [s for s in stock_basket if not _is_crypto(s)]
+    stocks = stock_basket
 
     light_tiers = {"mega", "large_growth"}
     light = [s for s in stocks if config.TICKER_TIERS.get(s, "mid_growth") in light_tiers]
     full  = [s for s in stocks if config.TICKER_TIERS.get(s, "mid_growth") not in light_tiers]
 
     print(f"  Research plan: {len(light)} light+web (mega/large) + {len(full)} full (mid/spec)")
-    tg.send(f"Monthly research starting — {len(light)} light+web + {len(full)} full")
+    discord.send(f"Monthly research starting — {len(light)} light+web + {len(full)} full")
 
     done = 0
     for symbol in stocks:
@@ -580,7 +581,19 @@ def run_monthly_research():
            f"Basket curation: {changes_str}\n"
            f"{curation_reasoning[:300]}")
     print(f"\n{msg}")
-    tg.send(msg)
+    discord.send(msg)
+
+    # ── Monthly deep-dive: full committee analysis using the freshly-cached data ──
+    try:
+        from reports.monthly_deep_dive import run as _deep_dive
+        from signals.macro_regime import compute as _macro_compute
+        _portfolio  = alpaca.get_portfolio()
+        _positions  = alpaca.get_positions()
+        _macro      = _macro_compute()
+        _deep_dive(positions=_positions, portfolio=_portfolio, macro_regime=_macro)
+    except Exception as _e:
+        print(f"  [Monthly deep-dive] ERROR: {_e}")
+        discord.send(f"❌ Monthly deep-dive failed: {_e}")
 
 
 def run_new_ticker_onboarding(new_tickers: list[str]) -> int:
@@ -592,14 +605,14 @@ def run_new_ticker_onboarding(new_tickers: list[str]) -> int:
     Returns count of tickers successfully onboarded.
     """
     import os as _os
-    stocks = [s for s in new_tickers if not _is_crypto(s) and not research_cache.load(s)]
+    stocks = [s for s in new_tickers if not research_cache.load(s)]
     if not stocks:
         return 0
 
     _os.environ["KIMMY_MONTHLY"] = "1"
     print(f"\n  [Onboarding] {len(stocks)} new basket ticker(s) — running full research: {stocks}")
     try:
-        tg.send(f"🆕 New ticker onboarding: {', '.join(stocks)} — running full research")
+        discord.send(f"🆕 New ticker onboarding: {', '.join(stocks)} — running full research")
     except Exception:
         pass
 
@@ -663,7 +676,7 @@ def run_new_ticker_onboarding(new_tickers: list[str]) -> int:
     _os.environ.pop("KIMMY_MONTHLY", None)
     print(f"\n  [Onboarding] Complete — {done}/{len(stocks)} new tickers fully researched")
     try:
-        tg.send(f"✅ Onboarding complete — {done}/{len(stocks)} new tickers ready")
+        discord.send(f"✅ Onboarding complete — {done}/{len(stocks)} new tickers ready")
     except Exception:
         pass
     return done
@@ -686,7 +699,7 @@ def run_mt_cache_warmup(
 
     Returns (warmed_count, still_uncached_count).
     """
-    stocks = [s for s in tickers if not _is_crypto(s)]
+    stocks = list(tickers)
 
     # Build candidate list: uncached first, then stale (oldest first)
     uncached = [s for s in stocks if not research_cache.load(s)]
@@ -717,7 +730,7 @@ def run_mt_cache_warmup(
               f"({len(uncached)} uncached, {len(stale)} stale≥{max_age_days}d): {to_warm}")
     try:
         if not silent and (uncached or stale):
-            tg.send(f"📚 Cache warmup: {len(to_warm)} symbol(s) — {', '.join(to_warm)}")
+            discord.send(f"📚 Cache warmup: {len(to_warm)} symbol(s) — {', '.join(to_warm)}")
     except Exception:
         pass
 
@@ -775,7 +788,7 @@ def run_mt_cache_warmup(
             msg += f" | {still_uncached} still uncached (will onboard on next cycle)"
         print(f"\n  [Cache Warmup] {msg}")
         try:
-            tg.send(f"✅ {msg}")
+            discord.send(f"✅ {msg}")
         except Exception:
             pass
 
@@ -795,7 +808,7 @@ def run_weekly_basket_review():
 
     # ── LT basket review (unchanged process) ─────────────────────────────────
     existing_lt = basket_mgr.load()
-    stocks_lt   = [s for s in existing_lt if not _is_crypto(s)]
+    stocks_lt   = existing_lt
     cached_all  = research_cache.load_all()
 
     lt_add, lt_remove, lt_reasoning = basket_curation.run_weekly(stocks_lt, cached_all)
@@ -819,8 +832,8 @@ def run_weekly_basket_review():
     # Full monthly-depth onboarding for any ticker with no cache (new additions).
     # Light warmup for stale-but-existing cache entries.
     combined_tickers = list(dict.fromkeys(stocks_lt + mt_tickers + (lt_add or [])))
-    _no_cache = [s for s in combined_tickers if not _is_crypto(s) and not research_cache.load(s)]
-    _stale    = [s for s in combined_tickers if not _is_crypto(s) and s not in _no_cache]
+    _no_cache = [s for s in combined_tickers if not research_cache.load(s)]
+    _stale    = [s for s in combined_tickers if s not in _no_cache]
     if _no_cache:
         print(f"  [Weekly Review] {len(_no_cache)} ticker(s) with no cache — running full onboarding: {_no_cache}")
         run_new_ticker_onboarding(_no_cache)
@@ -850,7 +863,7 @@ def run_weekly_basket_review():
 
     msg = "Weekly basket review:\n" + "\n".join(parts)
     print(msg)
-    tg.send(msg)
+    discord.send(msg)
 
 
 def _mt_weekly_deployed_pct(portfolio_equity: float) -> float:
@@ -887,11 +900,11 @@ def run_daily_basket_review():
     print('='*60)
     db.init()
 
-    lt_basket = [s for s in basket_mgr.load() if not _is_crypto(s)]
+    lt_basket = basket_mgr.load()
     updated_tickers, updated_meta, discord_msg = basket_curation.run_daily_basket_review(lt_basket)
 
     if discord_msg:
-        tg.send(discord_msg)
+        discord.send(discord_msg)
 
 
 def run_uw_sweep_scan():
@@ -911,7 +924,7 @@ def run_uw_sweep_scan():
         alerts, discoveries = uw_scanner.run_sweep_feed_scan(basket, held)
 
         for msg in alerts:
-            tg.send(msg)
+            discord.send(msg)
 
         if not discoveries:
             return
@@ -946,7 +959,7 @@ def run_uw_sweep_scan():
             prem_str = " | ".join(
                 f"{d['symbol']} ${d['premium']/1e6:.1f}M" for d in big
             )
-            tg.send(f"🔭 HIGH-CONVICTION UW SWEEP → immediate research: {prem_str}")
+            discord.send(f"🔭 HIGH-CONVICTION UW SWEEP → immediate research: {prem_str}")
 
     except Exception as e:
         print(f"  [UW sweep scan] error: {e}")
@@ -975,7 +988,7 @@ def run_uw_intraday_scan():
             hits  = uw_scanner.run_discovery_scan(basket)
             lines = uw_scanner.discovery_discord_lines(hits)
             if lines:
-                tg.send("\n".join(lines))
+                discord.send("\n".join(lines))
             # Queue darkpool accumulation hits to uw_pending so the next
             # run_cycle picks them up via _run_daily_discovery().
             if hits:
@@ -1145,7 +1158,7 @@ If no clear signal: {{"rotation_themes": [], "add": [], "remove": [], "confidenc
                              for s in new_syms}
             basket_mgr.save_mt(list(dict.fromkeys(existing_mt + new_syms)), {**existing_meta, **new_meta})
             run_new_ticker_onboarding(new_syms)
-            tg.send(f"📡 Basket Intelligence [{conf.upper()}]: Adding {', '.join(new_syms)}\n"
+            discord.send(f"📡 Basket Intelligence [{conf.upper()}]: Adding {', '.join(new_syms)}\n"
                     f"Rotation: {', '.join(themes)}\n{summary}")
 
         # Surface removes as committee agenda items (don't auto-remove — committee decides)
@@ -1154,7 +1167,7 @@ If no clear signal: {{"rotation_themes": [], "add": [], "remove": [], "confidenc
             reason = item.get("reason", "")
             if sym:
                 print(f"  [BasketIntel] FLAG FOR REMOVAL {sym}: {reason}")
-                tg.send(f"⚠️ Basket Intel: Consider removing {sym} | {reason}")
+                discord.send(f"⚠️ Basket Intel: Consider removing {sym} | {reason}")
 
     except Exception as _e:
         print(f"  [BasketIntel] error: {_e}")
@@ -1242,7 +1255,7 @@ def _run_daily_discovery(current_basket: list[str]) -> list[str]:
 
     msg = f"🆕 Daily discovery: {', '.join(new_syms)} added to MT basket — running full research now"
     print(f"  [Daily Discovery] {msg}")
-    tg.send(msg)
+    discord.send(msg)
     return new_syms
 
 
@@ -1290,7 +1303,7 @@ def _run_regime_sector_scan(macro_regime: dict, existing_basket: list[str]) -> l
             f"Running sector opportunity scan for new names..."
         )
         print(f"\n  [RegimeScan] {_shift_msg}")
-        tg.send(_shift_msg)
+        discord.send(_shift_msg)
 
     print(f"\n  [RegimeScan] Running sector opportunity scan "
           f"({regime_label.upper()}) — {len(winning)} winning sectors...")
@@ -1349,7 +1362,7 @@ def _run_regime_sector_scan(macro_regime: dict, existing_basket: list[str]) -> l
         f"All added to MT basket for committee review."
     )
     print(f"\n  [RegimeScan] {disc_msg}")
-    tg.send(disc_msg)
+    discord.send(disc_msg)
 
     try: open(_lock, "w").close()
     except Exception: pass
@@ -1456,7 +1469,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
             for d in top_disc
         )
         print(f"  [UW Discovery] Out-of-basket sweeps: {disc_str}")
-        tg.send(f"🔭 UW OUT-OF-BASKET SWEEPS (queued for MT basket):\n{disc_str}")
+        discord.send(f"🔭 UW OUT-OF-BASKET SWEEPS (queued for MT basket):\n{disc_str}")
         # Queue discoveries for MT basket — consumed at next weekly MT curation
         basket_mgr.queue_uw_discovery(top_disc)
 
@@ -1484,7 +1497,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     alpaca.place_market_order(sym, trim_qty, "SELL")
                     db.log_trade(sym, "SELL", "stock", trim_qty, price, 0, 0,
                                  f"[EarningsCap] trimmed {cur_pct:.1f}%→{cap_pct}% before earnings")
-                    tg.send(f"✂️ EARNINGS CAP {sym} [{tier}] "
+                    discord.send(f"✂️ EARNINGS CAP {sym} [{tier}] "
                             f"trimmed {cur_pct:.1f}% → {cap_pct}% before binary event")
                     print(f"  [EarningsCap] {sym} trimmed {trim_qty:.4f} sh "
                           f"({cur_pct:.1f}%→{cap_pct}%)")
@@ -1522,13 +1535,23 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                 pass
 
     pos_lookup = {p["symbol"]: p for p in positions}
+    _stop_review_syms: dict = {}   # sym → stop reason; injected into committee candidates below
     for exit_order in exits:
         sym    = exit_order["symbol"]
         reason = exit_order["reason"]
         action = exit_order.get("action", "SELL")
         print(f"  [EXIT] {sym} — {action} | {reason}")
         if action == "REVIEW":
-            tg.send(f"🔍 REVIEW **{sym}** | {reason} — check if thesis still intact")
+            discord.send(f"🔍 REVIEW **{sym}** | {reason} — check if thesis still intact")
+            continue
+        if action == "STOP_REVIEW":
+            _stop_review_syms[sym] = reason
+            discord.send(
+                f"⚠️ **STOP-LOSS TRIGGERED — COMMITTEE REVIEW**\n"
+                f"**{sym}** hit its stop-loss. Holding for committee decision this cycle.\n"
+                f"📌 {reason}\n"
+                f"Emergency auto-sell threshold: 2× tier stop."
+            )
             continue
         if not dry_run:
             try:
@@ -1541,10 +1564,24 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                         alpaca.place_market_order(sym, trim_qty, "SELL")
                         db.log_trade(sym, "SELL", "stock", trim_qty, price, 0, 0,
                                      f"[Trim] {reason}")
-                        tg.send(f"✂️ TRIM {sym} — sold {trim_qty:.4f} sh ({config.TRIM_SIZE_PCT:.0%}) | {reason}")
+                        discord.send(f"✂️ TRIM {sym} — sold {trim_qty:.4f} sh ({config.TRIM_SIZE_PCT:.0%}) | {reason}")
                 elif qty > 0:
                     alpaca.place_market_order(sym, qty, "SELL")
                     db.log_trade(sym, "SELL", "auto", qty, price, 0, 10, reason)
+                    # Notify — stop-loss exits had no Discord message before this fix
+                    try:
+                        _entry   = float(pos_raw.get("avg_entry_price") or pos_raw.get("cost_basis", 0) or 0)
+                        _uplpct  = float(pos_raw.get("unrealized_plpc", 0))  # already scaled in broker/alpaca.py
+                        _upldol  = float(pos_raw.get("unrealized_pl", 0))
+                        _pl_str  = f"{_uplpct:+.1f}% (${_upldol:+,.0f})"
+                        _ep_str  = f" | Entry ${_entry:.2f} → Exit ${price:.2f}" if _entry else ""
+                        discord.send(
+                            f"🔴 **STOP SELL {sym}** — {qty:.4f} sh @ ${price:.2f}{_ep_str}\n"
+                            f"P&L: {_pl_str}\n"
+                            f"📌 {reason}"
+                        )
+                    except Exception:
+                        discord.send(f"🔴 **STOP SELL {sym}** | {reason}")
                     # Record outcome for learning — get P&L from position
                     try:
                         uplpct = float(pos_raw.get("unrealized_plpc", 0))
@@ -1571,7 +1608,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                 if trim_qty > 0 and price > 0:
                     alpaca.place_market_order(sym, trim_qty, "SELL")
                     db.log_trade(sym, "SELL", "stock", trim_qty, price, 0, 0, f"[HardCap] {reason}")
-                    tg.send(
+                    discord.send(
                         f"✂️ HARD CAP TRIM **{sym}** | "
                         f"{cur_pct:.1f}% → {config.MAX_POSITION_PCT}% | "
                         f"${excess_mv:,.0f} trimmed"
@@ -1599,7 +1636,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                 _rpt = _review.run_biweekly_review(dry_run=False)
                 _summary = _rpt.get("summary", "")
                 _changes = _rpt.get("param_changes", [])
-                tg.send(
+                discord.send(
                     f"📋 BI-WEEKLY REVIEW COMPLETE\n{_summary}\n"
                     f"Auto-applied {len([c for c in _changes if c.get('confidence')=='high'])} param change(s). "
                     f"Full report saved to DB."
@@ -1611,16 +1648,15 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
     if config.UNUSUAL_WHALES_API_KEY:
         graduated = uw_flow.check_shadow_graduation()
         if graduated:
-            tg.send("✅ UW shadow mode graduated — bullish sweep +0.5 conviction bonus is now LIVE")
+            discord.send("✅ UW shadow mode graduated — bullish sweep +0.5 conviction bonus is now LIVE")
 
     # Unusual Whales bearish flow check on HELD positions (risk management, always live)
     if config.UNUSUAL_WHALES_API_KEY:
         held_uw_signals = {}
         for p in positions:
             sym = p["symbol"]
-            if not _is_crypto(sym):
-                uw = uw_flow.compute(sym, current_price=float(p.get("current_price") or 0))
-                held_uw_signals[sym] = {"options_flow": uw}
+            uw = uw_flow.compute(sym, current_price=float(p.get("current_price") or 0))
+            held_uw_signals[sym] = {"options_flow": uw}
         bearish_flow_alerts = manager.check_bearish_flow_alerts(positions, held_uw_signals)
 
         # Consecutive bearish streak tracking — escalate after N days
@@ -1637,7 +1673,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         # Reset streak for positions that had no bearish alert this cycle
         for p in positions:
             sym = p["symbol"]
-            if not _is_crypto(sym) and sym not in bearish_syms:
+            if sym not in bearish_syms:
                 db.reset_uw_bearish_streak(sym)
 
         for alert in bearish_flow_alerts:
@@ -1655,12 +1691,12 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                         try:
                             alpaca.place_market_order(sym, qty, "SELL")
                             db.log_trade(sym, "SELL", "stock", qty, price, 0, 0, reason)
-                            tg.send(f"🐻🔴 BEARISH FLOW SELL **{sym}** | {reason}")
+                            discord.send(f"🐻🔴 BEARISH FLOW SELL **{sym}** | {reason}")
                         except Exception as e:
                             print(f"    [UW SELL ERROR] {sym}: {e}")
-                            tg.send(f"🐻 BEARISH FLOW **{sym}** | {reason}")
+                            discord.send(f"🐻 BEARISH FLOW **{sym}** | {reason}")
             else:
-                tg.send(f"🐻 BEARISH FLOW **{sym}** | {reason}")
+                discord.send(f"🐻 BEARISH FLOW **{sym}** | {reason}")
             db.log_audit("bearish_flow_alert", sym, reason)
 
     # =========================================================
@@ -1687,23 +1723,22 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
     # Always include held positions even if they've been removed from the basket.
     # This ensures the committee can output a SELL decision on stale/demoted holdings
     # rather than silently ignoring them until a mechanical stop fires.
-    _held_syms = {p["symbol"] for p in positions if not _is_crypto(p["symbol"])}
+    _held_syms = {p["symbol"] for p in positions}
     _orphaned  = [s for s in _held_syms if s not in stock_basket]
     if _orphaned:
         print(f"  [Watchlist] +{len(_orphaned)} orphaned held position(s) added for exit review: {_orphaned}")
         stock_basket = stock_basket + _orphaned
 
-    watchlist = stock_basket + config.CRYPTO_WATCHLIST
+    watchlist = stock_basket
     _n_watchlist    = len(watchlist)
     _n_lt           = len(basket_mgr.load())
     _n_mt           = len(basket_mgr.load_mt())
     _n_discovery    = len(_discovery_added) if _discovery_added else 0
     _n_regime_scan  = len(_regime_scan_added) if _regime_scan_added else 0
     _n_orphaned     = len(_orphaned) if _orphaned else 0
-    _n_crypto       = len(config.CRYPTO_WATCHLIST)
     print(f"  [Watchlist] {_n_watchlist} total: "
           f"LT={_n_lt} MT={_n_mt} discovery={_n_discovery} "
-          f"regime_scan={_n_regime_scan} orphaned={_n_orphaned} crypto={_n_crypto}")
+          f"regime_scan={_n_regime_scan} orphaned={_n_orphaned}")
     signals_map = {}
     tech_map: dict = {}  # tech per symbol for Phase 3 trade execution
 
@@ -1725,13 +1760,13 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
 
     # --- New ticker onboarding: any basket ticker with NO cache gets full monthly-depth
     # research right now, automatically. No manual --monthly needed for new additions.
-    _new_tickers = [s for s in watchlist if not _is_crypto(s) and not research_cache.load(s)]
+    _new_tickers = [s for s in watchlist if not research_cache.load(s)]
     if _new_tickers:
         run_new_ticker_onboarding(_new_tickers)
 
     # Stale cache refresh (separate from new-ticker onboarding — free signals only)
     _auto_warmed, _still_uncached = run_mt_cache_warmup(
-        [s for s in watchlist if not _is_crypto(s)],
+        watchlist,
         max_age_days=config.CACHE_STALE_DAYS,
         max_symbols=config.AUTO_WARMUP_MAX,
         silent=True,
@@ -1762,7 +1797,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         # cross is active (<60 trading days old). Stale crosses (>60d) are carried by stocks
         # in early recovery — blocking them throws away the best mean-reversion entries.
         # Pre-filters are bypassed for currently held positions and directive tickers.
-        if not _is_crypto(symbol) and not _is_held and not _is_directive:
+        if not _is_held and not _is_directive:
             price   = tech.get("price") or 0
             sma50   = tech.get("sma50") or 0
             sma200  = tech.get("sma200") or 0
@@ -1795,7 +1830,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         uw = {"flow_signal": "no_data",
               "darkpool": {"darkpool_signal": "no_data", "large_print_count": 0,
                            "total_prints_3d": 0}}
-        if config.UNUSUAL_WHALES_API_KEY and not _is_crypto(symbol):
+        if config.UNUSUAL_WHALES_API_KEY:
             uw = uw_flow.compute(symbol, current_price=tech.get("price"))
             dp = uw_flow.get_darkpool(symbol)
             uw["darkpool"] = dp
@@ -1835,7 +1870,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
 
         # Earnings check — cached first, live fallback if no date in cache
         # Held positions and directive tickers bypass — committee must see them.
-        if not _is_crypto(symbol) and not _is_held and not _is_directive:
+        if not _is_held and not _is_directive:
             dte = research_cache.days_to_earnings_cached(symbol)
             if dte is None:
                 # No cached date — live Finnhub call to catch recently-announced earnings
@@ -1850,7 +1885,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
 
         # Preliminary gate (technicals + free fundamentals only)
         # Held positions and directive tickers bypass — committee must review them.
-        if not _is_crypto(symbol) and not _is_held and not _is_directive:
+        if not _is_held and not _is_directive:
             tier = config.TICKER_TIERS.get(symbol, "mid_growth")
 
             if tier == "speculative":
@@ -1952,85 +1987,76 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     continue
 
         # Load cached research (free — no API calls)
-        if not _is_crypto(symbol):
-            cached = research_cache.load(symbol)
-            if not cached:
-                # On-demand warmup: fetch all free signals now so the ticker isn't
-                # silently dropped before committee. Reuses sent/cong/insd/fund already
-                # computed above; only fetches the pieces missing from the cache.
-                # Safety net: onboarding should have caught this pre-scan.
-                # Run lightweight warmup now so the ticker isn't dropped.
-                print(f"  [{symbol}] -> WARMING | No cache after onboarding — fallback on-demand warmup...")
-                try:
-                    _earn_data = market_context.earnings_soon(symbol)
-                    _fin_data  = financial_data.compute(symbol)
-                    _growth    = future_growth.compute(symbol)
-                    _earn_mom  = momentum_news.earnings_momentum(symbol)
-                    research_cache.save(symbol, {
-                        "fundamentals":          fund,
-                        "sentiment":             sent,
-                        "congressional":         cong,
-                        "insider":               insd,
-                        "future_growth":         _growth,
-                        "financial_data":        _fin_data,
-                        "social":                {},
-                        "earnings_data":         _earn_data,
-                        "earnings_momentum":     _earn_mom,
-                        "research_snippets":     [],
-                        "research_source_count": 0,
-                        "uw_short_interest":     {"short_interest_pct": uw.get("short_interest_pct"),
-                                                  "borrow_rate":        uw.get("borrow_rate"),
-                                                  "short_squeeze_score":uw.get("short_squeeze_score","no_data")},
-                        "uw_iv":                 {"iv_rank":          uw.get("iv_rank"),
-                                                  "iv_percentile":    uw.get("iv_percentile"),
-                                                  "implied_move_pct": uw.get("implied_move_pct")},
-                        "uw_oi_changes":         uw.get("oi_changes") or {},
-                        "uw_darkpool":           uw.get("darkpool") or {},
-                    })
-                    cached = research_cache.load(symbol)
-                    print(f"  [{symbol}] on-demand warmup done")
-                except Exception as _warm_err:
-                    print(f"  [{symbol}] -> SKIP | On-demand warmup failed: {_warm_err}")
-                    db.log_audit("prelim_drop_cache", symbol, f"warmup_error: {type(_warm_err).__name__}: {str(_warm_err)[:200]}")
-                    _drop_cache += 1
-                    continue
-            if not cached:
-                print(f"  [{symbol}] -> SKIP | Cache still empty after on-demand warmup")
-                db.log_audit("prelim_drop_cache", symbol, "cache_empty_after_warmup")
+        cached = research_cache.load(symbol)
+        if not cached:
+            # On-demand warmup: fetch all free signals now so the ticker isn't
+            # silently dropped before committee. Reuses sent/cong/insd/fund already
+            # computed above; only fetches the pieces missing from the cache.
+            # Safety net: onboarding should have caught this pre-scan.
+            # Run lightweight warmup now so the ticker isn't dropped.
+            print(f"  [{symbol}] -> WARMING | No cache after onboarding — fallback on-demand warmup...")
+            try:
+                _earn_data = market_context.earnings_soon(symbol)
+                _fin_data  = financial_data.compute(symbol)
+                _growth    = future_growth.compute(symbol)
+                _earn_mom  = momentum_news.earnings_momentum(symbol)
+                research_cache.save(symbol, {
+                    "fundamentals":          fund,
+                    "sentiment":             sent,
+                    "congressional":         cong,
+                    "insider":               insd,
+                    "future_growth":         _growth,
+                    "financial_data":        _fin_data,
+                    "social":                {},
+                    "earnings_data":         _earn_data,
+                    "earnings_momentum":     _earn_mom,
+                    "research_snippets":     [],
+                    "research_source_count": 0,
+                    "uw_short_interest":     {"short_interest_pct": uw.get("short_interest_pct"),
+                                              "borrow_rate":        uw.get("borrow_rate"),
+                                              "short_squeeze_score":uw.get("short_squeeze_score","no_data")},
+                    "uw_iv":                 {"iv_rank":          uw.get("iv_rank"),
+                                              "iv_percentile":    uw.get("iv_percentile"),
+                                              "implied_move_pct": uw.get("implied_move_pct")},
+                    "uw_oi_changes":         uw.get("oi_changes") or {},
+                    "uw_darkpool":           uw.get("darkpool") or {},
+                })
+                cached = research_cache.load(symbol)
+                print(f"  [{symbol}] on-demand warmup done")
+            except Exception as _warm_err:
+                print(f"  [{symbol}] -> SKIP | On-demand warmup failed: {_warm_err}")
+                db.log_audit("prelim_drop_cache", symbol, f"warmup_error: {type(_warm_err).__name__}: {str(_warm_err)[:200]}")
                 _drop_cache += 1
                 continue
-            earnings_data = cached.get("earnings_data") or {}
-            research_data = {"snippets": cached.get("research_snippets", []),
-                             "source_count": cached.get("research_source_count", 0)}
-            fin_data      = cached.get("financial_data") or {}
-            social_data   = cached.get("social") or {}
-            growth_data   = cached.get("future_growth") or {}
-            earn_momentum = cached.get("earnings_momentum") or {}
-            sent          = cached.get("sentiment") or sent
-            cong          = cached.get("congressional") or cong
-            insd          = cached.get("insider") or insd
-            # Back-fill any UW fields the live compute missed with cached structural data
-            if cached.get("uw_short_interest") and not uw.get("short_interest_pct"):
-                _c = cached["uw_short_interest"]
-                uw.setdefault("short_interest_pct",  _c.get("short_interest_pct"))
-                uw.setdefault("borrow_rate",          _c.get("borrow_rate"))
-                uw.setdefault("short_squeeze_score",  _c.get("short_squeeze_score", "no_data"))
-            if cached.get("uw_iv") and not uw.get("iv_rank"):
-                _c = cached["uw_iv"]
-                uw.setdefault("iv_rank",         _c.get("iv_rank"))
-                uw.setdefault("iv_percentile",   _c.get("iv_percentile"))
-                uw.setdefault("implied_move_pct",_c.get("implied_move_pct"))
-            if cached.get("uw_darkpool") and uw.get("darkpool", {}).get("darkpool_signal") == "no_data":
-                uw["darkpool"] = cached["uw_darkpool"]
-            signals["options_flow"] = uw
-        else:
-            # BTC: no cache, fetch live sentiment
-            earnings_data = {}
-            research_data = {}
-            fin_data      = {}
-            social_data   = social.compute(symbol)
-            growth_data   = {}
-            earn_momentum = {}
+        if not cached:
+            print(f"  [{symbol}] -> SKIP | Cache still empty after on-demand warmup")
+            db.log_audit("prelim_drop_cache", symbol, "cache_empty_after_warmup")
+            _drop_cache += 1
+            continue
+        earnings_data = cached.get("earnings_data") or {}
+        research_data = {"snippets": cached.get("research_snippets", []),
+                         "source_count": cached.get("research_source_count", 0)}
+        fin_data      = cached.get("financial_data") or {}
+        social_data   = cached.get("social") or {}
+        growth_data   = cached.get("future_growth") or {}
+        earn_momentum = cached.get("earnings_momentum") or {}
+        sent          = cached.get("sentiment") or sent
+        cong          = cached.get("congressional") or cong
+        insd          = cached.get("insider") or insd
+        # Back-fill any UW fields the live compute missed with cached structural data
+        if cached.get("uw_short_interest") and not uw.get("short_interest_pct"):
+            _c = cached["uw_short_interest"]
+            uw.setdefault("short_interest_pct",  _c.get("short_interest_pct"))
+            uw.setdefault("borrow_rate",          _c.get("borrow_rate"))
+            uw.setdefault("short_squeeze_score",  _c.get("short_squeeze_score", "no_data"))
+        if cached.get("uw_iv") and not uw.get("iv_rank"):
+            _c = cached["uw_iv"]
+            uw.setdefault("iv_rank",         _c.get("iv_rank"))
+            uw.setdefault("iv_percentile",   _c.get("iv_percentile"))
+            uw.setdefault("implied_move_pct",_c.get("implied_move_pct"))
+        if cached.get("uw_darkpool") and uw.get("darkpool", {}).get("darkpool_signal") == "no_data":
+            uw["darkpool"] = cached["uw_darkpool"]
+        signals["options_flow"] = uw
 
         signals["research"]          = research_data
         signals["financial_data"]    = fin_data
@@ -2051,7 +2077,28 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
 
         synthesis = claude_agent._build_synthesis(symbol, signals)
         tech_map[symbol] = tech
-        candidates.append({"symbol": symbol, "signals": signals, "synthesis": synthesis})
+
+        # For held positions: attach last-cycle decision + current P&L so the
+        # committee can explicitly say "add more / hold / trim / sell" with context.
+        _last_dec = None
+        if _is_held:
+            try:
+                _last_dec = db.get_last_committee_decision(symbol)
+            except Exception:
+                pass
+            if not _last_dec:
+                # If no prior decision, note it so committee knows this is a new hold
+                _last_dec = {"action": "NEW_POSITION", "confidence": 0,
+                             "rationale": "No prior committee review found.",
+                             "cio_conf": 0, "quant_dec": "", "da_severity": "", "ts": ""}
+
+        candidates.append({
+            "symbol":         symbol,
+            "signals":        signals,
+            "synthesis":      synthesis,
+            "_last_decision": _last_dec,
+            "_stop_review":   _stop_review_syms.get(symbol),  # None if no stop triggered
+        })
         print(f"  [{symbol}] -> CANDIDATE | queued for committee review")
 
     # =========================================================
@@ -2062,6 +2109,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
     cycle_holds: list[str] = []
     near_miss_lt: list[dict] = []   # BUCKET decisions in long_term sleeve
     near_miss_mt: list[dict] = []   # BUCKET decisions in medium_term sleeve
+    _forced_review_syms: set = set()   # symbols injected for post-sell assessment
 
     if candidates:
         # ── Pre-gate: force BUCKET on spec tickers in regime AVOID sectors ────
@@ -2108,6 +2156,42 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         except Exception:
             pass
 
+        # ── Force post-sell review for positions stopped out since last cycle ──
+        # Symbols auto-sold by ATR/stop logic may not appear as candidates because
+        # they fail pre-filters (e.g. RSI overbought, low growth score). We force
+        # them into the committee so the PM gets an explicit "was this right?" verdict.
+        _forced_review_syms = set()
+        try:
+            from datetime import timedelta as _td2
+            _cutoff_24h = (datetime.utcnow() - _td2(hours=24)).isoformat()
+            _recent_sells = db.get_recent_stop_exits(days=1)
+            _held_syms    = {p["symbol"] for p in positions}
+            _cand_syms    = {c["symbol"] for c in candidates}
+            for _se in _recent_sells:
+                _sym = _se["symbol"]
+                if _sym in _held_syms or _sym in _cand_syms:
+                    continue   # still held or already queued — skip
+                if _sym not in signals_map:
+                    continue   # not in this cycle's basket — skip
+                _forced_review_syms.add(_sym)
+                _synth = claude_agent._build_synthesis(_sym, signals_map[_sym])
+                _note  = (f"[POST-SELL REVIEW — stopped out today: {_se.get('reason', _se.get('rationale','')[:80])}] "
+                          f"Position was auto-sold by risk manager. Committee: was this exit correct? "
+                          f"Is thesis broken or is this a re-entry opportunity? Output BUCKET if thesis intact, "
+                          f"HOLD if unclear, or rationale explaining why the sell was correct.")
+                candidates.append({
+                    "symbol":       _sym,
+                    "signals":      signals_map[_sym],
+                    "synthesis":    f"{_note}\n\n{_synth}",
+                    "_post_sell":   True,
+                    "_sell_reason": _se.get("reason", _se.get("rationale", "")),
+                    "_sell_price":  _se.get("price", 0),
+                    "_sell_pl_pct": _se.get("pl_pct", None),
+                })
+                print(f"  [{_sym}] -> FORCED POST-SELL REVIEW | stopped out today")
+        except Exception as _fre:
+            print(f"  [PostSellReview] error: {_fre}")
+
         print(f"\n  [Committee] Reviewing {len(candidates)} candidates in one call...")
         decisions = claude_agent.committee_review(
             candidates, port_ctx, mkt_ctx,
@@ -2122,7 +2206,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                            for d in decisions if d.get("_committee_fallback")}
         if fallback_errors:
             err_sample = next(iter(fallback_errors.values()))
-            tg.send(f"⚠️ Committee review fallback ({len(fallback_errors)} symbols) — {err_sample[:120]}")
+            discord.send(f"⚠️ Committee review fallback ({len(fallback_errors)} symbols) — {err_sample[:120]}")
     else:
         decisions = []
         print("  [Committee] No candidates passed all filters — skipping committee call")
@@ -2154,7 +2238,49 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         decision = {**decision, "_symbol": symbol}
 
         if decision.get("_parse_error"):
-            tg.send(f"⚠️ [{symbol}] Claude JSON parse error — defaulted to HOLD")
+            discord.send(f"⚠️ [{symbol}] Claude JSON parse error — defaulted to HOLD")
+
+        # Post-sell assessment notification — send before any other processing
+        if symbol in _forced_review_syms:
+            try:
+                _ps_action  = decision.get("action", "HOLD")
+                _ps_conf    = decision.get("final_confidence") or decision.get("confidence", 0)
+                _ps_rat     = decision.get("rationale", "")
+                _ps_thesis  = decision.get("thesis_summary", "")
+                _ps_quant   = decision.get("quant_signal", "")
+                _ps_qdec    = decision.get("quant_decision", "")
+                _ps_cco     = decision.get("cco_reason", "")
+                _ps_bear    = decision.get("da_bear_case", "")
+                _ps_sev     = decision.get("da_severity", "")
+                _ps_pt      = decision.get("price_target")
+                _orig_cand  = next((c for c in candidates if c["symbol"] == symbol), {})
+                _sell_rsn   = _orig_cand.get("_sell_reason", "auto stop")
+                _sell_pl    = _orig_cand.get("_sell_pl_pct")
+                _pl_str     = f" ({_sell_pl:+.1f}%)" if _sell_pl is not None else ""
+                _verdict    = {"BUCKET": "✅ Thesis intact — watching for re-entry",
+                               "HOLD":   "⏸️ Inconclusive — monitoring",
+                               "BUY":    "🟢 Re-entry warranted",
+                               "SELL":   "🔴 Exit confirmed — thesis broken"}.get(_ps_action, _ps_action)
+                _lines = [
+                    f"🔍 **POST-SELL ASSESSMENT: {symbol}**",
+                    f"Stopped out today{_pl_str} | {_sell_rsn[:100]}",
+                    f"━━━ Committee Verdict: {_verdict} ━━━",
+                    f"CIO conf={_ps_conf}/10 | Action={_ps_action}",
+                ]
+                if _ps_quant:
+                    _lines.append(f"📊 **Quant [{_ps_qdec}]:** {_ps_quant}")
+                if _ps_cco:
+                    _lines.append(f"🚫 **CCO:** {_ps_cco}")
+                if _ps_bear:
+                    _lines.append(f"🐻 **Bear Case [{_ps_sev}]:** {_ps_bear}")
+                if _ps_thesis:
+                    _lines.append(f"\n📋 **Thesis Status**\n{_ps_thesis}")
+                if _ps_pt:
+                    _lines.append(f"🎯 **Re-entry target:** ${_ps_pt:.0f}")
+                _lines.append(f"📌 {_ps_rat}")
+                discord.send("\n".join(_lines))
+            except Exception as _pse:
+                print(f"  [PostSellNotify] error: {_pse}")
 
         decision = manager.apply_conviction_bonuses(decision, signals)
         decision = manager.validate(decision, port_ctx)
@@ -2208,7 +2334,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                         alpaca.place_market_order(symbol, trim_qty, "SELL")
                         db.log_trade(symbol, "SELL", "stock", trim_qty, price_val, 0, confidence,
                                      f"[CommitteeTrim] {rationale}")
-                        tg.send(f"✂️ COMMITTEE TRIM **{symbol}** | conf={confidence}/10 | {rationale}")
+                        discord.send(f"✂️ COMMITTEE TRIM **{symbol}** | conf={confidence}/10 | {rationale}")
                         cycle_sells.append(f"{symbol}(TRIM)")
                         print(f"  [TRADE] TRIM {symbol} -{config.TRIM_SIZE_PCT:.0%} conf={confidence}/10")
                     except Exception as e:
@@ -2217,7 +2343,14 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         if action in ("BUY", "SELL") and trades_allowed:
             tech  = tech_map.get(symbol, {})
             price = tech.get("price", 0) or 1
-            qty   = manager.compute_qty(symbol, alloc, price, portfolio)
+
+            if action == "SELL":
+                # For committee-decided exits, sell the full held qty.
+                # compute_qty(alloc=0) returns 0 and would silently skip the order.
+                _held = pos_lookup.get(symbol)
+                qty   = abs(float(_held.get("qty", 0))) if _held else 0.0
+            else:
+                qty = manager.compute_qty(symbol, alloc, price, portfolio)
 
             if qty > 0:
                 try:
@@ -2239,7 +2372,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                         _is_mt_buy = (action == "BUY"
                                       and decision.get("bucket") == "medium_term")
                         if _is_mt_buy and _mt_deployed_this_week + alloc > _mt_cap_pct:
-                            tg.send(
+                            discord.send(
                                 f"⛔ MT cap: {symbol} BUY blocked "
                                 f"({_mt_deployed_this_week:.1f}% + {alloc:.1f}% > {_mt_cap_pct:.0f}% weekly cap). "
                                 f"BUCKET'd to watchlist."
@@ -2366,6 +2499,23 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                             if thesis_summary:
                                 msg_lines.append(f"\n📋 **Summary**\n{thesis_summary}")
                             msg_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+                        elif action == "SELL":
+                            msg_lines.append(f"\n━━━ SELL RATIONALE ━━━")
+                            _quant_sig  = decision.get("quant_signal", "")
+                            _quant_dec  = decision.get("quant_decision", "")
+                            _cco_reason = decision.get("cco_reason", "")
+                            _cro_risk   = decision.get("cro_top_risk", "")
+                            if _quant_sig:
+                                msg_lines.append(f"📊 **Quant [{_quant_dec}]:** {_quant_sig}")
+                            if _cro_risk:
+                                msg_lines.append(f"⚖️ **Top Risk:** {_cro_risk}")
+                            if _cco_reason:
+                                msg_lines.append(f"🚫 **CCO:** {_cco_reason}")
+                            if da_bear:
+                                msg_lines.append(f"🐻 **Bear Case [{da_sev}]:** {da_bear}")
+                            if thesis_summary:
+                                msg_lines.append(f"\n📋 **Original Thesis**\n{thesis_summary}")
+                            msg_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
                         msg_lines.append(f"📌 **Decision:** {rationale}")
                         _pt     = decision.get("price_target")
                         _pt_bas = decision.get("price_target_basis", "")
@@ -2377,7 +2527,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                             msg_lines.append(f"🛑 **Exit if:** {stop_criteria}")
                         if da_bear:
                             msg_lines.append(f"⚠️ **Bear case:** {da_bear} [{da_sev}]")
-                        tg.send("\n".join(msg_lines))
+                        discord.send("\n".join(msg_lines))
                 except Exception as e:
                     print(f"    ORDER ERROR: {e}")
 
@@ -2436,7 +2586,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                                  tranche.get("final_confidence", 0),
                                  f"Tranche {new_t}: {add_trigger}")
                     print(f"  [TRANCHE {new_t}] {sym} +{add_qty_pct:.1f}% — {add_trigger}")
-                    tg.send(f"📈 TRANCHE {new_t} {sym} +{add_qty_pct:.1f}% | {add_trigger}")
+                    discord.send(f"📈 TRANCHE {new_t} {sym} +{add_qty_pct:.1f}% | {add_trigger}")
                     cycle_buys.append(f"{sym}(T{new_t})")
                 except Exception as e:
                     print(f"    TRANCHE ORDER ERROR {sym}: {e}")
@@ -2485,7 +2635,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
             mkt_ctx=mkt_ctx,
             signals_map=signals_map,
             op_db=op_db,
-            tg=tg,
+            discord=discord,
         )
         if n_proposals:
             print(f"  [OptionsAdvisor] {n_proposals} proposal(s) sent this cycle")
@@ -2500,7 +2650,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
             decisions=decisions,
             signals_map=signals_map,
             op_db=op_db,
-            tg=tg,
+            discord=discord,
             cfg=config,
         )
         if n_alerts:
@@ -2541,7 +2691,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     op_db.close_live_trade(_lt_id, _close_reason, _curr_px)
                     _pnl_pct = round((_curr_px - _lt_entry) / _lt_entry * 100, 1)
                     _pnl_usd = round((_curr_px - _lt_entry) * _lt_qty * 100, 2)
-                    tg.send(
+                    discord.send(
                         f"✅ OPTIONS TARGET HIT — {_lt_sym} {_lt_dirn.upper()}\n"
                         f"Contract: {_ct_sym}\n"
                         f"Entry: ${_lt_entry:.2f} → Now: ${_curr_px:.2f} | Target was: ${_lt_tgt:.2f}\n"
@@ -2776,7 +2926,6 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                 "discovery": _n_discovery,
                 "regime_scan": _n_regime_scan,
                 "orphaned": _n_orphaned,
-                "crypto": _n_crypto,
             },
         )
     except Exception:
@@ -2822,65 +2971,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
 
     summary = "\n".join(msg_parts)
     print(summary)
-    tg.send(summary)
-
-
-def run_btc_check():
-    """Lightweight BTC-only check — runs every 6h via Task Scheduler."""
-    print(f"\n[BTC CHECK] {datetime.now(timezone.utc).isoformat()}")
-    db.init()
-    positions = alpaca.get_positions()
-    btc_positions = [p for p in positions if "BTC" in p["symbol"]]
-
-    if not btc_positions:
-        print("[BTC CHECK] No BTC position held — nothing to check.")
-        return
-
-    exits = manager.check_stops(btc_positions)
-    for exit_order in exits:
-        sym    = exit_order["symbol"]
-        reason = exit_order["reason"]
-        print(f"[BTC CHECK] EXIT {sym} — {reason}")
-        try:
-            alpaca.place_market_order(sym, abs(btc_positions[0]["qty"]), "SELL")
-            db.log_trade(sym, "SELL", "crypto", btc_positions[0]["qty"], 0, 0, 10, reason)
-        except Exception as e:
-            print(f"[BTC CHECK] Order error: {e}")
-        return
-
-    # Also buy BTC if not holding and signals are good
-    from signals import technical
-    bars = alpaca.get_crypto_bars("BTC/USD")
-    tech = technical.compute(bars)
-    from signals import sentiment as sent_mod
-    sent = sent_mod.compute("BTC/USD")
-    signals = {"_symbol": "BTC/USD", "technical": tech, "sentiment": sent,
-               "congressional": {}, "insider": {}, "fundamentals": {}}
-
-    passes, reason = manager.check_entry_criteria(signals)
-    if not passes:
-        print(f"[BTC CHECK] Criteria not met: {reason}")
-        return
-
-    portfolio = alpaca.get_portfolio()
-    port_ctx  = _portfolio_context(portfolio, positions)
-    decision  = claude_agent.decide("BTC/USD", signals, port_ctx)
-    decision  = {**decision, "_symbol": "BTC/USD"}
-    decision  = manager.validate(decision, port_ctx)
-
-    if decision["action"] == "BUY":
-        price = tech.get("price", 1)
-        qty   = manager.compute_qty("BTC/USD", decision["allocation_pct"], price, portfolio)
-        if qty > 0:
-            try:
-                alpaca.place_market_order("BTC/USD", qty, "BUY")
-                db.log_trade("BTC/USD", "BUY", "crypto", qty, price,
-                             decision["allocation_pct"], decision["confidence"], decision["rationale"])
-                print(f"[BTC CHECK] BUY executed — {decision['rationale']}")
-            except Exception as e:
-                print(f"[BTC CHECK] Order error: {e}")
-    else:
-        print(f"[BTC CHECK] HOLD — {decision.get('rationale', '')}")
+    discord.send(summary)
 
 
 def main():
@@ -2888,7 +2979,6 @@ def main():
     parser.add_argument("--dry-run",        action="store_true")
     parser.add_argument("--schedule",       action="store_true")
     parser.add_argument("--monthly",        action="store_true")
-    parser.add_argument("--btc-check",      action="store_true")
     parser.add_argument("--premarket",      action="store_true")
     parser.add_argument("--close-summary",  action="store_true")
     parser.add_argument("--basket-refresh",  action="store_true")
@@ -2919,19 +3009,35 @@ def main():
         # Safe wrappers — a crash in one job must never kill the whole bot
         from monitoring import health as _health
 
+        _cycle_lock = threading.Lock()
+
         def _safe_cycle():
             import zoneinfo as _rzi
             _now_et = datetime.now(_rzi.ZoneInfo("America/New_York"))
             _job_id = "trading_cycle_open" if _now_et.hour < 12 else "trading_cycle_close"
             _health.heartbeat(_job_id)
+            # Mutex prevents concurrent cycles (startup catchup + APScheduler misfire recovery).
+            # Dedup guard catches sequential duplicates within 30 min.
+            if not _cycle_lock.acquire(blocking=False):
+                print("[Cycle] Skip — another cycle is already running")
+                return
             try:
+                _snaps = db.get_snapshots(limit=1)
+                if _snaps:
+                    _last_ts  = datetime.fromisoformat(_snaps[0]["ts"])
+                    _age_min  = (datetime.utcnow() - _last_ts).total_seconds() / 60
+                    if _age_min < 30:
+                        print(f"[Cycle] Dedup skip — last cycle was {_age_min:.0f} min ago")
+                        return
                 run_cycle()
             except Exception as e:
                 msg = f"❌ Trading cycle crashed: {e}"
                 print(msg)
                 _health.record_silent_error(_job_id, str(e), severity="high")
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
+            finally:
+                _cycle_lock.release()
 
         def _safe_monthly():
             _health.heartbeat("monthly_research")
@@ -2941,7 +3047,7 @@ def main():
                 msg = f"❌ Monthly research crashed: {e}"
                 print(msg)
                 _health.record_silent_error("monthly_research", str(e), severity="high")
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
 
         def _safe_earnings_reaction():
@@ -2959,7 +3065,7 @@ def main():
                 msg = f"❌ Earnings reaction crashed: {e}"
                 print(msg)
                 _health.record_silent_error("earnings_reaction", str(e), severity="high")
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
 
         def _safe_premarket():
@@ -2986,7 +3092,7 @@ def main():
                 msg = f"❌ Weekly review crashed: {e}"
                 print(msg)
                 _health.record_silent_error("weekly_review", str(e), severity="high")
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
 
         def _safe_weekly_basket():
@@ -2997,7 +3103,7 @@ def main():
                 msg = f"❌ Weekly basket review crashed: {e}"
                 print(msg)
                 _health.record_silent_error("weekly_basket_review", str(e), severity="high")
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
 
         def _safe_daily_basket_review():
@@ -3008,7 +3114,7 @@ def main():
                 msg = f"❌ Daily basket review crashed: {e}"
                 print(msg)
                 _health.record_silent_error("daily_basket_review", str(e), severity="high")
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
 
         def _safe_gap_scan():
@@ -3033,7 +3139,7 @@ def main():
             except Exception as e:
                 msg = f"❌ Spec research crashed: {e}"
                 print(msg)
-                try: tg.send(msg)
+                try: discord.send(msg)
                 except Exception: pass
 
         def _safe_watchdog():
@@ -3059,18 +3165,68 @@ def main():
             """
             Runs 15s after bot start. APScheduler does NOT replay missed jobs across
             process restarts (misfire_grace_time only covers executor delays, not
-            downtime). This function fills that gap: if the market is open and no
-            cycle has run in the last 3 hours, run one now.
+            downtime). This function fills that gap for ALL scheduled morning jobs.
             """
             import zoneinfo
+            from monitoring.health import _db_last_heartbeat as _last_hb
             now_et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
             if now_et.weekday() >= 5:
                 print("[Startup] Catchup skipped — weekend")
                 return
+
+            # ── Replay missed pre-market jobs if past their scheduled time ──────
+            # Each check: only run if (a) past the scheduled ET time today and
+            # (b) no heartbeat recorded in the DB today (idempotency guard).
+            today = now_et.replace(hour=0, minute=0, second=0, microsecond=0)
+            missed_jobs = []
+
+            # Pre-market jobs are only worth replaying if we're still close to
+            # when they should have run — stale pre-market content sent mid-day
+            # or after-hours is confusing and irrelevant.
+            _MAX_PREMARKET_REPLAY_MIN = 90  # skip replay if >90 min past schedule
+
+            er_sched = today.replace(hour=config.EARNINGS_REACTION_HOUR,
+                                     minute=config.EARNINGS_REACTION_MINUTE)
+            if (now_et >= er_sched
+                    and (now_et - er_sched).total_seconds() / 60 <= _MAX_PREMARKET_REPLAY_MIN
+                    and not _last_hb("earnings_reaction")):
+                missed_jobs.append("earnings_reaction")
+                _safe_earnings_reaction()
+
+            gs_sched = today.replace(hour=config.GAP_SCAN_HOUR,
+                                     minute=config.GAP_SCAN_MINUTE)
+            if (now_et >= gs_sched
+                    and (now_et - gs_sched).total_seconds() / 60 <= _MAX_PREMARKET_REPLAY_MIN
+                    and not _last_hb("gap_scan")):
+                missed_jobs.append("gap_scan")
+                _safe_gap_scan()
+
+            pm_sched = today.replace(hour=config.PREMARKET_SUMMARY_HOUR,
+                                     minute=config.PREMARKET_SUMMARY_MINUTE)
+            if (now_et >= pm_sched
+                    and (now_et - pm_sched).total_seconds() / 60 <= _MAX_PREMARKET_REPLAY_MIN
+                    and not _last_hb("premarket_summary")):
+                missed_jobs.append("premarket_summary")
+                _safe_premarket()
+
+            # Midday check: replay if within 20 min of scheduled time (lightweight, always safe to re-run)
+            mc_sched = today.replace(hour=config.MIDDAY_HOUR, minute=config.MIDDAY_MINUTE)
+            if (now_et >= mc_sched
+                    and (now_et - mc_sched).total_seconds() / 60 <= 20
+                    and not _last_hb("midday_check")):
+                missed_jobs.append("midday_check")
+                _safe_midday()
+
+            if missed_jobs:
+                print(f"[Startup] Replayed missed jobs: {', '.join(missed_jobs)}")
+                try: discord.send(f"🔄 Startup catchup ran missed jobs: {', '.join(missed_jobs)}")
+                except Exception: pass
+
+            # ── Replay missed trading cycle if market is open ─────────────────
             open_time  = now_et.replace(hour=9,  minute=35, second=0, microsecond=0)
             close_time = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
             if not (open_time <= now_et <= close_time):
-                print(f"[Startup] Catchup skipped — market closed ({now_et.strftime('%H:%M ET')})")
+                print(f"[Startup] Cycle catchup skipped — market closed ({now_et.strftime('%H:%M ET')})")
                 return
             try:
                 db.init()
@@ -3079,12 +3235,12 @@ def main():
                     last_ts  = datetime.fromisoformat(snaps[0]["ts"])
                     age_mins = (datetime.utcnow() - last_ts).total_seconds() / 60
                     if age_mins < 180:
-                        print(f"[Startup] Catchup skipped — last cycle was {age_mins:.0f} min ago")
+                        print(f"[Startup] Cycle catchup skipped — last cycle was {age_mins:.0f} min ago")
                         return
             except Exception:
                 pass
             print("[Startup] Market open + no recent cycle — running catchup cycle now")
-            try: tg.send("🔄 Restarted during market hours — running catchup cycle")
+            try: discord.send("🔄 Restarted during market hours — running catchup cycle")
             except Exception: pass
             _safe_cycle()
 
@@ -3251,8 +3407,6 @@ def main():
 
         from notifications import discord_bot
         discord_bot.run_bot()
-    elif args.btc_check:
-        run_btc_check()
     elif args.premarket:
         db.init()
         from reports.earnings_reaction import run_earnings_reaction

@@ -22,6 +22,10 @@ _TIMEOUT = 10
 # Session-level skip set — APIs added here are skipped for the rest of the process
 _SKIPPED: set[str] = set()
 
+# Tracks when each quota was hit: {api_name: (timestamp_iso, http_status_str)}
+# Read by self_healer._clear_stale_api_skips() for TTL-based auto-recovery
+_QUOTA_HIT_TIMES: dict[str, tuple[str, str]] = {}
+
 
 def _quota_hit(name: str, status: int, body: str = "") -> bool:
     """Return True if response indicates quota/trial exhausted; adds to skip set."""
@@ -32,7 +36,14 @@ def _quota_hit(name: str, status: int, body: str = "") -> bool:
     )
     if hit and name not in _SKIPPED:
         _SKIPPED.add(name)
+        from datetime import datetime, timezone as _tz
+        _QUOTA_HIT_TIMES[name] = (datetime.now(_tz.utc).isoformat(timespec="seconds"), str(status))
         print(f"  [API_SKIP] {name}: quota/trial exceeded — skipping for this session")
+        try:
+            from monitoring import health
+            health.record_api_quota(name, f"HTTP {status}")
+        except Exception:
+            pass
     return hit
 
 
@@ -184,7 +195,7 @@ def _alpha_vantage_layer(symbol: str) -> dict:
 def _twelve_data_layer(symbol: str) -> dict:
     if not config.TWELVE_DATA_KEY or "twelve_data" in _SKIPPED:
         return {}
-    clean = symbol.replace("/", "/")  # Twelve Data supports BTC/USD natively
+    clean = symbol
     result = {}
     try:
         r = requests.get(
@@ -220,6 +231,7 @@ def _fmp_layer(symbol: str) -> dict:
     base = "https://financialmodelingprep.com/stable"
     params = {"symbol": clean, "apikey": config.FMP_API_KEY}
 
+    # ── Profile ───────────────────────────────────────────────────────────────
     try:
         r = requests.get(f"{base}/profile", params=params, timeout=_TIMEOUT)
         if r.status_code not in (200,):
@@ -237,6 +249,7 @@ def _fmp_layer(symbol: str) -> dict:
     except Exception:
         pass
 
+    # ── Key metrics ───────────────────────────────────────────────────────────
     try:
         r = requests.get(f"{base}/key-metrics", params={**params, "limit": 1}, timeout=_TIMEOUT)
         if r.status_code == 200 and r.json():
@@ -249,18 +262,120 @@ def _fmp_layer(symbol: str) -> dict:
     except Exception:
         pass
 
+    # ── Income statement (2 periods for YoY growth) ───────────────────────────
     try:
         r = requests.get(f"{base}/income-statement", params={**params, "limit": 2}, timeout=_TIMEOUT)
         _income = r.json() if r.status_code == 200 else []
-        if len(_income) >= 2:
-            latest, prior = _income[0], _income[1]
-            rev_latest = latest.get("revenue", 0) or 0
-            rev_prior  = prior.get("revenue") or None
-            result["revenue_latest"] = rev_latest
-            result["revenue_growth"] = round((rev_latest - rev_prior) / rev_prior * 100, 2) if rev_prior else None
-            result["net_income"]     = latest.get("netIncome")
-            result["gross_profit"]   = latest.get("grossProfit")
-            result["ebitda"]         = latest.get("ebitda")
+        if len(_income) >= 1:
+            latest = _income[0]
+            rev = latest.get("revenue") or 0
+            gp  = latest.get("grossProfit") or 0
+            ni  = latest.get("netIncome") or 0
+            op_exp = latest.get("operatingExpenses") or 0
+            op_inc = gp - op_exp  # operating income = gross profit minus opex
+            result["gross_margin"]     = round(gp / rev * 100, 2) if rev else None
+            result["operating_margin"] = round(op_inc / rev * 100, 2) if rev else None
+            result["net_margin"]       = round(ni / rev * 100, 2) if rev else None
+            result["net_income"]       = ni
+            result["gross_profit"]     = gp
+            result["ebitda"]           = latest.get("ebitda")
+            result["revenue_latest"]   = rev
+            result["eps"]              = latest.get("eps")
+            if len(_income) >= 2:
+                prior = _income[1]
+                rev_prior = prior.get("revenue") or None
+                if rev_prior:
+                    result["revenue_growth"] = round((rev - rev_prior) / rev_prior * 100, 2)
+                eps_prior = prior.get("eps")
+                if eps_prior and result.get("eps") and eps_prior != 0:
+                    result["eps_growth_yoy"] = round((result["eps"] - eps_prior) / abs(eps_prior) * 100, 2)
+    except Exception:
+        pass
+
+    # ── Balance sheet ─────────────────────────────────────────────────────────
+    try:
+        r = requests.get(f"{base}/balance-sheet-statement", params={**params, "limit": 1}, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.json():
+            b = r.json()[0]
+            result["total_debt"]       = b.get("totalDebt")
+            result["cash_and_equiv"]   = b.get("cashAndCashEquivalents")
+            result["net_debt"]         = (b.get("totalDebt") or 0) - (b.get("cashAndCashEquivalents") or 0)
+            result["total_equity"]     = b.get("totalStockholdersEquity")
+    except Exception:
+        pass
+
+    # ── Cash flow statement ───────────────────────────────────────────────────
+    try:
+        r = requests.get(f"{base}/cash-flow-statement", params={**params, "limit": 1}, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.json():
+            cf = r.json()[0]
+            result["operating_cash_flow"] = cf.get("operatingCashFlow")
+            result["capex"]               = cf.get("capitalExpenditure")
+            fcf = (cf.get("operatingCashFlow") or 0) + (cf.get("capitalExpenditure") or 0)  # capex is negative
+            result["free_cash_flow_abs"]  = fcf if fcf != 0 else None
+    except Exception:
+        pass
+
+    # ── Comprehensive ratios ──────────────────────────────────────────────────
+    try:
+        r = requests.get(f"{base}/ratios", params={**params, "limit": 1}, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.json():
+            rat = r.json()[0]
+            result["ps_ratio"]          = rat.get("priceToSalesRatio")
+            result["pb_ratio"]          = rat.get("priceToBookRatio")
+            result["fcf_yield"]         = round(rat.get("freeCashFlowYield", 0) * 100, 3) if rat.get("freeCashFlowYield") else None
+            result["return_on_assets"]  = round((rat.get("returnOnAssets") or 0) * 100, 2) or None
+            result["interest_coverage"] = rat.get("interestCoverage")
+    except Exception:
+        pass
+
+    # ── DCF fair value (only meaningful when FCF is positive) ────────────────
+    try:
+        r = requests.get(f"{base}/discounted-cash-flow", params=params, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.json():
+            dcf_data = r.json()
+            d = dcf_data[0] if isinstance(dcf_data, list) else dcf_data
+            dcf_val = d.get("dcf")
+            price   = d.get("Stock Price") or d.get("stockPrice") or result.get("price")
+            fcf = result.get("free_cash_flow_abs")
+            # Only include DCF if FCF is positive (negative FCF → DCF is unreliable)
+            if dcf_val and price and price > 0 and fcf and fcf > 0:
+                dcf_f = float(dcf_val)
+                # Sanity check: DCF must be at least 10% of current price to be meaningful
+                if dcf_f > float(price) * 0.10:
+                    result["dcf_value"]  = round(dcf_f, 2)
+                    result["dcf_upside"] = round((dcf_f - float(price)) / float(price) * 100, 1)
+    except Exception:
+        pass
+
+    # ── Analyst forward estimates (EPS + revenue consensus) ───────────────────
+    try:
+        r = requests.get(f"{base}/analyst-estimates", params={**params, "limit": 2}, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.json():
+            ests = r.json()
+            if ests:
+                fwd = ests[0]
+                result["fwd_eps_est"]      = fwd.get("estimatedEpsAvg")
+                result["fwd_eps_high"]     = fwd.get("estimatedEpsHigh")
+                result["fwd_eps_low"]      = fwd.get("estimatedEpsLow")
+                result["fwd_rev_est"]      = fwd.get("estimatedRevenueAvg")
+                result["analyst_count"]    = fwd.get("numberAnalystEstimatedRevenue")
+                # Implied EPS growth vs trailing
+                if result.get("eps") and fwd.get("estimatedEpsAvg") and result["eps"] != 0:
+                    result["fwd_eps_growth"] = round(
+                        (fwd["estimatedEpsAvg"] - result["eps"]) / abs(result["eps"]) * 100, 1
+                    )
+    except Exception:
+        pass
+
+    # ── Next earnings date ────────────────────────────────────────────────────
+    try:
+        r = requests.get(f"{base}/earnings", params={**params, "limit": 1}, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.json():
+            e = r.json()[0]
+            result["next_earnings_date"] = e.get("date")
+            result["next_eps_estimate"]  = e.get("estimatedEps")
+            result["last_eps_actual"]    = e.get("actualEarningResult")
     except Exception:
         pass
 
@@ -362,8 +477,21 @@ def compute(symbol: str) -> dict:
                 result[name] = data
                 if data:
                     active.append(name)
-            except Exception:
+                elif name != "yahoo":
+                    # Empty result from a non-fallback layer = degraded data
+                    try:
+                        from monitoring import health
+                        reason = "api_quota" if name in _SKIPPED else "empty_response"
+                        health.record_signal_degraded(symbol, f"financial_data.{name}", reason)
+                    except Exception:
+                        pass
+            except Exception as e:
                 result[name] = {}
+                try:
+                    from monitoring import health
+                    health.record_silent_error(f"financial_data.{name}", str(e))
+                except Exception:
+                    pass
 
     result["sources_active"] = active
     return result

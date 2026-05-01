@@ -79,8 +79,8 @@ def escalate(issue_key: str, what: str, cause: str, fix_steps: list[str],
 
     print(f"\n[ESCALATE] {issue_key}: {what}")
     try:
-        from notifications import discord_bot as tg
-        tg.send(msg)
+        from notifications import discord_bot as discord
+        discord.send(msg)
     except Exception as e:
         print(f"  [ESCALATE] Discord failed — saving to DB: {e}")
         _db_log("escalation", issue_key, msg[:500])
@@ -512,7 +512,7 @@ def _check_discord_and_drain_queue():
 def _drain_discord_queue():
     """Retry sending any messages that were queued due to earlier Discord failures."""
     try:
-        from notifications import discord_bot as tg
+        from notifications import discord_bot as discord
         with sqlite3.connect(_db_path()) as c:
             rows = c.execute(
                 """SELECT id, detail FROM audit_log
@@ -522,7 +522,7 @@ def _drain_discord_queue():
 
         for row_id, text in rows:
             try:
-                tg.send(f"[QUEUED] {text}")
+                discord.send(f"[QUEUED] {text}")
                 with sqlite3.connect(_db_path()) as c:
                     c.execute(
                         "UPDATE audit_log SET symbol='sent' WHERE id=?", (row_id,)

@@ -28,8 +28,7 @@ def _keyword_score(text: str) -> float:
 def _fetch_newdata(symbol: str) -> list[dict]:
     if not config.NEWDATA_API_KEY:
         return []
-    # Strip / for crypto (BTC/USD → BTC)
-    query = symbol.split("/")[0] if "/" in symbol else symbol
+    query = symbol
     try:
         r = requests.get(
             _NEWDATA_URL,

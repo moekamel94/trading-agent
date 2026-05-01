@@ -62,10 +62,6 @@ STOCK_WATCHLIST = [
     "META", "TSLA", "JPM", "SPY", "QQQ",
 ]
 
-CRYPTO_WATCHLIST = [
-    "BTC/USD",
-]
-
 # --- Risk Parameters ---
 MAX_POSITION_PCT     = 8.0   # hard cap per position (long-term); medium-term capped at 6%
 MAX_POSITIONS        = 20    # total max (15 long-term + 5 medium-term)
@@ -73,7 +69,6 @@ MAX_POSITIONS_LONG_TERM   = 15   # long-term sleeve capacity
 MAX_POSITIONS_MEDIUM_TERM = 5    # medium-term sleeve capacity
 TAKE_PROFIT_PCT      = 0     # no fixed take-profit — let winners run
 MAX_OPTIONS_PCT      = 20.0  # max % of portfolio in options
-MAX_CRYPTO_PCT       = 20.0  # max % of portfolio in crypto
 MIN_CONFIDENCE       = 6     # minimum Claude confidence (1-10) to trade
 TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
@@ -122,6 +117,10 @@ PORTFOLIO_MT_SUSPEND_DRAWDOWN = 15.0  # suspend medium-term new entries when por
 REUNDERWRITE_ALPHA_MIN_PCT    = 8.0   # at day 90, alpha gap must still be ≥8% above SPY
 
 # --- Scheduler ---
+# Overnight earnings reaction — 07:30 ET, before pre-market summary
+EARNINGS_REACTION_HOUR   = 7
+EARNINGS_REACTION_MINUTE = 30
+
 # Gap & catalyst scanner — 08:45 ET, lightweight, no Claude
 GAP_SCAN_HOUR   = 8
 GAP_SCAN_MINUTE = 45
@@ -130,7 +129,7 @@ GAP_SCAN_MINUTE = 45
 RUN_HOUR        = 9
 RUN_MINUTE      = 50   # 9:50 AM ET — post-auction (was 9:35; let opening settle first)
 AFTERNOON_HOUR  = 15
-AFTERNOON_MINUTE = 30  # 3:30 PM ET — daily bars ~97% complete, best signal quality
+AFTERNOON_MINUTE = 0   # 3:00 PM ET
 
 # Midday risk check — stops only on open positions, no new entries, no Claude
 MIDDAY_HOUR   = 12
@@ -190,7 +189,7 @@ CRITERIA_PE_MAX               = 80   # covers growth stocks
 # --- Tier Classification (all basket tickers) ---
 TICKER_TIERS = {
     # ── Mega caps ───────────────────────────────────────────────────────────
-    "AAPL": "mega", "MSFT": "mega", "GOOGL": "mega", "META": "mega",
+    "AAPL": "mega", "MSFT": "mega", "GOOGL": "mega", "GOOG": "mega", "META": "mega",
     "AMZN": "mega", "NVDA": "mega", "TSLA": "mega",
     # ── Large growth (established thesis leaders) ────────────────────────
     "AMD": "large_growth", "AVGO": "large_growth", "ARM": "large_growth",
@@ -255,6 +254,7 @@ STOP_LOSS_BY_TIER = {
     "speculative":  20.0,  # wider — 15% whipsaws out on normal vol (was 15%)
 }
 STOP_LOSS_PCT = 8.0  # fallback for tickers not in TICKER_TIERS
+STOP_EMERGENCY_MULT = 2.0  # auto-sell (no committee) if loss exceeds stop × this multiple
 
 # --- Portfolio-Level Drawdown Rule ---
 PORTFOLIO_DRAWDOWN_LIMIT    = 12.0   # % from portfolio peak — trigger risk-reduction mode
@@ -279,6 +279,12 @@ FACTOR_CLUSTER_CAP          = 0.40   # max 40% of portfolio in any single factor
 TRIM_TRIGGER_MULTIPLE       = 1.4    # trim when position > 1.4× its original target weight
 TRIM_FAST_GAIN_PCT          = 50.0   # also trim when position gains >50% in <30 days
 TRIM_SIZE_PCT               = 0.33   # trim 33% of position back toward target weight
+
+# --- Winner Protection ---
+# A position still showing upward momentum is exempt from mechanical size/gain trims.
+# Trim is deferred until momentum breaks — the trailing stop and technical exits then handle exit.
+WINNER_CAP_EXEMPT_GAIN  = 30.0   # unrealized % above which the wider winner hard-cap applies
+WINNER_POSITION_CAP_PCT = 15.0   # hard-cap for confirmed winner positions (vs 8% standard cap)
 
 # --- Add Cadence ---
 ADD_CADENCE_DAYS            = 10     # max 1 add per position per 10 trading days
@@ -308,7 +314,7 @@ FACTOR_CLUSTERS = {
 
 # Sector map — used for concentration limits (MAX_SECTOR_PCT)
 SECTOR_MAP = {
-    "MSFT": "ai_software", "GOOGL": "ai_software", "META": "ai_software",
+    "MSFT": "ai_software", "GOOGL": "ai_software", "GOOG": "ai_software", "META": "ai_software",
     "AMZN": "ai_software", "ORCL": "ai_software", "PLTR": "ai_software",
     "CRM": "ai_software",  "NOW": "ai_software",  "AI": "ai_software",
     "NVDA": "semis", "AMD": "semis",  "AVGO": "semis", "AMAT": "semis",
@@ -385,13 +391,6 @@ TRAILING_STOP_1M_DROP  = -8.0  # sell if 1M return goes this negative while winn
 # --- Quality Filters (Risk Officer) ---
 MIN_STOCK_PRICE    = 3.0   # skip stocks below $3 — penny stock / liquidity risk
 MIN_VOLUME_RATIO   = 1.0   # require at least average daily volume (was 0.8)
-
-# --- BTC-Specific Criteria ---
-BTC_RSI_MIN          = 30
-BTC_RSI_MAX          = 75
-BTC_STOP_LOSS_PCT    = 12.0   # crypto needs wider stop
-BTC_FG_PANIC         = 20     # crypto Fear & Greed (use main F&G as proxy)
-BTC_VIX_MAX          = 38     # don't buy BTC during equity market panic
 
 # --- Basket ---
 BASKET_REFRESH_HOUR   = 8
