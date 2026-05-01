@@ -422,6 +422,173 @@ def _derive_regime(data: dict) -> dict:
     return regime
 
 
+def _predict_regime_shift(current_label: str, data: dict, regime: dict, geo: dict) -> dict:
+    """
+    Look at LEADING indicators to predict whether the regime is about to change
+    and what direction. Runs every cycle so the committee can pre-position
+    BEFORE the shift confirms, not after.
+
+    Returns:
+      likely_next_regime: str | None
+      transition_probability: 0-100 (confidence)
+      horizon_weeks: approximate weeks until shift
+      leading_signals: list of bulleted evidence strings
+      pre_position_sectors: sectors to start accumulating now
+    """
+    try:
+        import yfinance as _yf
+
+        # ── Compute 4-week momentum for key indicators ──
+        def _pct_chg(ticker: str, weeks: int = 4) -> float | None:
+            try:
+                hist = _yf.Ticker(ticker).history(period=f"{weeks * 7 + 5}d")
+                if len(hist) < 5:
+                    return None
+                cur  = float(hist["Close"].iloc[-1])
+                past = float(hist["Close"].iloc[0])
+                return round((cur / past - 1) * 100, 1)
+            except Exception:
+                return None
+
+        oil_4w  = _pct_chg("CL=F",     weeks=4)
+        gold_4w = _pct_chg("GC=F",     weeks=4)
+        vix_now = data.get("vix") or 20
+        dxy_4w  = _pct_chg("DX-Y.NYB", weeks=4)
+
+        inflation_trend = regime.get("inflation_trend", "stable")
+        yield_curve     = regime.get("yield_curve", "normal")
+        spread_bps      = regime.get("yield_spread_bps") or 0
+        geo_flags       = (geo or {}).get("flags", {})
+
+        signals: list[str] = []
+        score = 0   # positive = transition likely, negative = regime stable
+
+        # ── Transition: GEOPOLITICALLY_STRESSED → GROWTH_DRIVEN ──────────────
+        if current_label == "geopolitically_stressed":
+            likely_next = "growth_driven"
+            pre_sectors = ["ai_software", "semis", "cyber", "ai_infra", "mega_tech"]
+
+            if oil_4w is not None and oil_4w < -5:
+                score += 30
+                signals.append(f"Oil ↓{abs(oil_4w):.1f}% over 4 weeks — supply pressure easing")
+            elif oil_4w is not None and oil_4w < 0:
+                score += 10
+                signals.append(f"Oil mildly lower ({oil_4w:+.1f}%) — stress softening")
+            elif oil_4w is not None and oil_4w > 8:
+                score -= 20
+                signals.append(f"Oil ↑{oil_4w:.1f}% — supply disruption deepening, stress entrenching")
+
+            if vix_now < 18:
+                score += 20
+                signals.append(f"VIX {vix_now:.1f} — market calm, risk appetite returning")
+            elif vix_now > 28:
+                score -= 15
+                signals.append(f"VIX {vix_now:.1f} elevated — fear still dominant")
+
+            if gold_4w is not None and gold_4w < -3:
+                score += 15
+                signals.append(f"Gold ↓{abs(gold_4w):.1f}% — safe-haven demand unwinding")
+            elif gold_4w is not None and gold_4w > 5:
+                score -= 10
+                signals.append(f"Gold ↑{gold_4w:.1f}% — safe-haven demand still elevated")
+
+            active_flags = sum(1 for v in geo_flags.values() if v)
+            if active_flags == 0:
+                score += 25
+                signals.append("No active geopolitical flags — stress may be receding")
+            elif active_flags >= 2:
+                score -= 20
+                signals.append(f"{active_flags} geo flags active — conflict ongoing")
+
+        # ── Transition: INFLATIONARY → GROWTH_DRIVEN ─────────────────────────
+        elif current_label == "inflationary":
+            likely_next = "growth_driven"
+            pre_sectors = ["ai_software", "semis", "cyber", "ai_infra", "ecommerce"]
+
+            if inflation_trend == "falling":
+                score += 35
+                signals.append("CPI trend turning lower — inflation cooling")
+            elif inflation_trend == "stable":
+                score += 15
+                signals.append("CPI trend stable — disinflation beginning")
+
+            if spread_bps > 30:
+                score += 20
+                signals.append(f"Yield spread {spread_bps:.0f}bps and positive — curve normalizing")
+            if dxy_4w is not None and dxy_4w < -2:
+                score += 15
+                signals.append(f"DXY ↓{abs(dxy_4w):.1f}% — dollar weakening, financial conditions easing")
+            if oil_4w is not None and oil_4w < -5:
+                score += 20
+                signals.append(f"Oil ↓{abs(oil_4w):.1f}% — cost pressure reducing")
+
+        # ── Transition: RECESSIONARY → GROWTH_DRIVEN ─────────────────────────
+        elif current_label == "recessionary":
+            likely_next = "growth_driven"
+            pre_sectors = ["ai_software", "semis", "fintech", "ecommerce", "cyber"]
+
+            if yield_curve == "normal":
+                score += 30
+                signals.append("Yield curve un-inverted — recession signal lifting")
+            elif yield_curve == "flat":
+                score += 15
+                signals.append("Yield curve flattening toward neutral")
+
+            if vix_now < 20:
+                score += 20
+                signals.append(f"VIX {vix_now:.1f} — fear receding, recovery signal")
+            if gold_4w is not None and gold_4w < -2:
+                score += 15
+                signals.append("Gold declining — safe-haven demand fading")
+
+        # ── Transition: GROWTH_DRIVEN → regime change warning ────────────────
+        elif current_label == "growth_driven":
+            # Warning: growth regime may be ending
+            if inflation_trend == "rising" and (oil_4w or 0) > 8:
+                likely_next = "inflationary"
+                pre_sectors = ["energy_oil", "commodities_metals", "defense", "nuclear"]
+                score += 40
+                signals.append(f"CPI rising + oil ↑{oil_4w:.1f}% — inflationary shift building")
+            elif geo_flags.get("supply_disruption") or geo_flags.get("active_war"):
+                likely_next = "geopolitically_stressed"
+                pre_sectors = ["defense", "energy_oil", "cyber", "commodities_metals"]
+                score += 35
+                signals.append("Geo flags active — stress regime risk rising")
+            else:
+                return {"likely_next_regime": None, "transition_probability": 5,
+                        "horizon_weeks": None, "leading_signals": ["No transition signals — growth regime stable"],
+                        "pre_position_sectors": []}
+        else:
+            # stagflation or other — simplified
+            likely_next = "growth_driven"
+            pre_sectors = ["ai_software", "semis", "cyber"]
+            if inflation_trend != "rising":
+                score += 20
+                signals.append("Inflation trend no longer rising")
+
+        # Clamp probability
+        prob = max(5, min(90, score))
+
+        # Horizon estimate: high prob = sooner
+        if prob >= 65:   horizon = "2-4 weeks"
+        elif prob >= 40: horizon = "4-8 weeks"
+        else:            horizon = "8-16 weeks"
+
+        if not signals:
+            signals = [f"Current {current_label} regime conditions largely intact"]
+
+        return {
+            "likely_next_regime":    likely_next,
+            "transition_probability": prob,
+            "horizon_weeks":         horizon,
+            "leading_signals":       signals,
+            "pre_position_sectors":  pre_sectors,
+        }
+
+    except Exception:
+        return {}
+
+
 def compute(force_refresh: bool = False) -> dict:
     """
     Return today's macro regime. Cached daily — only one FRED fetch per day.
@@ -490,6 +657,9 @@ def compute(force_refresh: bool = False) -> dict:
     except Exception:
         pass
 
+    # Forward-looking regime shift prediction — helps portfolio pre-position
+    regime_forecast = _predict_regime_shift(regime_label, data, regime, geo)
+
     output = {
         "date":              today,
         "regime":            regime,
@@ -500,6 +670,7 @@ def compute(force_refresh: bool = False) -> dict:
         "upcoming_events":   calendar,
         "regime_shift":      regime_shift,
         "prev_regime_label": prev_regime_label if regime_shift else None,
+        "regime_forecast":   regime_forecast,
     }
 
     # Cache to disk
@@ -529,6 +700,12 @@ def compute(force_refresh: bool = False) -> dict:
         if near:
             print(f"  [MacroRegime] Upcoming high-impact: " +
                   " | ".join(f"{e['date']} {e['event']}" for e in near[:3]))
+
+    if regime_forecast.get("likely_next_regime"):
+        _prob = regime_forecast.get("transition_probability", 0)
+        _nxt  = regime_forecast.get("likely_next_regime", "?").upper()
+        _hrz  = regime_forecast.get("horizon_weeks", "?")
+        print(f"  [MacroRegime] FORECAST: {_prob}% chance of shift → {_nxt} in {_hrz}")
 
     return output
 
@@ -631,5 +808,25 @@ def format_for_prompt(macro: dict) -> str:
         lines.append(f"Active signals: {', '.join(active).replace('_', ' ').upper()}")
         for h in (geo.get("headlines") or [])[:3]:
             lines.append(f"  • {h}")
+
+    # Regime shift forecast — MOST IMPORTANT for pre-positioning
+    fc = macro.get("regime_forecast", {})
+    if fc.get("likely_next_regime"):
+        lines.append("=== REGIME SHIFT FORECAST (act now, before market confirms) ===")
+        lines.append(
+            f"Current: {macro.get('regime_label','?').upper().replace('_',' ')} → "
+            f"Likely next: {fc['likely_next_regime'].upper().replace('_',' ')} | "
+            f"Probability: {fc['transition_probability']}% | "
+            f"Horizon: {fc.get('horizon_weeks','?')}"
+        )
+        for sig in fc.get("leading_signals", []):
+            lines.append(f"  • {sig}")
+        pre = fc.get("pre_position_sectors", [])
+        if pre:
+            lines.append(
+                f"PRE-POSITION NOW in: {', '.join(pre)} "
+                f"— these sectors lead in the incoming regime. "
+                f"Start accumulating before the shift confirms."
+            )
 
     return "\n".join(lines)

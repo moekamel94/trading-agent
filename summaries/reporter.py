@@ -258,15 +258,27 @@ def run_premarket(dry_run: bool = False):
             f"{e.get('event','?')} {e.get('date','')}" for e in events[:3]
         ))
 
+    # ── Regime shift forecast — early warning to pre-position ────────────────
+    fc = macro.get("regime_forecast", {})
+    if fc.get("likely_next_regime") and fc.get("transition_probability", 0) >= 30:
+        _nxt  = fc["likely_next_regime"].upper().replace("_", " ")
+        _prob = fc["transition_probability"]
+        _hrz  = fc.get("horizon_weeks", "?")
+        _pre  = fc.get("pre_position_sectors", [])
+        lines += ["", f"**⚡ Regime Shift Signal ({_prob}% → {_nxt} in {_hrz})**"]
+        for _sig in fc.get("leading_signals", [])[:3]:
+            lines.append(f"  • {_sig}")
+        if _pre:
+            lines.append(f"  → Start accumulating: **{', '.join(_pre[:4])}** before shift confirms")
+
     # ── 3. Today's action plan (committee directives + planned buys) ──────────
     high_items = [a for a in agenda if a.get("priority") == "high"]
     med_items  = [a for a in agenda if a.get("priority") == "medium"]
     if high_items or med_items:
-        lines += ["", "**🎯 Today's Plan**"]
+        lines += ["", "**🎯 Committee Agenda**  _(no action needed from you — committee resolves each item in the cycle)_"]
         for item in (high_items + med_items)[:3]:
             pri = "HIGH" if item in high_items else "MED"
             lines.append(f"  [{pri}] {item.get('title','')}")
-            # Show force-review tickers so Mohammed knows what to expect
             ft = item.get("force_review_tickers", [])
             if ft:
                 lines.append(f"    → Tickers: {', '.join(ft)}")
@@ -319,12 +331,22 @@ def run_premarket(dry_run: bool = False):
         fh = (cached.get("financial_data") or {}).get("finnhub") or {}
         top_news = (fh.get("news_headlines") or [""])[0]
 
-        # Earnings alert
+        # Earnings alert — recompute days from stored date string so it's always current
         earn_str = ""
         ed = (cached.get("earnings_data") or {})
-        dte = ed.get("days_to_earnings")
-        if dte is not None and 0 <= dte <= 14:
-            earn_str = f"  🚨 Earnings in {dte}d ({ed.get('earnings_date','')})"
+        earnings_date_str = ed.get("earnings_date", "")
+        dte = None
+        if earnings_date_str:
+            try:
+                _ed = datetime.strptime(earnings_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                dte = (_ed.date() - now.date()).days
+            except Exception:
+                dte = ed.get("days_to_earnings")
+        if dte is not None and dte >= 0:
+            _earn_emoji = "🚨" if dte <= 14 else "📅"
+            earn_str = f"  {_earn_emoji} Earnings in {dte}d ({earnings_date_str})"
+        elif earnings_date_str:
+            earn_str = f"  📅 Earnings: {earnings_date_str}"
 
         # Stop + target from tranche
         tranche   = tranche_map.get(sym)
@@ -339,6 +361,8 @@ def run_premarket(dry_run: bool = False):
             if pt and cur:
                 upside_pct = (pt - cur) / cur * 100
                 upside_str = f"  🎯 Target ${pt:.0f} ({upside_pct:+.0f}%)"
+            elif cur:
+                upside_str = "  🎯 Target: committee sets in next cycle"
             t_label = f" T{tranche.get('current_tranche',1)}/3"
 
         meta = "  ".join(x for x in [days_held and f"held {days_held}", t_label.strip()] if x)

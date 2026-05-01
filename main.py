@@ -1591,30 +1591,12 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
             except Exception as e:
                 print(f"    ERROR closing {sym}: {e}")
 
-    # Hard position cap enforcement — runs every cycle, no committee needed
-    # Trims any position over MAX_POSITION_PCT (8%) back to exactly 8%
+    # Detect position cap violations — NO auto-trim. Committee decides trim vs hold.
+    # Violations are annotated on the candidate's synthesis so the committee gets full context.
     cap_violations = manager.check_hard_cap_violations(positions, portfolio["equity"])
+    _cap_violation_map = {c["symbol"]: c for c in cap_violations}
     for cap in cap_violations:
-        sym       = cap["symbol"]
-        trim_qty  = cap["trim_qty"]
-        reason    = cap["reason"]
-        excess_mv = cap.get("excess_mv", 0)
-        cur_pct   = cap["current_pct"]
-        print(f"  [HardCap] {sym} at {cur_pct:.1f}% > {config.MAX_POSITION_PCT}% | {reason}")
-        if not dry_run:
-            try:
-                pos_raw = pos_lookup.get(sym)
-                price   = float(pos_raw.get("current_price", 0)) if pos_raw else 0
-                if trim_qty > 0 and price > 0:
-                    alpaca.place_market_order(sym, trim_qty, "SELL")
-                    db.log_trade(sym, "SELL", "stock", trim_qty, price, 0, 0, f"[HardCap] {reason}")
-                    discord.send(
-                        f"✂️ HARD CAP TRIM **{sym}** | "
-                        f"{cur_pct:.1f}% → {config.MAX_POSITION_PCT}% | "
-                        f"${excess_mv:,.0f} trimmed"
-                    )
-            except Exception as e:
-                print(f"    [HardCap] order error {sym}: {e}")
+        print(f"  [CapFlag] {cap['symbol']} at {cap['current_pct']:.1f}% | {cap['reason']} → flagging for committee")
 
     # ── Continuous learning: update 7/14d price outcomes for past entries ───────
     try:
@@ -1779,6 +1761,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
     _drop_earnings = 0   # earnings within CRITERIA_EARNINGS_DAYS
     _drop_prelim   = 0   # preliminary score gate
     _drop_cache    = 0   # on-demand warmup failed / cache still empty
+    _filter_failed_syms: set = set()   # non-held MT tickers that failed pre-filter this cycle
     candidates: list[dict] = []
 
     for symbol in watchlist:
@@ -1812,10 +1795,12 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                 print(f"  [{symbol}] -> SKIP | Quick filter: below SMA200 + death cross ({death_cross_days}d old)")
                 db.log_audit("prelim_drop_techfilter", symbol,
                              f"below_sma200 + fresh_death_cross ({death_cross_days}d old)")
+                _filter_failed_syms.add(symbol)
                 continue
             if at_bb_upper and below_sma50:
                 print(f"  [{symbol}] -> SKIP | Quick filter: overextended + below SMA50")
                 db.log_audit("prelim_drop_techfilter", symbol, "at_bb_upper + below_sma50")
+                _filter_failed_syms.add(symbol)
                 continue
 
         scanned_count += 1
@@ -1866,6 +1851,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
             print(f"  [{symbol}] -> SKIP | {criteria_reason}")
             db.log_audit("prelim_drop_criteria", symbol, criteria_reason)
             _drop_criteria += 1
+            _filter_failed_syms.add(symbol)
             continue
 
         # Earnings check — cached first, live fallback if no date in cache
@@ -1881,6 +1867,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                 print(f"  [{symbol}] -> SKIP | Earnings in {dte} day(s) — binary event risk")
                 db.log_audit("prelim_drop_earnings", symbol, f"earnings in {dte}d")
                 _drop_earnings += 1
+                _filter_failed_syms.add(symbol)
                 continue
 
         # Preliminary gate (technicals + free fundamentals only)
@@ -1901,6 +1888,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     db.log_audit("prelim_drop_spec_gate", symbol,
                                  f"spec_below_sma200={_spec_below200} macd_bearish={_spec_macd_b}")
                     _drop_prelim += 1
+                    _filter_failed_syms.add(symbol)
                     continue
 
                 # Gate 2: 3m return < -15% with no nearby hard catalyst — no catching falling knives.
@@ -1910,6 +1898,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     db.log_audit("prelim_drop_spec_gate", symbol,
                                  f"3m_return={_spec_r3m:.1f}%")
                     _drop_prelim += 1
+                    _filter_failed_syms.add(symbol)
                     continue
 
                 # Gate 3: institutional confirmation — require at least one real signal.
@@ -1928,6 +1917,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     db.log_audit("prelim_drop_spec_gate", symbol,
                                  f"no_inst_confirm dp={_dp_sig} insider={_insd_sig} congress={_cong_sig}")
                     _drop_prelim += 1
+                    _filter_failed_syms.add(symbol)
                     continue
             else:
                 prelim_score = 0
@@ -1984,6 +1974,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                                  f"prelim={prelim_score} threshold={threshold} tier={tier} "
                                  f"eps={eps} rev={rev} r1m={r1m} r3m={r3m} gc={gc} dc={dc} dc_days={dc_days}")
                     _drop_prelim += 1
+                    _filter_failed_syms.add(symbol)
                     continue
 
         # Load cached research (free — no API calls)
@@ -2112,6 +2103,18 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
     _forced_review_syms: set = set()   # symbols injected for post-sell assessment
 
     if candidates:
+        # ── Annotate cap-violation candidates so committee decides trim vs hold ──
+        for _cand in candidates:
+            _cv = _cap_violation_map.get(_cand["symbol"])
+            if _cv:
+                _cand["synthesis"] = (
+                    f"[⚠️ POSITION CAP ALERT: {_cv['symbol']} is at {_cv['current_pct']:.1f}% of portfolio "
+                    f"(limit is {config.MAX_POSITION_PCT}% standard / {config.WINNER_POSITION_CAP_PCT}% winner). "
+                    f"Excess: ${_cv['excess_mv']:,.0f}. "
+                    f"YOU must decide: output TRIM to reduce size, or HOLD if conviction justifies the oversize. "
+                    f"No automatic trim will execute.]\n\n"
+                ) + (_cand.get("synthesis") or "")
+
         # ── Pre-gate: force BUCKET on spec tickers in regime AVOID sectors ────
         _regime_weights = (_macro_regime or {}).get("sector_weights", {})
         _spec_buckets = []
@@ -2610,17 +2613,15 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                     price_target_basis=decision.get("price_target_basis", ""),
                 )
 
-    # Update price targets for HOLD decisions on held positions — committee
-    # re-evaluates the upside target on every review, so it stays current.
+    # Update price targets from every committee decision on a held position —
+    # BUY adds, HOLDs, TRIMs, even pre-exit reviews all carry fresh price_target.
+    _held_syms_now = {p["symbol"] for p in positions}
     for decision in decisions:
         sym = decision.get("symbol")
-        if decision.get("action") == "HOLD" and decision.get("price_target"):
+        _pt = decision.get("price_target")
+        if _pt and sym in _held_syms_now:
             try:
-                db.update_price_target(
-                    sym,
-                    decision["price_target"],
-                    decision.get("price_target_basis", ""),
-                )
+                db.update_price_target(sym, _pt, decision.get("price_target_basis", ""))
             except Exception:
                 pass
 
@@ -2968,6 +2969,43 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         msg_parts.append("")
         msg_parts.append("**📈 Scale-in Opportunities**")
         msg_parts.extend(tranche_alerts)
+
+    # ── MT basket pruning: remove non-held tickers with 3+ consecutive filter failures ──
+    try:
+        _mt_set    = set(basket_mgr.load_mt())
+        _held_now  = {p["symbol"] for p in positions}
+        _mt_failed = _filter_failed_syms & _mt_set - _held_now
+        if _mt_failed:
+            import json as _bpj, os as _bpos
+            _fail_path = _bpos.path.join(_bpos.path.dirname(__file__), "basket", ".filter_failures.json")
+            try:
+                _fail_counts: dict = _bpj.load(open(_fail_path))
+            except Exception:
+                _fail_counts = {}
+            # Increment failures, reset passing tickers
+            for _s in _mt_set:
+                if _s in _mt_failed:
+                    _fail_counts[_s] = _fail_counts.get(_s, 0) + 1
+                elif _s in _fail_counts and _s not in _mt_failed:
+                    _fail_counts[_s] = 0   # reset on pass
+            # Prune tickers with 3+ consecutive failures
+            _to_prune = [s for s, c in _fail_counts.items() if c >= 3 and s in _mt_set and s not in _held_now]
+            if _to_prune:
+                _cur_mt   = basket_mgr.load_mt()
+                _cur_meta = basket_mgr.load_mt_metadata()
+                _new_mt   = [s for s in _cur_mt if s not in _to_prune]
+                _new_meta = {k: v for k, v in _cur_meta.items() if k not in _to_prune}
+                basket_mgr.save_mt(_new_mt, _new_meta)
+                for _ps in _to_prune:
+                    del _fail_counts[_ps]
+                _prune_msg = (f"🗑️ **MT Basket Pruned** — {len(_to_prune)} ticker(s) removed "
+                              f"after 3 consecutive filter failures: {', '.join(_to_prune)}")
+                print(f"  [BasketPrune] {_prune_msg}")
+                discord.send(_prune_msg)
+            # Save updated counts
+            _bpj.dump(_fail_counts, open(_fail_path, "w"), indent=2)
+    except Exception as _bp_err:
+        print(f"  [BasketPrune] error: {_bp_err}")
 
     summary = "\n".join(msg_parts)
     print(summary)
