@@ -197,27 +197,48 @@ def refresh() -> list[str]:
     return merged
 
 
-def load_excluded() -> set:
-    """Return the set of tickers excluded from ALL baskets (LT and MT)."""
+_EXCLUSION_DAYS = 30   # ticker is re-eligible after this many days
+
+
+def _load_excluded_raw() -> dict:
+    """Return {ticker: iso_date_excluded} dict."""
     try:
-        return set(json.load(open(EXCLUDED_FILE)))
+        return json.load(open(EXCLUDED_FILE))
     except Exception:
-        return set()
+        return {}
+
+
+def load_excluded() -> set:
+    """Return the set of tickers still within their 30-day cooldown window."""
+    from datetime import date
+    raw = _load_excluded_raw()
+    today = date.today()
+    active = set()
+    for sym, date_str in raw.items():
+        try:
+            excluded_on = datetime.strptime(date_str, "%Y-%m-%d").date()
+            if (today - excluded_on).days < _EXCLUSION_DAYS:
+                active.add(sym)
+        except Exception:
+            active.add(sym)   # malformed date — keep excluded to be safe
+    return active
 
 
 def add_excluded(tickers: list[str]) -> None:
-    """Add tickers to the permanent exclusion list."""
-    current = load_excluded()
-    current.update(t.upper() for t in tickers)
-    json.dump(sorted(current), open(EXCLUDED_FILE, "w"), indent=2)
+    """Add tickers to the 30-day cooldown list. Re-exclusion resets the clock."""
+    raw = _load_excluded_raw()
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    for t in tickers:
+        raw[t.upper()] = today
+    json.dump(raw, open(EXCLUDED_FILE, "w"), indent=2)
 
 
 def remove_excluded(tickers: list[str]) -> None:
-    """Remove tickers from the exclusion list (re-allows them in future refreshes)."""
-    current = load_excluded()
+    """Manually lift the cooldown for specific tickers (e.g. after a turnaround)."""
+    raw = _load_excluded_raw()
     for t in tickers:
-        current.discard(t.upper())
-    json.dump(sorted(current), open(EXCLUDED_FILE, "w"), indent=2)
+        raw.pop(t.upper(), None)
+    json.dump(raw, open(EXCLUDED_FILE, "w"), indent=2)
 
 
 def load() -> list[str]:
