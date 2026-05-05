@@ -427,3 +427,5 @@ def get_sp500_tickers() -> set[str]:
     except Exception:
         return SP500_FALLBACK
 CRYPTO_WATCHLIST = []
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_CHAT_ID   = os.getenv('TELEGRAM_CHAT_ID', '')
