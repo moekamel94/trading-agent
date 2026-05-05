@@ -754,7 +754,8 @@ def send(text: str):
         return
 
     if not config.DISCORD_TOKEN or not config.DISCORD_ALERT_CHANNEL_ID:
-        print(f"  [Discord] Not configured — alert dropped:\n{text[:80]}")
+        from notifications import telegram_bot as _tg
+        _tg.send(text)
         return
 
     # Bot path: requires --discord mode with a running event loop
