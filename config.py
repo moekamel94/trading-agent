@@ -426,3 +426,4 @@ def get_sp500_tickers() -> set[str]:
         return tickers if len(tickers) > 400 else SP500_FALLBACK
     except Exception:
         return SP500_FALLBACK
+CRYPTO_WATCHLIST = []

@@ -3454,6 +3454,9 @@ def main():
 
         from notifications import discord_bot
         discord_bot.run_bot()
+        # If Discord token not set, keep scheduler alive with a simple loop
+        import time as _time
+        while True: _time.sleep(60)
     elif args.premarket:
         db.init()
         from reports.earnings_reaction import run_earnings_reaction
