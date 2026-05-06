@@ -63,13 +63,13 @@ STOCK_WATCHLIST = [
 ]
 
 # --- Risk Parameters ---
-MAX_POSITION_PCT     = 8.0   # hard cap per position (long-term); medium-term capped at 6%
+MAX_POSITION_PCT     = 12.0  # hard cap per position (long-term); medium-term capped at 6%
 MAX_POSITIONS        = 20    # total max (15 long-term + 5 medium-term)
 MAX_POSITIONS_LONG_TERM   = 15   # long-term sleeve capacity
 MAX_POSITIONS_MEDIUM_TERM = 5    # medium-term sleeve capacity
 TAKE_PROFIT_PCT      = 0     # no fixed take-profit — let winners run
 MAX_OPTIONS_PCT      = 20.0  # max % of portfolio in options
-MIN_CONFIDENCE       = 6     # minimum Claude confidence (1-10) to trade
+MIN_CONFIDENCE       = 7     # minimum Claude confidence (1-10) to trade
 TRADE_CUTOFF_HOUR    = 15    # no new trades after 3 PM ET
 TRADE_CUTOFF_MINUTE  = 30
 MAX_SECTOR_PCT       = 25.0  # max % of portfolio in any single sector
