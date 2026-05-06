@@ -797,7 +797,7 @@ def run_mt_cache_warmup(
 
 def run_weekly_basket_review():
     """
-    Weekly basket maintenance — runs every Friday 16:30 ET.
+    Weekly basket maintenance — runs every Friday 16:30 ET (23:30 AST).
     LT basket: free signals + tier-aware curation (no paid APIs).
     MT basket: congress buys + earnings catalysts + sector rotation + UW discoveries.
     """
@@ -891,7 +891,7 @@ def _mt_weekly_deployed_pct(portfolio_equity: float) -> float:
 
 def run_daily_basket_review():
     """
-    Daily MT basket review — Mon-Fri 16:15 ET.
+    Daily MT basket review — Mon-Fri 16:15 ET (23:15 AST).
     Evaluates each MT position for momentum, thesis validity, and TTL.
     Removes broken/expired slots and sources 1:1 replacements.
     """
@@ -3315,7 +3315,7 @@ def main():
             id="earnings_reaction",
             misfire_grace_time=GRACE,
         )
-        # Pre-market summary: Mon-Fri 9:00 ET
+        # Pre-market summary: Mon-Fri 9:00 ET (16:00 AST)
         scheduler.add_job(
             _safe_premarket,
             CronTrigger(day_of_week="mon-fri",
@@ -3360,7 +3360,7 @@ def main():
             id="trading_cycle_close",
             misfire_grace_time=GRACE,
         )
-        # Close summary: Mon-Fri 16:05 ET
+        # Close summary: Mon-Fri 16:05 ET (23:05 AST)
         scheduler.add_job(
             _safe_close,
             CronTrigger(day_of_week="mon-fri",
@@ -3396,7 +3396,7 @@ def main():
             id="spec_research_biweekly",
             misfire_grace_time=GRACE,
         )
-        # Weekly portfolio review: Sunday 18:00 ET
+        # Weekly portfolio review: Sunday 18:00 ET (01:00 AST)
         scheduler.add_job(
             _safe_weekly,
             CronTrigger(day_of_week="sun", hour=18, minute=0),
@@ -3437,19 +3437,19 @@ def main():
         scheduler.start()
         print(
             f"[Scheduler] Started inside Kimmy:\n"
-            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
-            f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d} ET (lightweight)\n"
-            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
-            f"  Trading cycle (AM)    : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
-            f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d} ET (no Claude)\n"
-            f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
-            f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET\n"
+            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d}  (15:00 AST)\n"
+            f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d}  ET (15:45 AST) lightweight\n"
+            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d}  (16:00 AST)\n"
+            f"  Trading cycle (AM)    : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d}  (16:50 AST)\n"
+            f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d}  ET (19:30 AST) no Claude\n"
+            f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d}  (22:00 AST)\n"
+            f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d}  (23:05 AST)\n"
             f"  Daily MT basket review: Mon-Thu 16:15 ET (Haiku; removes broken, adds 1:1)\n"
-            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (full weekly refresh)\n"
+            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d}  ET (23:30 AST) full weekly refresh\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly, spec tier only)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET\n"
-            f"  UW sweep feed scan    : every 5 min Mon-Fri 9:30-16:00 ET\n"
-            f"  UW basket refresh     : every 15 min Mon-Fri 9:30-16:00 ET (~5K calls/day)"
+            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST)\n"
+            f"  UW sweep feed scan    : every 5 min Mon-Fri 9:30-16:00 ET (23:00 AST)\n"
+            f"  UW basket refresh     : every 15 min Mon-Fri 9:30-16:00 ET (23:00 AST) (~5K calls/day)"
         )
 
         from notifications import discord_bot
@@ -3558,16 +3558,16 @@ def main():
         )
         print(
             f"Scheduler started:\n"
-            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET\n"
-            f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d} ET\n"
-            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET\n"
-            f"  Trading cycle (AM)    : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d} ET\n"
-            f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d} ET\n"
-            f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d} ET\n"
-            f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d} ET\n"
-            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET\n"
+            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d}  (15:00 AST)\n"
+            f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d}  (15:45 AST)\n"
+            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d}  (16:00 AST)\n"
+            f"  Trading cycle (AM)    : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d}  (16:50 AST)\n"
+            f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d}  (19:30 AST)\n"
+            f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d}  (22:00 AST)\n"
+            f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d}  (23:05 AST)\n"
+            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d}  (23:30 AST)\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET\n"
+            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST)\n"
             f"  UW sweep feed scan    : every 5 min (market hours only)\n"
             f"  UW basket refresh     : every 15 min (market hours only, ~5K calls/day)"
         )
