@@ -1,7 +1,28 @@
 {
-  "updated": "2026-04-28T20:32:23.000000",
+  "updated": "2026-05-06T05:57:08.638411",
   "tickers": [
-    "ORCL"
+    "ORCL",
+    "LVS",
+    "PINS",
+    "PBF",
+    "ZETA",
+    "NKE",
+    "DVN",
+    "DINO",
+    "PCG",
+    "NEE",
+    "MPC",
+    "INTC",
+    "AMD",
+    "NOK",
+    "ET",
+    "CPNG",
+    "CVNA",
+    "AR",
+    "CVX",
+    "QS",
+    "PALO",
+    "CRM"
   ],
   "metadata": {
     "ORCL": {
@@ -10,6 +31,174 @@
       "expires": "2026-06-23",
       "note": "Earnings 2026-06-09 | RSI=70 | upside=40.7%",
       "catalyst_date": "2026-06-09"
+    },
+    "NOK": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | ai_software (0.95) | net_call=$2.5M | IV_rank=57 | P/C=0.26"
+    },
+    "LVS": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "OI buildup +15% | 14,552 contracts | 2d increasing"
+    },
+    "AMD": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | ai_software (0.95) | net_call=$43.0M | IV_rank=85 | P/C=0.74"
+    },
+    "PINS": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "OI buildup +13% | 10,486 contracts | 7d increasing"
+    },
+    "PBF": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "OI buildup +40% | 10,254 contracts | 1d increasing"
+    },
+    "ZETA": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "OI buildup +19% | 8,516 contracts | 6d increasing"
+    },
+    "NKE": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "OI buildup +16% | 7,500 contracts | 1d increasing"
+    },
+    "INTC": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | ai_software (0.95) | net_call=$40.4M | IV_rank=100 | P/C=0.98"
+    },
+    "ET": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | nuclear (0.75) | net_call=$0.5M | IV_rank=22 | P/C=0.11"
+    },
+    "DVN": {
+      "source": "regime_scan",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "UW flow bullish | energy_oil (0.81) | net_call=$2.6M | IV_rank=74 | P/C=0.07"
+    },
+    "DINO": {
+      "source": "regime_scan",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "UW flow bullish | energy_oil (0.81) | net_call=$1.8M | IV_rank=59 | P/C=0.69"
+    },
+    "PCG": {
+      "source": "regime_scan",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "UW flow bullish | nuclear (0.92) | net_call=$0.1M | IV_rank=22 | P/C=0.23"
+    },
+    "NEE": {
+      "source": "regime_scan",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "UW flow bullish | nuclear (0.92) | net_call=$0.1M | IV_rank=32 | P/C=1.12"
+    },
+    "XOM": {
+      "source": "regime_scan",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "News-driven: geopolitically_stressed | energy_oil (0.81) | Oil supply disruptions from Iran conflict and Strait of Hormuz tensions support elevated crude prices and refining margi"
+    },
+    "CVX": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | nuclear (0.75) | net_call=$0.2M | IV_rank=68 | P/C=0.91"
+    },
+    "MPC": {
+      "source": "regime_scan",
+      "added": "2026-05-05",
+      "expires": null,
+      "note": "News-driven: geopolitically_stressed | energy_oil (0.81) | Refiner benefits from crude supply disruptions and potential margin expansion amid Iran war-driven price volatility."
+    },
+    "IREN": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "OI buildup +28% | 20,702 contracts | 2d increasing"
+    },
+    "BBAI": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "OI buildup +12% | 13,269 contracts | 7d increasing"
+    },
+    "LAES": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "OI buildup +15% | 12,045 contracts | 2d increasing"
+    },
+    "XP": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "OI buildup +197% | 8,656 contracts | 6d increasing"
+    },
+    "AUR": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "OI buildup +335% | 8,381 contracts | 2d increasing"
+    },
+    "XRX": {
+      "source": "uw_oi_buildup",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "OI buildup +11% | 7,960 contracts | 3d increasing"
+    },
+    "CPNG": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | ecommerce (0.75) | net_call=$1.4M | IV_rank=66 | P/C=0.72"
+    },
+    "CVNA": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | ecommerce (0.75) | net_call=$0.5M | IV_rank=29 | P/C=0.90"
+    },
+    "AR": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | nuclear (0.75) | net_call=$0.3M | IV_rank=37 | P/C=11.84"
+    },
+    "QS": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 UW flow bullish | ecommerce (0.75) | net_call=$0.0M | IV_rank=27 | P/C=0.18"
+    },
+    "PALO": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 News-driven: growth_driven | cyber (0.85) | Cybersecurity leader positioned to benefit from escalated threat environment following Iran nuclear program developments"
+    },
+    "CRM": {
+      "source": "regime_scan",
+      "added": "2026-05-06",
+      "expires": null,
+      "note": "\u26a1 REGIME SHIFT \u2192 News-driven: growth_driven | ai_software (0.95) | Enterprise AI software platform capitalizing on Fortune 500 companies tracking and implementing AI usage solutions."
     }
   },
   "sources": {

@@ -1,0 +1,158 @@
+{
+  "date": "2026-05-06",
+  "regime": {
+    "inflation_trend": "rising",
+    "cpi_yoy_est": 9.9,
+    "yield_curve": "normal",
+    "yield_spread_bps": 50.0,
+    "yield_10y": 4.42,
+    "yield_2y": 3.95,
+    "labor": "strong",
+    "unemployment_rate": 4.3,
+    "jobless_claims": 189000,
+    "claims_trend": "falling",
+    "dxy": 98.06,
+    "dollar": "neutral",
+    "gold": 4662.0,
+    "oil_wti": 100.89,
+    "fed_funds_rate": 3.64,
+    "consumer_sentiment": 53.3,
+    "consumer_mood": "pessimistic",
+    "industrial_production_trend": "contracting",
+    "rotation_bias": "balanced"
+  },
+  "regime_label": "growth_driven",
+  "sector_weights": {
+    "ai_software": 0.95,
+    "semis": 0.9,
+    "cyber": 0.85,
+    "ai_infra": 0.85,
+    "ecommerce": 0.75,
+    "healthcare": 0.65,
+    "biotech": 0.6,
+    "defense": 0.6,
+    "nuclear": 0.65,
+    "robotics": 0.6,
+    "fintech": 0.55,
+    "space": 0.55,
+    "voice_ai": 0.55,
+    "quantum": 0.5,
+    "mega_tech": 0.7,
+    "energy_oil": 0.25,
+    "commodities_metals": 0.2
+  },
+  "geo_flags": {
+    "flags": {
+      "active_war": false,
+      "supply_disruption": false,
+      "energy_crisis": false,
+      "trade_war": false
+    },
+    "headlines": [],
+    "any_active": false
+  },
+  "raw": {
+    "cpi": {
+      "value": 330.293,
+      "prev": 327.46,
+      "date": "2026-03-01",
+      "change": 2.833000000000027,
+      "pct_change": 0.865
+    },
+    "pce": {
+      "value": 130.344,
+      "prev": 129.484,
+      "date": "2026-03-01",
+      "change": 0.8599999999999852,
+      "pct_change": 0.664
+    },
+    "fed_rate": {
+      "value": 3.64,
+      "prev": 3.64,
+      "date": "2026-04-01",
+      "change": 0.0,
+      "pct_change": 0.0
+    },
+    "yield_10y": {
+      "value": 4.45,
+      "prev": 4.39,
+      "date": "2026-05-04",
+      "change": 0.0600000000000005,
+      "pct_change": 1.367
+    },
+    "yield_2y": {
+      "value": 3.95,
+      "prev": 3.88,
+      "date": "2026-05-04",
+      "change": 0.07000000000000028,
+      "pct_change": 1.804
+    },
+    "yield_spread": {
+      "value": 0.5,
+      "prev": 0.5,
+      "date": "2026-05-05",
+      "change": 0.0,
+      "pct_change": 0.0
+    },
+    "unemployment": {
+      "value": 4.3,
+      "prev": 4.4,
+      "date": "2026-03-01",
+      "change": -0.10000000000000053,
+      "pct_change": -2.273
+    },
+    "nfp_thousands": {
+      "value": 158637.0,
+      "prev": 158459.0,
+      "date": "2026-03-01",
+      "change": 178.0,
+      "pct_change": 0.112
+    },
+    "jobless_claims": {
+      "value": 189000.0,
+      "prev": 215000.0,
+      "date": "2026-04-25",
+      "change": -26000.0,
+      "pct_change": -12.093
+    },
+    "consumer_sentiment": {
+      "value": 53.3,
+      "prev": 56.6,
+      "date": "2026-03-01",
+      "change": -3.3000000000000043,
+      "pct_change": -5.83
+    },
+    "industrial_production": {
+      "value": 101.7898,
+      "prev": 102.344,
+      "date": "2026-03-01",
+      "change": -0.5541999999999945,
+      "pct_change": -0.542
+    },
+    "mfg_employment_thousands": {
+      "value": 12591.0,
+      "prev": 12576.0,
+      "date": "2026-03-01",
+      "change": 15.0,
+      "pct_change": 0.119
+    },
+    "yield_10y_live": 4.416,
+    "yield_3m_live": 3.6,
+    "dxy": 98.065,
+    "gold_price": 4662.3,
+    "oil_price": 100.89,
+    "vix": 17.38
+  },
+  "upcoming_events": [],
+  "regime_shift": true,
+  "prev_regime_label": "geopolitically_stressed",
+  "regime_forecast": {
+    "likely_next_regime": null,
+    "transition_probability": 5,
+    "horizon_weeks": null,
+    "leading_signals": [
+      "No transition signals \u2014 growth regime stable"
+    ],
+    "pre_position_sectors": []
+  }
+}

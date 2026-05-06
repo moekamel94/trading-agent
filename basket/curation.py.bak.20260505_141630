@@ -1,0 +1,2242 @@
+"""
+Basket curation — monthly deep (per-tier) + weekly lightweight (tier-aware) + MT weekly.
+
+Monthly (1st Monday):
+  - 4 per-tier FMP screener passes with correct thresholds
+  - Flags existing stocks with degrading thesis
+  - Haiku recommends adds/removes per tier caps
+  - Speculative: max 1 add, 0 auto-removes — committee only
+
+Weekly (Friday 16:30 ET):
+  - LT basket: Free signals + tier-aware ADD/REMOVE (max 3 adds)
+  - MT basket: congress buys + earnings catalysts + sector rotation + UW discoveries
+  - MT auto-retirement: expired TTL, death cross, RSI overbought, catalyst passed
+"""
+import json
+import os
+from datetime import datetime, date
+
+import requests
+import yfinance as yf
+import config
+import anthropic
+from signals import macro_regime as _macro_mod
+
+from basket.tier_criteria import (
+    TIER_CRITERIA, REMOVE_CRITERIA, ADD_CRITERIA,
+    COMMITTEE_ROUTING, PROMOTION_FLAGS,
+    WEEKLY_MAX_ADDS, WEEKLY_MAX_SPEC_ADDS,
+    MONTHLY_SCREENER_CAPS,
+    MT_BASKET_SOURCES, MT_BASKET_RETIRE,
+)
+
+_FMP     = "https://financialmodelingprep.com/stable"
+_UW_BASE = "https://api.unusualwhales.com"
+_TIMEOUT = 12
+
+# UW screener sector → internal sector keys (UW uses standard GICS names)
+_UW_SECTOR_TO_INTERNAL: dict[str, list[str]] = {
+    "Technology":             ["ai_software", "semis", "cyber", "ai_infra", "quantum", "voice_ai", "mega_tech"],
+    "Healthcare":             ["healthcare", "biotech"],
+    "Energy":                 ["energy_oil", "nuclear"],
+    "Basic Materials":        ["commodities_metals"],
+    "Industrials":            ["defense", "robotics", "space"],
+    "Consumer Cyclical":      ["ecommerce"],
+    "Financial Services":     ["fintech"],
+    "Communication Services": ["ai_software", "ecommerce"],
+    "Utilities":              ["nuclear", "energy_oil"],
+}
+
+_THESIS_STATE_PATH = os.path.join(os.path.dirname(__file__), "thesis_state.json")
+
+_THESIS_SECTORS = [
+    "Technology", "Healthcare", "Energy", "Basic Materials",
+    "Industrials", "Consumer Cyclical", "Financial Services",
+    "Communication Services",
+]
+
+_ETHICAL_EXCLUSIONS = {"APP"}
+
+# Maps our internal sector keys → FMP screener {sector, industry?} params.
+# Multiple entries per key = run one screener pass per entry (combine results).
+# Industry strings must match FMP's taxonomy exactly.
+_SECTOR_TO_FMP: dict[str, list[dict]] = {
+    "defense":            [{"sector": "Industrials",        "industry": "Aerospace & Defense"}],
+    "energy_oil":         [{"sector": "Energy"}],
+    "commodities_metals": [{"sector": "Basic Materials"}],
+    "cyber":              [{"sector": "Technology",         "industry": "Security & Protection Services"},
+                           {"sector": "Technology",         "industry": "Software-Infrastructure"}],
+    "nuclear":            [{"sector": "Utilities"},
+                           {"sector": "Basic Materials",    "industry": "Uranium"}],
+    "ai_software":        [{"sector": "Technology",         "industry": "Software-Application"},
+                           {"sector": "Technology",         "industry": "Software-Infrastructure"}],
+    "semis":              [{"sector": "Technology",         "industry": "Semiconductors"},
+                           {"sector": "Technology",         "industry": "Semiconductor Equipment & Materials"}],
+    "healthcare":         [{"sector": "Healthcare",         "industry": "Drug Manufacturers-General"},
+                           {"sector": "Healthcare",         "industry": "Medical Devices"},
+                           {"sector": "Healthcare",         "industry": "Health Information Services"}],
+    "biotech":            [{"sector": "Healthcare",         "industry": "Biotechnology"}],
+    "fintech":            [{"sector": "Financial Services", "industry": "Capital Markets"},
+                           {"sector": "Financial Services", "industry": "Financial Data & Stock Exchanges"},
+                           {"sector": "Financial Services", "industry": "Credit Services"}],
+    "ecommerce":          [{"sector": "Consumer Cyclical",  "industry": "Internet Retail"}],
+    "robotics":           [{"sector": "Industrials",        "industry": "Specialty Industrial Machinery"},
+                           {"sector": "Industrials",        "industry": "Electrical Equipment & Parts"}],
+    "ai_infra":           [{"sector": "Technology",         "industry": "Communication Equipment"},
+                           {"sector": "Technology",         "industry": "Computer Hardware"}],
+    "space":              [{"sector": "Industrials",        "industry": "Aerospace & Defense"}],
+}
+
+# yfinance sector → list of internal sector keys (for unknown tickers)
+_YF_SECTOR_TO_INTERNAL: dict[str, list[str]] = {
+    "Technology":           ["ai_software", "semis", "cyber", "ai_infra", "quantum", "voice_ai", "mega_tech"],
+    "Healthcare":           ["healthcare", "biotech"],
+    "Energy":               ["energy_oil", "nuclear"],
+    "Basic Materials":      ["commodities_metals"],
+    "Industrials":          ["defense", "robotics", "space"],
+    "Consumer Cyclical":    ["ecommerce"],
+    "Financial Services":   ["fintech"],
+    "Communication Services": ["ai_software", "ecommerce"],
+    "Utilities":            ["nuclear", "energy_oil"],
+}
+
+# GICS Sub-Industry → internal sector keys (for S&P 500 CSV fallback)
+_GICS_SUB_TO_INTERNAL: dict[str, list[str]] = {
+    # Information Technology
+    "Application Software":                       ["ai_software"],
+    "Systems Software":                           ["ai_software", "cyber"],
+    "Internet Services & Infrastructure":         ["ai_infra", "ai_software"],
+    "Communications Equipment":                   ["ai_infra"],
+    "Technology Hardware, Storage & Peripherals": ["ai_infra"],
+    "Electronic Components":                      ["ai_infra"],
+    "Electronic Equipment & Instruments":         ["ai_infra"],
+    "Semiconductors":                             ["semis"],
+    "Semiconductor Materials & Equipment":        ["semis"],
+    "IT Consulting & Other Services":             ["ai_software"],
+    # Defense / Space
+    "Aerospace & Defense":                        ["defense", "space"],
+    # Energy
+    "Integrated Oil & Gas":                       ["energy_oil"],
+    "Oil & Gas Equipment & Services":             ["energy_oil"],
+    "Oil & Gas Exploration & Production":         ["energy_oil"],
+    "Oil & Gas Refining & Marketing":             ["energy_oil"],
+    "Oil & Gas Storage & Transportation":         ["energy_oil"],
+    # Metals / Commodities
+    "Gold":                                       ["commodities_metals"],
+    "Copper":                                     ["commodities_metals"],
+    "Steel":                                      ["commodities_metals"],
+    "Aluminum":                                   ["commodities_metals"],
+    "Diversified Metals & Mining":                ["commodities_metals"],
+    "Fertilizers & Agricultural Chemicals":       ["commodities_metals"],
+    # Healthcare
+    "Pharmaceuticals":                            ["healthcare"],
+    "Health Care Equipment":                      ["healthcare"],
+    "Health Care Technology":                     ["healthcare"],
+    "Life Sciences Tools & Services":             ["healthcare"],
+    "Health Care Services":                       ["healthcare"],
+    # Biotech
+    "Biotechnology":                              ["biotech"],
+    # Fintech
+    "Financial Exchanges & Data":                 ["fintech"],
+    "Transaction & Payment Processing Services":  ["fintech"],
+    "Investment Banking & Brokerage":             ["fintech"],
+    "Asset Management & Custody Banks":           ["fintech"],
+    # E-commerce / Consumer
+    "Broadline Retail":                           ["ecommerce"],
+    "Internet Retail":                            ["ecommerce"],
+    "Interactive Media & Services":               ["ai_software"],
+    # Robotics / Industrial
+    "Industrial Machinery & Supplies & Components": ["robotics"],
+    "Electrical Components & Equipment":          ["robotics"],
+    "Electronic Manufacturing Services":          ["robotics"],
+}
+
+# Curated growth/speculative tickers NOT in S&P 500 — keyed by internal sector.
+# These are known high-quality names the S&P 500 CSV won't capture.
+_SECTOR_EXTENDED_UNIVERSE: dict[str, list[str]] = {
+    "defense":            ["RKLB", "KTOS", "AVAV", "ACHR", "JOBY", "SPCE"],
+    "space":              ["RKLB", "ACHR", "JOBY", "LUNR", "ASTS", "LLAP"],
+    "cyber":              ["CRWD", "S", "PANW", "FTNT", "ZS", "OKTA", "CYBR", "NET", "TENB"],
+    "ai_software":        ["PLTR", "AI", "PATH", "BBAI", "SOUN", "GFAI", "AMBA"],
+    "semis":              ["NVDA", "AMD", "AEHR", "WOLF", "OLED", "CREE", "IMOS", "MPWR"],
+    "ai_infra":           ["SMCI", "DELL", "HPE", "POWI", "CDNS", "SNPS"],
+    "nuclear":            ["CCJ", "NNE", "BWXT", "SMR", "OKLO"],
+    "energy_oil":         ["AR", "VTLE", "CRGY", "CTRA", "EQT", "SWN", "DINO", "VET"],
+    "commodities_metals": ["MP", "UUUU", "NEM", "AEM", "WPM", "PAAS", "SBSW", "HL"],
+    "biotech":            ["RXRX", "BEAM", "EDIT", "CRSP", "NTLA", "VERV", "TDTX"],
+    "healthcare":         ["VEEV", "HIMS", "ACCD", "PHR", "OMED", "IRTC"],
+    "fintech":            ["HOOD", "COIN", "AFRM", "UPST", "SQ", "SOFI", "DAVE"],
+    "ecommerce":          ["SHOP", "ETSY", "W", "WISH", "POSH", "CARG"],
+    "robotics":           ["IRBT", "ISRG", "NVEI", "TNDM", "BLBD", "LAZR", "LIDR"],
+    "quantum":            ["IONQ", "QUBT", "RGTI", "IBM", "HON"],
+    "voice_ai":           ["SOUN", "AMZN", "MSFT", "GOOGL", "CEVA"],
+}
+
+
+def _winning_sectors(sector_weights: dict, min_weight: float = 0.55) -> set[str]:
+    """Return sector keys that are regime-active (weight >= min_weight)."""
+    return {s for s, w in sector_weights.items() if w >= min_weight}
+
+
+# ── News-driven discovery ─────────────────────────────────────────────────────
+
+# Keywords used to decide which news articles are relevant to a given sector
+_NEWS_SECTOR_KEYWORDS: dict[str, list[str]] = {
+    "defense":            ["defense", "military", "pentagon", "missile", "drone",
+                           "weapon", "war", "navy", "army", "contract", "lockheed",
+                           "raytheon", "northrop", "general dynamics"],
+    "energy_oil":         ["oil", "energy", "petroleum", "crude", "barrel", "opec",
+                           "lng", "pipeline", "refin", "chevron", "exxon", "conoco"],
+    "commodities_metals": ["gold", "copper", "steel", "aluminum", "mining", "metal",
+                           "commodity", "iron ore", "silver", "uranium"],
+    "cyber":              ["cyber", "hack", "breach", "ransomware", "security",
+                           "malware", "phish", "zero-day", "crowdstrike"],
+    "nuclear":            ["nuclear", "uranium", "reactor", "smr", "fission",
+                           "cameco", "enrichment"],
+    "semis":              ["semiconductor", "chip", "wafer", "foundry", "fab",
+                           "nvidia", "intel", "tsmc", "amd"],
+    "ai_software":        ["artificial intelligence", " ai ", "llm", "large language",
+                           "openai", "palantir", "model", "generative"],
+    "biotech":            ["biotech", "clinical trial", "fda approval", "therapy",
+                           "cancer drug", "gene editing", "crispr"],
+    "healthcare":         ["healthcare", "medical device", "pharma", "hospital",
+                           "health insurance", "drug approval"],
+    "fintech":            ["payment", "fintech", "crypto", "blockchain", "exchange",
+                           "trading platform", "coinbase", "robinhood"],
+}
+
+_KNOWN_ETFS = {
+    "XLE", "XLK", "XLF", "XLV", "XLI", "XLB", "XLU", "XLP", "XLY", "XLC",
+    "NUCL", "SDEF", "ITA", "XAR", "CIBR", "BUG", "HACK", "SOXX", "SMH",
+    "GDX", "GDXJ", "SLV", "GLD", "USO", "OIH", "XOP", "ARKK", "ARKG",
+    "BOTZ", "ROBO", "IBB", "XBI", "KBE", "REMX", "COPX", "PICK",
+}
+
+_NEWS_DISCOVERY_CACHE = "/tmp/kimmy_news_discovery.json"
+_FINNHUB_NEWS_CACHE   = "/tmp/kimmy_finnhub_news.json"
+
+
+def _fetch_finnhub_news() -> list[dict]:
+    """Fetch Finnhub general news (100 articles). Cached in /tmp for 2h."""
+    import time as _time
+    if os.path.exists(_FINNHUB_NEWS_CACHE):
+        if _time.time() - os.path.getmtime(_FINNHUB_NEWS_CACHE) < 7200:
+            try:
+                with open(_FINNHUB_NEWS_CACHE) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    if not config.FINNHUB_API_KEY:
+        return []
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/news",
+            params={"category": "general", "token": config.FINNHUB_API_KEY},
+            timeout=12,
+        )
+        if r.status_code != 200:
+            return []
+        articles = r.json() if isinstance(r.json(), list) else []
+        with open(_FINNHUB_NEWS_CACHE, "w") as f:
+            json.dump(articles, f)
+        return articles
+    except Exception:
+        return []
+
+
+def _news_driven_tickers(winning_sector_keys: set[str], basket_set: set,
+                          regime_label: str, regime_shift: bool) -> list[dict]:
+    """
+    Scan today's Finnhub news headlines, ask Haiku to extract company tickers
+    that are in winning sectors. This is the truly dynamic discovery layer —
+    not preselected. A company that wins a contract or surges on Iran news
+    today will appear here even if it's in none of our static lists.
+
+    Results cached 4h in /tmp to avoid repeated Haiku calls in the same session.
+    """
+    import time as _time, re as _re
+
+    # Return cached result if fresh enough
+    if os.path.exists(_NEWS_DISCOVERY_CACHE):
+        try:
+            with open(_NEWS_DISCOVERY_CACHE) as f:
+                cached = json.load(f)
+            age = _time.time() - os.path.getmtime(_NEWS_DISCOVERY_CACHE)
+            # Invalidate cache on regime shift or if > 4h old
+            if age < 14400 and not regime_shift and cached.get("regime_label") == regime_label:
+                return cached.get("tickers", [])
+        except Exception:
+            pass
+
+    articles = _fetch_finnhub_news()
+    if not articles:
+        return []
+
+    # Filter articles to those touching winning sectors (headline + first 200 chars of summary)
+    relevant_headlines: list[str] = []
+    for a in articles[:80]:
+        text = (a.get("headline", "") + " " + (a.get("summary", "") or "")[:200]).lower()
+        for sk in winning_sector_keys:
+            if any(kw in text for kw in _NEWS_SECTOR_KEYWORDS.get(sk, [])):
+                h = a.get("headline", "").strip()
+                if h and h not in relevant_headlines:
+                    relevant_headlines.append(h[:160])
+                break
+
+    if len(relevant_headlines) < 3:
+        print("  [SectorScan/News] Too few relevant headlines — skipping news layer")
+        return []
+
+    relevant_headlines = relevant_headlines[:25]
+    sectors_str = ", ".join(sorted(winning_sector_keys))
+
+    prompt = (
+        f"Current macro regime: {regime_label}\n"
+        f"Sectors with BUY signal: {sectors_str}\n\n"
+        "Today's relevant news headlines:\n"
+        + "\n".join(f"- {h}" for h in relevant_headlines)
+        + "\n\n"
+        "Task: identify US-listed individual COMPANY stocks (NOT ETFs, NOT funds) "
+        "that are in the winning sectors above AND are likely to benefit from these news. "
+        "Think about:\n"
+        "- Defense contractors winning new contracts\n"
+        "- Oil/energy companies gaining from supply disruptions\n"
+        "- Cybersecurity firms benefiting from threat escalation\n"
+        "- Companies directly mentioned or strongly implied\n\n"
+        "Return ONLY valid JSON (no explanation):\n"
+        '[{"ticker": "SYM", "sector_key": "sector_name", "rationale": "1 sentence"}]\n'
+        "Rules: max 8 tickers, only real US NASDAQ/NYSE-listed company stocks, "
+        "no ETFs, no SPACs, no foreign-listed stocks."
+    )
+
+    try:
+        resp = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY).messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        m = _re.search(r'\[.*?\]', raw, _re.DOTALL)
+        if not m:
+            return []
+        candidates = json.loads(m.group(0))
+    except Exception as e:
+        print(f"  [SectorScan/News] Haiku call failed: {e}")
+        return []
+
+    results: list[dict] = []
+    for c in candidates:
+        sym = (c.get("ticker") or "").upper().strip()
+        sk  = (c.get("sector_key") or "").lower().strip().replace(" ", "_")
+        if not sym or not sym.isalpha() or len(sym) > 5:
+            continue
+        if sym in basket_set or sym in _KNOWN_ETFS:
+            continue
+        # Accept exact sector key or a close match
+        if sk not in winning_sector_keys:
+            matched = next((wsk for wsk in winning_sector_keys if wsk in sk or sk in wsk), None)
+            if not matched:
+                continue
+            sk = matched
+        results.append({
+            "symbol":     sym,
+            "sector_key": sk,
+            "source":     "news_driven",
+            "rationale":  (c.get("rationale") or "")[:120],
+        })
+
+    print(f"  [SectorScan/News] {len(results)} news-driven tickers from "
+          f"{len(relevant_headlines)} relevant headlines")
+
+    # Cache result
+    try:
+        with open(_NEWS_DISCOVERY_CACHE, "w") as f:
+            json.dump({"regime_label": regime_label, "tickers": results}, f)
+    except Exception:
+        pass
+
+    return results
+
+
+# ── Thesis state helpers ──────────────────────────────────────────────────────
+
+def _load_thesis_state() -> dict:
+    try:
+        with open(_THESIS_STATE_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _thesis_intact(symbol: str, thesis_state: dict) -> bool:
+    """Return True if the speculative thesis is still intact (suppresses soft-removes)."""
+    return thesis_state.get(symbol, {}).get("thesis_intact", True)
+
+
+# ── FMP screener helpers ──────────────────────────────────────────────────────
+
+_MONTHLY_UNIVERSE_BY_TIER: dict[str, list[str]] = {
+    "mega":        ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "TSM", "ORCL"],
+    "large_growth":["PLTR", "CRWD", "NET", "DDOG", "SNOW", "ZS", "PANW", "FTNT", "AXON", "MSTR",
+                    "AMD", "ANET", "MRVL", "SMCI", "ARM", "ASML", "LRCX", "KLAC", "AMAT", "TER",
+                    "LMT", "RTX", "NOC", "GD", "HII", "LDOS", "CACI", "SAIC", "AXON", "KTOS"],
+    "mid_growth":  ["IONQ", "RXRX", "BEAM", "EDIT", "CRSP", "NTLA", "HIMS", "ACCD", "PHR", "IRTC",
+                    "RKLB", "KTOS", "AVAV", "AR", "EQT", "VTLE", "CRGY", "CTRA", "SWN",
+                    "MP", "UUUU", "CCJ", "NNE", "BWXT", "SMR", "OKLO",
+                    "HOOD", "COIN", "AFRM", "UPST", "SOFI", "DAVE",
+                    "SHOP", "SQ", "MELI", "GRAB", "NWSA"],
+    "speculative": ["IONQ", "QUBT", "RGTI", "LUNR", "ASTS", "SOUN", "LLAP",
+                    "RXRX", "BEAM", "NNE", "OKLO", "SMR", "MP", "UUUU",
+                    "RKLB", "KTOS", "ACHR", "JOBY", "LILM",
+                    "HOOD", "DAVE", "ACCD", "HIMS", "GFAI", "BBAI"],
+}
+
+
+def _fmp_screener(tier: str) -> list[dict]:
+    """
+    Run FMP screener with tier-appropriate thresholds.
+    Falls back to a curated universe + yfinance fundamentals if the FMP
+    screener endpoint returns non-200 (free tier restriction or endpoint change).
+    """
+    crit = TIER_CRITERIA.get(tier, TIER_CRITERIA["mid_growth"])
+
+    if config.FMP_API_KEY:
+        params = {
+            "marketCapMoreThan":     int(crit.get("min_mcap", 500e6)),
+            "revenueGrowthMoreThan": crit.get("min_rev_growth", 0.15),
+            "country":  "US",
+            "exchange": "NASDAQ,NYSE",
+            "limit":    60,
+            "apikey":   config.FMP_API_KEY,
+        }
+        if tier == "speculative":
+            params["marketCapLessThan"] = int(crit.get("max_mcap", 25e9))
+        try:
+            resp = requests.get(f"{_FMP}/stock-screener", params=params, timeout=_TIMEOUT)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    return data
+        except Exception as e:
+            print(f"  [Curation] FMP screener error ({tier}): {e}")
+
+    # Fallback: curated universe + quick yfinance fundamentals
+    print(f"  [Curation] FMP screener unavailable for '{tier}' — using curated universe fallback")
+    universe = _MONTHLY_UNIVERSE_BY_TIER.get(tier, _MONTHLY_UNIVERSE_BY_TIER["large_growth"])
+    results = []
+    for sym in universe:
+        try:
+            info = yf.Ticker(sym).info or {}
+            results.append({
+                "symbol":       sym,
+                "companyName":  info.get("longName", sym),
+                "sector":       info.get("sector", ""),
+                "industry":     info.get("industry", ""),
+                "marketCap":    info.get("marketCap", 0),
+                "revenueGrowth": info.get("revenueGrowth"),
+                "grossMargins":  info.get("grossMargins"),
+                "trailingPE":   info.get("trailingPE"),
+                "source":       "curated_universe",
+            })
+        except Exception:
+            results.append({"symbol": sym, "source": "curated_universe"})
+    return results
+
+
+def _quick_fundamentals(symbol: str) -> dict:
+    try:
+        info = yf.Ticker(symbol).info or {}
+        return {
+            "symbol":         symbol,
+            "name":           info.get("longName", symbol),
+            "sector":         info.get("sector", ""),
+            "market_cap":     info.get("marketCap", 0),
+            "revenue_growth": info.get("revenueGrowth"),
+            "eps_growth":     info.get("earningsGrowth"),
+            "pe_ratio":       info.get("trailingPE"),
+            "profit_margin":  info.get("profitMargins"),
+            "price":          info.get("currentPrice") or info.get("regularMarketPrice"),
+        }
+    except Exception:
+        return {"symbol": symbol}
+
+
+def _flag_weak_existing(existing: list[str], cached_research: dict) -> list[dict]:
+    """Flag basket stocks showing thesis degradation (revenue + EPS declining + below SMA200)."""
+    flagged = []
+    for sym in existing:
+        cached = cached_research.get(sym, {})
+        if not cached:
+            continue
+        fund = cached.get("fundamentals") or {}
+        fin  = (cached.get("financial_data") or {}).get("fmp") or {}
+        rev_growth = fund.get("revenue_growth") or fin.get("revenueGrowth")
+        eps_growth = fund.get("eps_growth_yoy") or fin.get("epsgrowth")
+        try:
+            hist = yf.Ticker(sym).history(period="1y")
+            if len(hist) < 50:
+                continue
+            price    = float(hist["Close"].iloc[-1])
+            sma200   = float(hist["Close"].tail(200).mean()) if len(hist) >= 200 else None
+            below200 = sma200 and price < sma200
+        except Exception:
+            below200 = False
+        if (rev_growth is not None and rev_growth < -0.05 and
+                eps_growth is not None and eps_growth < -0.10 and below200):
+            flagged.append({
+                "symbol":     sym,
+                "rev_growth": rev_growth,
+                "eps_growth": eps_growth,
+                "reason":     f"revenue {rev_growth:.1%}, EPS {eps_growth:.1%}, below SMA200",
+            })
+    return flagged
+
+
+# ── Monthly curation ──────────────────────────────────────────────────────────
+
+def _claude_curate_tier(tier: str, candidates: list[dict],
+                        flagged_existing: list[dict],
+                        current_basket: list[str],
+                        caps: dict,
+                        sector_weights: dict | None = None,
+                        regime_label: str = "growth_driven") -> dict:
+    """Ask Haiku to recommend basket changes for one tier."""
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    spec_note = (
+        "\nSPECIAL RULE FOR SPECULATIVE: Only add if company has real revenue >$50M "
+        "growing >40% YoY AND a Tier-1 strategic partner (NVIDIA/DoD/hyperscaler/Fortune 100). "
+        "Do NOT recommend removing speculative tickers — flag them for committee review instead."
+        if tier == "speculative" else ""
+    )
+    # Build sector routing context for the prompt
+    if sector_weights:
+        sw_sorted = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+        winning_str = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w >= 0.70)
+        avoid_str   = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w < 0.40)
+        regime_ctx = (
+            f"\nMACRO REGIME: {regime_label.upper().replace('_', ' ')}\n"
+            f"CONCENTRATE IN (weight ≥ 0.70): {winning_str or 'none'}\n"
+            f"AVOID (weight < 0.40, BUCKET only): {avoid_str or 'none'}\n"
+            f"RULE: Only ADD candidates whose sector is in the winning list. "
+            f"Candidates in avoid-list sectors → skip regardless of fundamentals.\n"
+        )
+    else:
+        regime_ctx = ""
+
+    prompt = f"""Monthly basket review — {tier.upper()} tier.
+{regime_ctx}Current basket ({len(current_basket)} stocks): {current_basket}
+Max adds this month: {caps['max_add']} | Max removes: {caps['max_remove']}
+
+NEW CANDIDATES (screened for {tier} criteria):
+{json.dumps(candidates[:20], indent=2, default=str)}
+
+EXISTING STOCKS FLAGGED FOR WEAKNESS:
+{json.dumps(flagged_existing, indent=2, default=str)}
+
+Kimmy's thesis: AI infrastructure, semiconductors, quantum computing, cybersecurity,
+nuclear energy, defense tech, healthcare AI, e-commerce, financial infrastructure,
+energy/commodities, robotics, space.{spec_note}
+
+Respond ONLY in this JSON:
+{{"add": ["TICK1"], "remove": ["TICK2"], "committee_flag": ["TICK3"], "reasoning": "brief"}}"""
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        return json.loads(raw)
+    except Exception as e:
+        print(f"  [Curation/{tier}] Claude error: {e}")
+        return {"add": [], "remove": [], "committee_flag": [], "reasoning": "error"}
+
+
+def run(existing_basket: list[str], cached_research: dict,
+        config_module) -> tuple[list[str], list[str], str]:
+    """
+    Monthly deep curation — 4 per-tier screener passes.
+    Returns (to_add, to_remove, reasoning).
+    """
+    from basket.manager import SECTOR_LIST, classify_ticker
+
+    print("\n  [Curation] Running per-tier monthly screeners...")
+    flagged = _flag_weak_existing(existing_basket, cached_research)
+    flagged_syms = {f["symbol"] for f in flagged}
+
+    # Load macro regime for sector-alignment filtering
+    macro = {}
+    sector_weights: dict = {}
+    regime_label = "growth_driven"
+    try:
+        macro = _macro_mod.compute()
+        sector_weights = macro.get("sector_weights", {})
+        regime_label   = macro.get("regime_label", "growth_driven")
+        winning = _winning_sectors(sector_weights, min_weight=0.55)
+        print(f"  [Curation] Regime={regime_label.upper()} | winning sectors: {sorted(winning)}")
+    except Exception as _e:
+        print(f"  [Curation] Macro regime load failed: {_e} — proceeding without sector filter")
+        winning = set()
+
+    all_adds:    list[str] = []
+    all_removes: list[str] = []
+    all_flags:   list[str] = []
+    reasoning_parts: list[str] = []
+
+    tiers_to_screen = ["mega", "large_growth", "mid_growth", "speculative"]
+    for tier in tiers_to_screen:
+        caps = MONTHLY_SCREENER_CAPS[tier]
+        raw  = _fmp_screener(tier)
+
+        candidates = []
+        for c in raw:
+            sym = (c.get("symbol") or "").upper()
+            if (sym and sym not in existing_basket
+                    and sym not in _ETHICAL_EXCLUSIONS
+                    and sym.isalpha() and len(sym) <= 5):
+                fund = _quick_fundamentals(sym)
+                # Sector alignment gate: if we have regime data, only consider
+                # candidates in regime-winning sectors. If no regime data, use thesis sectors.
+                fund_sector = fund.get("sector", "")
+                if winning:
+                    # Map yfinance sector name to our internal sector key — rough match
+                    yf_sector_map = {
+                        "Technology":           ["ai_software", "semis", "cyber", "ai_infra",
+                                                 "quantum", "voice_ai", "mega_tech"],
+                        "Healthcare":           ["healthcare", "biotech"],
+                        "Energy":               ["energy_oil", "nuclear"],
+                        "Basic Materials":      ["commodities_metals"],
+                        "Industrials":          ["defense", "robotics", "ai_infra"],
+                        "Consumer Cyclical":    ["ecommerce"],
+                        "Financial Services":   ["fintech"],
+                        "Communication Services": ["ai_software", "ecommerce"],
+                        "Utilities":            ["nuclear", "energy_oil"],
+                    }
+                    candidate_sectors = yf_sector_map.get(fund_sector, [fund_sector])
+                    if not any(cs in winning for cs in candidate_sectors):
+                        continue  # skip — not in a regime-winning sector
+                elif fund_sector not in _THESIS_SECTORS:
+                    continue  # fallback: thesis-sector filter
+                candidates.append(fund)
+
+        tier_flagged = [f for f in flagged if classify_ticker(f["symbol"]) == tier]
+        print(f"  [Curation/{tier}] {len(candidates)} candidates, {len(tier_flagged)} flagged existing")
+
+        if not candidates and not tier_flagged:
+            continue
+
+        result = _claude_curate_tier(tier, candidates, tier_flagged, existing_basket, caps,
+                                     sector_weights=sector_weights, regime_label=regime_label)
+
+        adds    = [s for s in result.get("add", [])
+                   if s not in existing_basket and s not in _ETHICAL_EXCLUSIONS][:caps["max_add"]]
+        removes = [s for s in result.get("remove", [])
+                   if s in existing_basket][:caps["max_remove"]]
+        flags   = result.get("committee_flag", [])
+
+        # Speculative never auto-removed — move any removes to committee flags
+        if tier == "speculative":
+            all_flags.extend(removes)
+            removes = []
+
+        all_adds.extend(adds)
+        all_removes.extend(removes)
+        all_flags.extend(flags)
+        if result.get("reasoning"):
+            reasoning_parts.append(f"[{tier}] {result['reasoning'][:150]}")
+
+    if all_flags:
+        print(f"  [Curation] COMMITTEE FLAGS (require review): {all_flags}")
+
+    reasoning = " | ".join(reasoning_parts)
+    print(f"  [Curation] ADD: {all_adds} | REMOVE: {all_removes}")
+    return all_adds, all_removes, reasoning
+
+
+# ── Weekly curation ───────────────────────────────────────────────────────────
+
+def _weekly_score_ticker(sym: str, cached_research: dict,
+                         thesis_state: dict) -> dict:
+    """Score one basket ticker against tier-aware ADD/REMOVE criteria."""
+    from basket.manager import classify_ticker
+    tier   = classify_ticker(sym)
+    result = {
+        "symbol":       sym,
+        "tier":         tier,
+        "add_signals":  [],
+        "remove_hard":  [],
+        "remove_soft":  [],
+        "thesis_intact": _thesis_intact(sym, thesis_state) if tier == "speculative" else True,
+    }
+    try:
+        tk   = yf.Ticker(sym)
+        info = tk.info or {}
+        hist = tk.history(period="6mo")
+        if len(hist) < 20:
+            return result
+
+        price       = float(hist["Close"].iloc[-1])
+        mktcap      = info.get("marketCap", 0) or 0
+        rev_growth  = info.get("revenueGrowth")
+        analyst_tgt = info.get("targetMeanPrice")
+        rec_key     = info.get("recommendationKey", "").lower()
+        hi_52w      = info.get("fiftyTwoWeekHigh") or price
+
+        close   = hist["Close"]
+        volume  = hist["Volume"]
+        sma50   = float(close.tail(50).mean()) if len(close) >= 50 else None
+        sma200  = float(close.tail(200).mean()) if len(close) >= 200 else None
+        avg_vol = float(volume.tail(20).mean()) if len(volume) >= 20 else None
+        avg_5d  = float(volume.tail(5).mean())  if len(volume) >= 5  else None
+        vol_ratio   = (avg_5d / avg_vol) if (avg_vol and avg_vol > 0) else None
+        death_cross = sma50 and sma200 and sma50 < sma200
+
+        remove_crit = REMOVE_CRITERIA.get(tier, REMOVE_CRITERIA["mid_growth"])
+
+        # ── Hard remove checks ────────────────────────────────────────────────
+        hard_limits = {
+            "mega":         200e9,
+            "large_growth": 10e9,
+            "mid_growth":   2e9,
+            "speculative":  1e9,
+        }
+        if mktcap and mktcap < hard_limits.get(tier, 2e9):
+            result["remove_hard"].append(
+                f"market cap ${mktcap/1e9:.1f}B below {tier} hard floor")
+        if info.get("financialCurrency") is None and mktcap == 0:
+            result["remove_hard"].append("no financial data — possible delisting")
+
+        # ── Soft remove checks (skipped entirely for speculative) ─────────────
+        if tier != "speculative":
+            if death_cross and rev_growth is not None and rev_growth < -0.05:
+                result["remove_soft"].append(
+                    f"death cross + revenue declining {rev_growth:.1%}")
+            if hi_52w and price < hi_52w * 0.70 and death_cross:
+                result["remove_soft"].append(
+                    f"price {(price/hi_52w - 1):.1%} from 52w high + death cross")
+            if rec_key in ("sell", "strong_sell", "underperform"):
+                result["remove_soft"].append(f"analyst consensus: {rec_key}")
+            if len(close) >= 60:
+                p_12w = float(close.iloc[-60])
+                pct   = abs((price - p_12w) / p_12w) if p_12w > 0 else 1
+                cached = cached_research.get(sym, {})
+                has_catalyst = bool((cached.get("research") or {}).get("snippets"))
+                if pct < 0.05 and not has_catalyst:
+                    result["remove_soft"].append(
+                        f"zombie: ±{pct:.1%} over 12 weeks, no catalyst")
+
+        # ── Add signals ───────────────────────────────────────────────────────
+        if sma50 and price > sma50 * 1.20 and vol_ratio and vol_ratio > 1.5:
+            result["add_signals"].append(
+                f"breakout: {(price/sma50 - 1):.1%} above SMA50, vol {vol_ratio:.1f}x")
+        if analyst_tgt and price > 0 and (analyst_tgt - price) / price > 0.25:
+            result["add_signals"].append(
+                f"analyst target ${analyst_tgt:.0f} = +{(analyst_tgt-price)/price:.1%} upside")
+        min_rev = ADD_CRITERIA.get(tier, {}).get("min_rev_growth",
+                  TIER_CRITERIA.get(tier, {}).get("min_rev_growth", 0.25))
+        if rev_growth and rev_growth > min_rev:
+            result["add_signals"].append(f"revenue growth {rev_growth:.1%}")
+        cached = cached_research.get(sym, {})
+        em = (cached.get("earnings_momentum") or {})
+        if em.get("label") in ("strong_bullish", "bullish"):
+            result["add_signals"].append(f"earnings momentum: {em['label']}")
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+def _score_congress_weekly(existing_basket: list[str]) -> dict:
+    try:
+        from signals import congress as cong_mod
+        return {sym: cong_mod.fetch(sym) for sym in existing_basket}
+    except Exception:
+        return {}
+
+
+def _detect_tier_promotions(existing_basket: list[str]) -> list[dict]:
+    """
+    Quarterly flag — detect tickers that have outgrown their current tier.
+    Returns list of promotion candidates for committee review.
+    """
+    from basket.manager import classify_ticker
+    candidates = []
+    for sym in existing_basket:
+        current_tier = classify_ticker(sym)
+        if current_tier not in ("mid_growth", "large_growth"):
+            continue
+        try:
+            mcap = yf.Ticker(sym).info.get("marketCap", 0) or 0
+        except Exception:
+            continue
+        if current_tier == "mid_growth":
+            thresh = PROMOTION_FLAGS["mid_to_large"]["min_mcap"]
+            if mcap >= thresh:
+                candidates.append({
+                    "symbol":       sym,
+                    "current_tier": current_tier,
+                    "target_tier":  "large_growth",
+                    "mcap":         mcap,
+                    "reason":       f"mcap ${mcap/1e9:.0f}B >= ${thresh/1e9:.0f}B threshold",
+                })
+        elif current_tier == "large_growth":
+            thresh = PROMOTION_FLAGS["large_to_mega"]["min_mcap"]
+            if mcap >= thresh:
+                candidates.append({
+                    "symbol":       sym,
+                    "current_tier": current_tier,
+                    "target_tier":  "mega",
+                    "mcap":         mcap,
+                    "reason":       f"mcap ${mcap/1e9:.0f}B >= ${thresh/1e9:.0f}B threshold",
+                })
+    return candidates
+
+
+def _claude_weekly(scored: list[dict], congress_map: dict,
+                   current_basket: list[str], cached_research: dict,
+                   spec_flags: list[dict],
+                   sector_weights: dict | None = None,
+                   regime_label: str = "growth_driven") -> dict:
+    """Ask Haiku for weekly basket recommendations (non-speculative only)."""
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    flagged_remove = []
+    flagged_add    = []
+    for s in scored:
+        sym  = s["symbol"]
+        tier = s["tier"]
+        if tier == "speculative":
+            continue  # speculative handled separately via committee
+        if s.get("remove_hard"):
+            flagged_remove.append({"symbol": sym, "tier": tier,
+                                   "reason": "HARD: " + "; ".join(s["remove_hard"])})
+        elif len(s.get("remove_soft", [])) >= REMOVE_CRITERIA.get(
+                tier, {}).get("soft_count", 2):
+            flagged_remove.append({"symbol": sym, "tier": tier,
+                                   "reason": "SOFT: " + "; ".join(s["remove_soft"])})
+        if s.get("add_signals") and sym not in current_basket:
+            flagged_add.append({"symbol": sym, "tier": tier,
+                                "add_signals": s["add_signals"]})
+
+    cong_buys  = [s for s, v in congress_map.items() if v.get("net_signal") == "bullish"]
+    cong_sells = [s for s, v in congress_map.items() if v.get("net_signal") == "bearish"]
+
+    if sector_weights:
+        sw_sorted = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+        weekly_winning = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w >= 0.70)
+        weekly_avoid   = ", ".join(f"{s}({w:.2f})" for s, w in sw_sorted if w < 0.40)
+        weekly_regime_ctx = (
+            f"MACRO REGIME: {regime_label.upper().replace('_', ' ')}\n"
+            f"ADD only from winning sectors (≥0.70): {weekly_winning or 'none'}\n"
+            f"BUCKET/skip stocks in avoid sectors (<0.40): {weekly_avoid or 'none'}\n\n"
+        )
+    else:
+        weekly_regime_ctx = ""
+
+    prompt = f"""Weekly basket review (Friday — tier-aware, conservative).
+Only make changes when signals are clear. Speculative names are handled separately.
+{weekly_regime_ctx}
+Current basket ({len(current_basket)} tickers): {current_basket}
+
+FLAGGED FOR REMOVAL (scored by tier):
+{json.dumps(flagged_remove, indent=2)}
+
+CANDIDATES FOR ADDITION:
+{json.dumps(flagged_add[:8], indent=2)}
+
+CONGRESS NET BUYING: {cong_buys}
+CONGRESS NET SELLING: {cong_sells}
+
+Kimmy's thesis: AI infrastructure, semiconductors, quantum, cybersecurity,
+nuclear energy, defense tech, healthcare AI, e-commerce, financial infrastructure,
+energy/commodities, robotics, space. No surveillance/predatory platforms.
+
+RULES:
+- Hard remove flags → always REMOVE
+- Soft remove (≥2 signals, tier-appropriate count) → REMOVE unless strong counter-thesis
+- Congress buying a non-basket stock in thesis sectors → ADD
+- Max {WEEKLY_MAX_ADDS} total adds (speculative excluded — committee handles those)
+- Prefer HOLD over premature changes
+
+JSON only: {{"add": ["TICK"], "remove": ["TICK"], "reasoning": "brief"}}"""
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        return json.loads(raw)
+    except Exception as e:
+        print(f"  [WeeklyCuration] Claude error: {e}")
+        return {"add": [], "remove": [], "reasoning": "error"}
+
+
+def run_weekly(existing_basket: list[str],
+               cached_research: dict) -> tuple[list[str], list[str], str]:
+    """
+    Weekly basket review — Friday 16:30 ET.
+    Tier-aware. Speculative names: flag only, never auto-remove.
+    Returns (to_add, to_remove, reasoning).
+    """
+    from basket.manager import classify_ticker
+
+    print("\n  [WeeklyCuration] Scoring basket tickers (tier-aware)...")
+    thesis_state = _load_thesis_state()
+    stocks = existing_basket
+    scored = [_weekly_score_ticker(s, cached_research, thesis_state) for s in stocks]
+
+    # Load macro regime for sector routing
+    _sw_weekly: dict = {}
+    _regime_weekly = "growth_driven"
+    try:
+        _macro_weekly = _macro_mod.compute()
+        _sw_weekly    = _macro_weekly.get("sector_weights", {})
+        _regime_weekly = _macro_weekly.get("regime_label", "growth_driven")
+    except Exception:
+        pass
+
+    # ── Speculative protection — flag for committee, never auto-remove ────────
+    spec_flags: list[dict] = []
+    for s in scored:
+        if s["tier"] != "speculative":
+            continue
+        sym = s["symbol"]
+        intact = s["thesis_intact"]
+        if s.get("remove_hard"):
+            spec_flags.append({"symbol": sym, "type": "hard_remove",
+                                "reason": "; ".join(s["remove_hard"]),
+                                "thesis_intact": intact})
+        elif s.get("remove_soft") and not intact:
+            spec_flags.append({"symbol": sym, "type": "soft_remove",
+                                "reason": "; ".join(s["remove_soft"]),
+                                "thesis_intact": intact})
+        # If thesis_intact=true → suppress soft signals entirely
+
+    if spec_flags:
+        print(f"  [WeeklyCuration] SPECULATIVE FLAGS (committee required): "
+              f"{[f['symbol'] for f in spec_flags]}")
+
+    # ── Tier promotion detection ───────────────────────────────────────────────
+    promotions = _detect_tier_promotions(existing_basket)
+    if promotions:
+        print(f"  [WeeklyCuration] TIER PROMOTION CANDIDATES (committee): "
+              f"{[p['symbol'] for p in promotions]}")
+
+    # ── Congress signals ───────────────────────────────────────────────────────
+    print("  [WeeklyCuration] Checking congress activity...")
+    congress_map = _score_congress_weekly(existing_basket)
+
+    # ── Haiku decides non-speculative changes ─────────────────────────────────
+    print("  [WeeklyCuration] Asking Claude for weekly recommendations...")
+    result = _claude_weekly(scored, congress_map, existing_basket,
+                            cached_research, spec_flags,
+                            sector_weights=_sw_weekly, regime_label=_regime_weekly)
+
+    to_add    = [s for s in result.get("add", [])
+                 if s not in existing_basket and s not in _ETHICAL_EXCLUSIONS
+                 ][:WEEKLY_MAX_ADDS]
+    to_remove = [s for s in result.get("remove", [])
+                 if s in existing_basket
+                 and classify_ticker(s) != "speculative"]  # never auto-remove speculative
+    reasoning = result.get("reasoning", "")
+
+    # Append committee flag summary to reasoning
+    if spec_flags:
+        flag_summary = "; ".join(f"{f['symbol']}({f['type']})" for f in spec_flags)
+        reasoning += f" | COMMITTEE REQUIRED FOR: {flag_summary}"
+    if promotions:
+        promo_summary = "; ".join(
+            f"{p['symbol']} {p['current_tier']}→{p['target_tier']}" for p in promotions)
+        reasoning += f" | TIER PROMOTION CANDIDATES: {promo_summary}"
+
+    print(f"  [WeeklyCuration] ADD: {to_add} | REMOVE: {to_remove}")
+    print(f"  [WeeklyCuration] Reasoning: {reasoning[:300]}")
+    return to_add, to_remove, reasoning
+
+
+# ── MT basket weekly curation ─────────────────────────────────────────────────
+
+def _mt_get_congress_buys(lt_basket: list[str]) -> list[dict]:
+    """
+    Congress buys not already in LT basket — primary MT source.
+    Returns [{symbol, note, ttl_days}].
+    """
+    try:
+        from signals import congress as cong_mod
+        buys = cong_mod.get_recent_buys(days=config.MT_BASKET_CONGRESS_DAYS)
+        result = []
+        for sym in buys:
+            if sym not in lt_basket and sym not in _ETHICAL_EXCLUSIONS:
+                result.append({
+                    "symbol":   sym,
+                    "source":   "congress_buy",
+                    "note":     f"Net congress buying (last {config.MT_BASKET_CONGRESS_DAYS}d)",
+                    "ttl_days": config.MT_BASKET_CONGRESS_DAYS,
+                })
+        return result
+    except Exception as e:
+        print(f"  [MT Curation] Congress buys error: {e}")
+        return []
+
+
+def _mt_get_earnings_catalysts(lt_basket: list[str]) -> list[dict]:
+    """
+    Tickers (from LT basket or broader market) with earnings in 3-8 weeks
+    + positive relative strength vs SPY + RSI 35-75 + above SMA20.
+    Returns [{symbol, source, note, ttl_days, catalyst_date}].
+    """
+    if not config.FINNHUB_API_KEY:
+        return []
+
+    from datetime import timedelta
+    today     = date.today()
+    min_date  = today + timedelta(weeks=config.MT_BASKET_EARNINGS_WEEKS_MIN)
+    max_date  = today + timedelta(weeks=config.MT_BASKET_EARNINGS_WEEKS_MAX)
+
+    # Fetch earnings calendar from Finnhub for the window
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/calendar/earnings",
+            params={
+                "from":  min_date.isoformat(),
+                "to":    max_date.isoformat(),
+                "token": config.FINNHUB_API_KEY,
+            },
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return []
+        items = r.json().get("earningsCalendar", [])
+    except Exception as e:
+        print(f"  [MT Curation] Finnhub earnings error: {e}")
+        return []
+
+    # Broader thesis universe — tickers NOT in LT basket with upcoming catalysts
+    lt_set = set(lt_basket)
+    candidates = []
+    seen = set()
+    for e in items:
+        sym = (e.get("symbol") or "").upper()
+        if not sym or sym in seen or sym in _ETHICAL_EXCLUSIONS:
+            continue
+        if sym in lt_set:
+            continue  # already in LT basket — scanned anyway
+        if not sym.isalpha() or len(sym) > 5:
+            continue
+        seen.add(sym)
+        edate_str = e.get("date", "")
+
+        # Technical check: RSI 35-75, above SMA20, positive RS vs SPY
+        try:
+            tk   = yf.Ticker(sym)
+            hist = tk.history(period="3mo")
+            if len(hist) < 25:
+                continue
+            close  = hist["Close"]
+            price  = float(close.iloc[-1])
+            sma20  = float(close.tail(20).mean())
+            if price < sma20:
+                continue  # below SMA20 — not in uptrend
+
+            # RSI (14-period)
+            delta  = close.diff()
+            gain   = delta.clip(lower=0).tail(14).mean()
+            loss   = (-delta.clip(upper=0)).tail(14).mean()
+            rsi    = 100 - (100 / (1 + gain / loss)) if loss > 0 else 100
+            crit   = MT_BASKET_SOURCES["earnings_catalyst"]
+            if not (crit["min_rsi"] <= rsi <= crit["max_rsi"]):
+                continue
+
+            # Relative strength vs SPY 4 weeks
+            spy_hist = yf.Ticker("SPY").history(period="1mo")
+            if len(spy_hist) >= 2 and len(hist) >= 20:
+                rs_stock = (float(close.iloc[-1]) / float(close.iloc[-20]) - 1)
+                rs_spy   = (float(spy_hist["Close"].iloc[-1]) /
+                            float(spy_hist["Close"].iloc[0]) - 1)
+                if rs_stock < rs_spy:
+                    continue  # underperforming SPY — not a rotation leader
+
+            analyst_tgt = tk.info.get("targetMeanPrice")
+            upside = ((analyst_tgt - price) / price) if analyst_tgt and price else 0
+            if upside < crit["min_upside"]:
+                continue
+
+            try:
+                earnings_dt = date.fromisoformat(edate_str)
+                days_to     = (earnings_dt - today).days
+                ttl         = days_to + 14  # expires 14 days after earnings
+            except Exception:
+                ttl = 45
+
+            candidates.append({
+                "symbol":        sym,
+                "source":        "earnings_catalyst",
+                "note":          f"Earnings {edate_str} | RSI={rsi:.0f} | upside={upside:.1%}",
+                "ttl_days":      ttl,
+                "catalyst_date": edate_str,
+            })
+        except Exception:
+            continue
+
+    return candidates[:config.MT_BASKET_MAX_EARNINGS]
+
+
+def _mt_get_sector_rotation(lt_basket: list[str]) -> list[dict]:
+    """
+    Find thesis sectors outperforming SPY over 4 weeks.
+    Returns the top RS ticker per outperforming sector not already in LT basket.
+    Returns [{symbol, source, note, ttl_days}].
+    """
+    # Representative sector tickers (ETFs or leaders) for 4-week RS calculation
+    sector_proxies = {
+        "semis":    "SOXX",
+        "ai_tech":  "IGV",
+        "cyber":    "CIBR",
+        "defense":  "ITA",
+        "nuclear":  "NLR",
+        "fintech":  "FINX",
+        "biotech":  "XBI",
+        "energy":   "XLE",
+        "robotics": "BOTZ",
+        "quantum":  "QTUM",
+    }
+
+    # Thesis sector member lists — ONLY tickers NOT in LT basket
+    # (LT tickers are already scanned; MT rotation adds genuinely new names)
+    sector_members = {
+        "semis":   ["QCOM", "INTC", "ON", "MCHP", "TXN", "SMCI", "SWKS", "WOLF", "MTSI", "SLAB", "MPWR", "ACLS", "ONTO", "COHU"],
+        "ai_tech": ["DDOG", "MDB", "NET", "HCP", "GTLB", "CFLT", "BILL", "SNOW", "PLTR", "AI", "BBAI", "SOUN", "RXRX", "AMBA"],
+        "cyber":   ["OKTA", "CYBR", "RPD", "QLYS", "TENB", "S", "VRNS", "ZTNO", "PANW", "CRWD"],
+        "defense": ["HII", "DRS", "LDOS", "SAIC", "BAH", "MOOG", "TDG", "AXON", "KTOS", "RCAT"],
+        "nuclear": ["SMR", "OKLO", "NNE", "UUUU", "LEU", "DNN", "UEC", "CCJ"],
+        "fintech": ["SQ", "PYPL", "AFRM", "SOFI", "UPST", "LMND", "HOOD", "COIN", "NU", "DAVE"],
+        "energy":  ["XOM", "CVX", "MPC", "PSX", "DVN", "HAL", "SLB", "OXY", "FANG", "AR"],
+        "robotics":["PATH", "TER", "RRX", "FORM", "BRZE", "ACMR", "ISRG", "IRBT", "RMBS"],
+        "biotech": ["MRNA", "BNTX", "REGN", "VRTX", "ALNY", "INCY", "SGEN", "RCKT", "BEAM", "EDIT"],
+        "quantum": ["IONQ", "RGTI", "QUBT", "IBM", "QBTS"],
+    }
+
+    lt_set = set(lt_basket)
+    candidates = []
+
+    try:
+        spy_hist = yf.Ticker("SPY").history(period="1mo")
+        if len(spy_hist) < 10:
+            return []
+        spy_rs = (float(spy_hist["Close"].iloc[-1]) / float(spy_hist["Close"].iloc[0]) - 1)
+    except Exception:
+        return []
+
+    min_rs_gap = MT_BASKET_SOURCES["sector_rotation"]["min_rs_vs_spy"]
+
+    for sector, proxy in sector_proxies.items():
+        try:
+            proxy_hist = yf.Ticker(proxy).history(period="1mo")
+            if len(proxy_hist) < 10:
+                continue
+            sector_rs = (float(proxy_hist["Close"].iloc[-1]) /
+                         float(proxy_hist["Close"].iloc[0]) - 1)
+            if sector_rs - spy_rs < min_rs_gap:
+                continue  # sector not outperforming SPY by enough
+
+            # Find the strongest individual ticker in this sector not in LT basket
+            members_oot = [s for s in sector_members.get(sector, [])
+                           if s not in lt_set and s not in _ETHICAL_EXCLUSIONS]
+            if not members_oot:
+                continue
+
+            best_sym = None
+            best_rs  = -999
+            for sym in members_oot[:6]:
+                try:
+                    h = yf.Ticker(sym).history(period="1mo")
+                    if len(h) < 10:
+                        continue
+                    rs = float(h["Close"].iloc[-1]) / float(h["Close"].iloc[0]) - 1
+                    if rs > best_rs:
+                        best_rs  = rs
+                        best_sym = sym
+                except Exception:
+                    continue
+
+            if best_sym:
+                candidates.append({
+                    "symbol":   best_sym,
+                    "source":   "sector_rotation",
+                    "note":     f"{sector} sector RS={sector_rs:.1%} vs SPY={spy_rs:.1%} | "
+                                f"{best_sym} RS={best_rs:.1%}",
+                    "ttl_days": MT_BASKET_SOURCES["sector_rotation"]["ttl_days"],
+                })
+        except Exception:
+            continue
+
+    return candidates[:config.MT_BASKET_MAX_SECTOR_ROT]
+
+
+_UW_MT_MIN_PREMIUM = 1_000_000  # $1M minimum sweep premium for MT entry
+
+
+def _mt_get_uw_discoveries() -> list[dict]:
+    """Pull queued UW discoveries from the pending file. Requires premium >= $1M."""
+    try:
+        from basket.manager import get_uw_pending, clear_uw_pending
+        pending = get_uw_pending()
+        result = []
+        for d in pending:
+            sym     = d.get("symbol", "").upper()
+            premium = d.get("premium", 0) or 0
+            if not sym or sym in _ETHICAL_EXCLUSIONS:
+                continue
+            if premium < _UW_MT_MIN_PREMIUM:
+                print(f"  [MT Curation] {sym} UW skip: premium ${premium/1e6:.2f}M < $1M minimum")
+                continue
+            result.append({
+                "symbol":   sym,
+                "source":   "uw_discovery",
+                "note":     f"UW call sweep ${premium/1e6:.1f}M",
+                "ttl_days": config.MT_BASKET_UW_DAYS,
+            })
+        clear_uw_pending()
+        return result[:config.MT_BASKET_MAX_UW]
+    except Exception as e:
+        print(f"  [MT Curation] UW pending error: {e}")
+        return []
+
+
+def _mt_retire_existing(existing_meta: dict) -> list[str]:
+    """
+    Check existing MT basket tickers against retirement criteria.
+    Returns list of symbols to remove.
+    """
+    today   = date.today()
+    to_remove = []
+
+    for sym, meta in existing_meta.items():
+        # TTL expiry
+        added_str = meta.get("added", "")
+        ttl       = meta.get("ttl_days", 30)
+        try:
+            added_dt = date.fromisoformat(added_str[:10])
+            if (today - added_dt).days > ttl:
+                to_remove.append(sym)
+                print(f"  [MT Retire] {sym} TTL expired ({ttl}d from {added_str[:10]})")
+                continue
+        except Exception:
+            pass
+
+        # Technical retirement (death cross, RSI overbought)
+        try:
+            hist = yf.Ticker(sym).history(period="6mo")
+            if len(hist) < 50:
+                continue
+            close  = hist["Close"]
+            sma50  = float(close.tail(50).mean())
+            sma200 = float(close.tail(200).mean()) if len(close) >= 200 else None
+            if sma200 and sma50 < sma200:
+                to_remove.append(sym)
+                print(f"  [MT Retire] {sym} death cross confirmed")
+                continue
+            delta = close.diff()
+            gain  = delta.clip(lower=0).tail(14).mean()
+            loss  = (-delta.clip(upper=0)).tail(14).mean()
+            rsi   = 100 - (100 / (1 + gain / loss)) if loss > 0 else 100
+            if rsi >= MT_BASKET_RETIRE["rsi_overbought"]:
+                to_remove.append(sym)
+                print(f"  [MT Retire] {sym} RSI overbought ({rsi:.0f})")
+        except Exception:
+            pass
+
+        # Catalyst passed check
+        catalyst_date_str = meta.get("catalyst_date", "")
+        if catalyst_date_str:
+            try:
+                cat_dt = date.fromisoformat(catalyst_date_str[:10])
+                if (today - cat_dt).days > MT_BASKET_RETIRE["catalyst_passed_days"]:
+                    to_remove.append(sym)
+                    print(f"  [MT Retire] {sym} catalyst passed ({catalyst_date_str})")
+            except Exception:
+                pass
+
+    return list(set(to_remove))
+
+
+def _mt_haiku_finalize(current: list[str], candidates: list[dict],
+                       to_retire: list[str], max_adds: int | None = None) -> dict:
+    """Ask Haiku to finalize the MT basket from the scored candidate pool."""
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    effective_max = max_adds if max_adds is not None else config.MT_BASKET_WEEKLY_MAX_ADDS
+
+    cand_summary = [
+        {"symbol": c["symbol"], "source": c["source"], "note": c["note"]}
+        for c in candidates
+    ]
+    prompt = f"""Medium-term catalyst basket weekly review.
+
+Current MT basket ({len(current)} tickers, max {config.MT_BASKET_MAX}): {current}
+Scheduled retirements (TTL/technical): {to_retire}
+Max new adds this week: {effective_max}
+
+NEW CANDIDATES (pre-screened):
+{json.dumps(cand_summary, indent=2)}
+
+Source caps: congress={config.MT_BASKET_MAX_CONGRESS}, earnings={config.MT_BASKET_MAX_EARNINGS}, \
+uw_discovery={config.MT_BASKET_MAX_UW}
+
+RULES:
+- congress_buy: auto-approve (congressional info-edge, event-driven)
+- earnings_catalyst: approve if RSI/RS criteria passed (pre-screened)
+- uw_discovery: approve if premium ≥$1M (pre-filtered), ethical, thesis-adjacent
+- Sector-rotation-only entries are NOT allowed (momentum alone is not a hard catalyst)
+- Do NOT exceed source caps or total MT cap of {config.MT_BASKET_MAX}
+- Prefer quality over quantity — empty slots are fine
+
+Respond ONLY in JSON: {{"add": ["TICK"], "remove_extra": ["TICK"], "reasoning": "brief"}}"""
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        return json.loads(raw)
+    except Exception as e:
+        print(f"  [MT Curation] Haiku error: {e}")
+        # Fallback: auto-approve all congress buys, top-N earnings
+        auto = [c["symbol"] for c in candidates if c["source"] == "congress_buy"]
+        return {"add": auto[:effective_max], "remove_extra": [], "reasoning": "fallback"}
+
+
+def run_mt_weekly(lt_basket: list[str]) -> tuple[list[str], dict, str]:
+    """
+    Weekly MT basket curation — runs Friday alongside LT basket review.
+
+    Sources:
+      1. Congress buys (within 45 days, not in LT basket) — auto-qualify
+      2. Earnings catalyst plays (3-8 weeks out, above SMA20, RSI 35-75)
+      3. Sector rotation leaders (top RS vs SPY in thesis sectors)
+      4. UW out-of-basket discoveries (from queued pending file)
+
+    Returns (mt_tickers: list, mt_metadata: dict, reasoning: str).
+    """
+    from basket.manager import load_mt, load_mt_metadata
+
+    print("\n  [MT Curation] Weekly medium-term basket refresh...")
+
+    existing_tickers  = load_mt()
+    existing_meta     = load_mt_metadata()
+
+    # Step 1: Retire expired / deteriorated positions
+    to_retire = _mt_retire_existing(existing_meta)
+
+    # Step 2: Source new candidates from all four pipelines
+    print("  [MT Curation] Sourcing: congress buys...")
+    congress_cands = _mt_get_congress_buys(lt_basket)
+
+    print("  [MT Curation] Sourcing: earnings catalysts...")
+    earnings_cands = _mt_get_earnings_catalysts(lt_basket)
+
+    # Sector rotation removed: momentum alone is not a hard catalyst.
+    # MT entries require earnings catalyst 3-8 weeks out OR UW bullish sweep ≥$1M.
+    print("  [MT Curation] Sourcing: UW discoveries...")
+    uw_cands       = _mt_get_uw_discoveries()
+
+    all_candidates = congress_cands + earnings_cands + uw_cands
+    already_in_mt  = set(existing_tickers)
+
+    # ── Hard quality filters — applied to every candidate before Haiku sees them ──
+    _MT_ALLOWED_SECTORS = {
+        "ai_software", "semis", "ai_infra", "cyber", "defense", "nuclear",
+        "space", "quantum", "fintech", "healthcare", "mega_tech", "biotech", "robotics",
+    }
+
+    def _mt_passes_hard_filters(candidate: dict) -> bool:
+        sym  = candidate.get("symbol", "")
+        note = candidate.get("note", "")
+
+        # Filter 1 — sector must be in allowed list (block energy_oil, metals, ecommerce, etc.)
+        sector = config.SECTOR_MAP.get(sym)
+        if sector and sector not in _MT_ALLOWED_SECTORS:
+            # Exception: UW sweep >= $2M bypasses sector filter
+            import re as _re
+            sweep_match = _re.search(r'net_call=\$([0-9.]+)M', note)
+            if sweep_match and float(sweep_match.group(1)) >= 2.0:
+                pass  # large sweep overrides sector filter
+            else:
+                return False  # blocked sector
+
+        # Filter 2 — never add if RSI > 78 (already overbought)
+        rsi = candidate.get("rsi")
+        if rsi and float(rsi) > 78:
+            return False
+
+        # Filter 3 — market cap minimum $500M (skip micro-caps / penny stocks)
+        mcap = candidate.get("market_cap")
+        if mcap and float(mcap) < 500_000_000:
+            return False
+
+        # Filter 4 — skip growth=0 AND sentiment=neutral junk
+        if (candidate.get("growth_score", 1) == 0
+                and candidate.get("sentiment", "neutral") == "neutral"):
+            return False
+
+        return True
+
+    all_candidates = [c for c in all_candidates if _mt_passes_hard_filters(c)]
+    new_candidates = [c for c in all_candidates if c["symbol"] not in already_in_mt]
+
+    print(f"  [MT Curation] {len(new_candidates)} new candidates "
+          f"(congress={len(congress_cands)} earnings={len(earnings_cands)} "
+          f"uw={len(uw_cands)}) [sector_rotation disabled — hard catalyst required]")
+
+    # Step 3: Haiku finalizes adds
+    # Use bootstrap cap when basket is below 50% capacity — fills faster on first runs
+    active = [s for s in existing_tickers if s not in to_retire]
+    bootstrap = len(active) < config.MT_BASKET_MAX // 2
+    max_adds  = config.MT_BASKET_BOOTSTRAP_ADDS if bootstrap else config.MT_BASKET_WEEKLY_MAX_ADDS
+    if bootstrap:
+        print(f"  [MT Curation] Bootstrap mode — basket at {len(active)}/{config.MT_BASKET_MAX}, allowing up to {max_adds} adds")
+    result = _mt_haiku_finalize(active, new_candidates, to_retire, max_adds=max_adds)
+
+    approved_adds  = [c for c in all_candidates
+                      if c["symbol"] in result.get("add", [])]
+    extra_removes  = result.get("remove_extra", [])
+    reasoning      = result.get("reasoning", "")
+
+    # Build final ticker list and metadata
+    final_tickers  = [s for s in active if s not in extra_removes]
+    final_meta     = {s: existing_meta[s] for s in final_tickers if s in existing_meta}
+
+    today_str = date.today().isoformat()
+    for c in approved_adds:
+        sym = c["symbol"]
+        if sym not in set(final_tickers):
+            final_tickers.append(sym)
+        exp = date.today()
+        from datetime import timedelta as _td
+        exp_str = (date.today() + _td(days=c.get("ttl_days", 30))).isoformat()
+        final_meta[sym] = {
+            "source":        c["source"],
+            "added":         today_str,
+            "expires":       exp_str,
+            "note":          c.get("note", ""),
+            "catalyst_date": c.get("catalyst_date", ""),
+        }
+
+    # Enforce hard cap
+    if len(final_tickers) > config.MT_BASKET_MAX:
+        # Trim: keep congress > earnings > sector > uw, shortest TTL last
+        def _priority(sym):
+            src = final_meta.get(sym, {}).get("source", "uw_discovery")
+            return {"congress_buy": 0, "earnings_catalyst": 1,
+                    "sector_rotation": 2, "uw_discovery": 3}.get(src, 4)
+        final_tickers.sort(key=_priority)
+        final_tickers = final_tickers[:config.MT_BASKET_MAX]
+        final_meta = {s: final_meta[s] for s in final_tickers if s in final_meta}
+
+    adds_log    = [c["symbol"] for c in approved_adds]
+    removes_log = to_retire + extra_removes
+    print(f"  [MT Curation] Final: {len(final_tickers)} tickers | "
+          f"Added: {adds_log} | Removed: {removes_log}")
+    print(f"  [MT Curation] Reasoning: {reasoning[:200]}")
+
+    return final_tickers, final_meta, reasoning
+
+
+def run_daily_basket_review(lt_basket: list[str]) -> tuple[list[str], dict, str]:
+    """
+    Daily MT basket review — runs Mon-Fri after close (~16:15 ET).
+
+    For each position in the MT basket, evaluates momentum, thesis validity, TTL,
+    and catalyst status. Removes broken/expired positions and sources 1:1 replacements
+    from the same four pipelines (congress, sector rotation, UW discoveries).
+    Earnings catalysts are skipped for speed (they're covered by the weekly refresh).
+
+    Returns (updated_tickers, updated_metadata, discord_summary_string).
+    """
+    from basket.manager import load_mt, load_mt_metadata, save_mt
+    from basket import pending_removals as _pr
+
+    print("\n  [Daily Basket Review] Starting MT basket daily review...")
+
+    existing_tickers = load_mt()
+    existing_meta    = load_mt_metadata()
+
+    if not existing_tickers:
+        print("  [Daily Basket Review] MT basket is empty — skipping")
+        return [], {}, ""
+
+    today = date.today()
+
+    # ── Step 1: Gather current data for each position ────────────────────────
+    position_data = []
+    for sym in existing_tickers:
+        meta           = existing_meta.get(sym, {})
+        added_str      = meta.get("added", "")
+        catalyst_str   = meta.get("catalyst_date", "")
+        source         = meta.get("source", "unknown")
+
+        try:
+            added_dt  = date.fromisoformat(added_str[:10])
+            days_held = (today - added_dt).days
+        except Exception:
+            days_held = 0
+
+        try:
+            expires_str   = meta.get("expires", "")
+            expires_dt    = date.fromisoformat(expires_str[:10])
+            ttl_remaining = (expires_dt - today).days
+        except Exception:
+            ttl_remaining = 30
+
+        catalyst_passed = False
+        days_past_cat   = 0
+        if catalyst_str:
+            try:
+                cat_dt           = date.fromisoformat(catalyst_str[:10])
+                days_past_cat    = (today - cat_dt).days
+                catalyst_passed  = days_past_cat > 0
+            except Exception:
+                pass
+
+        try:
+            hist  = yf.Ticker(sym).history(period="3mo")
+            close = hist["Close"]
+            if len(close) < 20:
+                raise ValueError("not enough data")
+
+            current_price = float(close.iloc[-1])
+            sma20         = float(close.tail(20).mean())
+            above_sma20   = current_price > sma20
+
+            # 5-day EMA for overbought exit signal
+            ema5 = float(close.ewm(span=5, adjust=False).mean().iloc[-1])
+            below_5ema = current_price < ema5
+
+            lookback  = min(max(days_held, 5), len(close) - 1)
+            past_price = float(close.iloc[-lookback - 1])
+            pct_change = (current_price - past_price) / past_price * 100 if past_price else 0
+
+            delta = close.diff()
+            gain  = delta.clip(lower=0).tail(14).mean()
+            loss  = (-delta.clip(upper=0)).tail(14).mean()
+            rsi   = 100 - (100 / (1 + gain / loss)) if loss > 0 else 100
+
+            if rsi >= 80 and below_5ema:
+                momentum = "overbought"
+            elif rsi >= 80 and not below_5ema:
+                momentum = "bullish"  # still above 5-EMA — let winner run
+            elif rsi <= 35:
+                momentum = "oversold"
+            elif above_sma20 and pct_change > 2:
+                momentum = "bullish"
+            elif not above_sma20 and pct_change < -5:
+                momentum = "bearish"
+            else:
+                momentum = "neutral"
+        except Exception:
+            pct_change  = 0
+            rsi         = 50
+            above_sma20 = True
+            below_5ema  = False
+            momentum    = "unknown"
+
+        position_data.append({
+            "symbol":           sym,
+            "source":           source,
+            "days_held":        days_held,
+            "ttl_remaining":    ttl_remaining,
+            "pct_change":       round(pct_change, 1),
+            "rsi":              round(float(rsi), 1),
+            "above_sma20":      above_sma20,
+            "below_5ema":       below_5ema,
+            "momentum":         momentum,
+            "catalyst_date":    catalyst_str,
+            "catalyst_passed":  catalyst_passed,
+            "days_past_cat":    days_past_cat,
+            "note":             meta.get("note", ""),
+        })
+
+    # ── Step 2: Haiku evaluates each position ────────────────────────────────
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    prompt = f"""Daily MT basket review. Today: {today.isoformat()}
+
+Current positions ({len(existing_tickers)} tickers, max {config.MT_BASKET_MAX}):
+{json.dumps(position_data, indent=2)}
+
+Decision rules — REMOVE if ANY applies:
+1. momentum="bearish" AND pct_change < -10 (thesis broken)
+2. momentum="overbought" (rsi >= 80 AND below_5ema=true; winner has reversed off peak)
+3. catalyst_passed=true AND pct_change < 5 AND days_past_cat > 3 (catalyst fizzled with no move)
+4. ttl_remaining <= 0 (TTL expired)
+5. ttl_remaining <= 3 AND pct_change < 3 (barely moved and expiring soon)
+6. momentum="oversold" AND days_held > 21 (sustained downtrend for 3+ weeks)
+7. above_sma20=false AND pct_change < -12 (broken below trend significantly)
+
+KEEP if ANY applies:
+• catalyst_passed=false AND ttl_remaining > 7 (catalyst still upcoming — thesis live)
+• pct_change > 12 (winning; let it run)
+• momentum="bullish" AND above_sma20=true (healthy trend)
+• source="congress_buy" AND days_held < 25 (congressional alpha window still open)
+• pct_change > 0 AND above_sma20=true (positive, respect the trend)
+
+Default to KEEP unless a REMOVE rule clearly fires. Prefer 0 removals over spurious removals.
+
+Output ONLY valid JSON:
+{{"decisions": [{{"symbol": "TICK", "action": "KEEP", "reason": "brief"}}], "summary": "1-2 sentence overall assessment"}}"""
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        review = json.loads(raw)
+    except Exception as e:
+        print(f"  [Daily Basket Review] Haiku error: {e}")
+        return existing_tickers, existing_meta, ""
+
+    decisions      = {d["symbol"]: d for d in review.get("decisions", [])}
+    to_remove      = [sym for sym, d in decisions.items() if d.get("action") == "REMOVE"]
+    removal_reasons = {sym: decisions[sym].get("reason", "") for sym in to_remove}
+
+    print(f"  [Daily Basket Review] Removals: {to_remove}")
+
+    # Log all daily review decisions
+    try:
+        from database import decisions_log as _dlog
+        for pd_entry in position_data:
+            sym = pd_entry["symbol"]
+            action = "REMOVE" if sym in to_remove else "KEEP"
+            criterion = removal_reasons.get(sym, "") if sym in to_remove else ""
+            _dlog.log_daily_review_decision(
+                symbol=sym,
+                action=action,
+                criterion=criterion,
+                pct_change=pd_entry.get("pct_change", 0),
+                rsi=pd_entry.get("rsi", 0),
+                above_sma20=pd_entry.get("above_sma20", True),
+                momentum=pd_entry.get("momentum", ""),
+                days_held=pd_entry.get("days_held", 0),
+                ttl_remaining=pd_entry.get("ttl_remaining", 0),
+                catalyst_passed=pd_entry.get("catalyst_passed", False),
+                source=existing_meta.get(sym, {}).get("source", ""),
+            )
+    except Exception:
+        pass
+
+    # ── Step 3: Apply yesterday's ready-to-remove (24h veto elapsed) ─────────
+    ready = _pr.get_ready(hours=24)
+    ready_syms = [r["symbol"] for r in ready]
+    ready_reasons = {r["symbol"]: r["reason"] for r in ready}
+
+    # ── Step 4: Propose today's new removals (24h veto starts now) ────────────
+    for sym in to_remove:
+        _pr.propose(sym, removal_reasons.get(sym, ""), criterion="daily_review")
+    newly_proposed = to_remove  # what Haiku flagged today
+
+    # ── Step 5: Source 1:1 replacements for READY (applying now) removals ────
+    n_replace     = len(ready_syms)
+    replacements  = []
+    if n_replace > 0:
+        print(f"  [Daily Basket Review] Applying {n_replace} ready removals (24h elapsed): {ready_syms}")
+        current_after = set(existing_tickers) - set(ready_syms)
+
+        congress_cands = _mt_get_congress_buys(lt_basket)
+        uw_cands       = _mt_get_uw_discoveries()
+        # Sector rotation removed: MT requires hard catalyst (earnings or UW sweep ≥$1M)
+        all_new = congress_cands + uw_cands
+        seen    = set()
+        for c in all_new:
+            if len(replacements) >= n_replace:
+                break
+            sym = c["symbol"]
+            if (sym not in current_after and sym not in set(lt_basket)
+                    and sym not in _ETHICAL_EXCLUSIONS and sym not in seen):
+                replacements.append(c)
+                seen.add(sym)
+
+    # ── Step 6: Build updated basket (only remove ready_syms, not newly_proposed) ───
+    final_tickers = [s for s in existing_tickers if s not in ready_syms]
+    final_meta    = {s: existing_meta[s] for s in final_tickers if s in existing_meta}
+
+    today_str = today.isoformat()
+    for c in replacements:
+        sym = c["symbol"]
+        if sym not in set(final_tickers):
+            final_tickers.append(sym)
+        from datetime import timedelta as _td
+        exp_str = (today + _td(days=c.get("ttl_days", 30))).isoformat()
+        final_meta[sym] = {
+            "source":        c["source"],
+            "added":         today_str,
+            "expires":       exp_str,
+            "note":          c.get("note", ""),
+            "catalyst_date": c.get("catalyst_date", ""),
+        }
+
+    save_mt(final_tickers, final_meta)
+
+    # ── Step 7: Clear applied removals from pending file ─────────────────────
+    _pr.clear_symbols(ready_syms)
+
+    # ── Step 8: Build Discord summary ────────────────────────────────────────
+    haiku_summary   = review.get("summary", "")
+    applied_lines   = [f"• ✅ Removed **{s}**: {ready_reasons.get(s, '')}" for s in ready_syms]
+    add_lines       = [f"• ➕ {c['symbol']} ({c['source']}): {c.get('note', '')[:80]}"
+                       for c in replacements]
+    proposed_lines  = [f"• ⏳ **{s}** flagged for removal: {removal_reasons.get(s, '')} _(applies tomorrow unless vetoed)_"
+                       for s in newly_proposed]
+
+    parts = [f"📋 **Daily MT Basket Review** — {today_str}",
+             f"Basket: {len(final_tickers)}/{config.MT_BASKET_MAX} positions"]
+    if ready_syms:
+        parts.append("**Applied removals (24h elapsed):**\n" + "\n".join(applied_lines))
+    if replacements:
+        parts.append("**Replacements added:**\n" + "\n".join(add_lines))
+    if newly_proposed:
+        parts.append("**Newly flagged (veto window open — type `/veto_removal TICKER` to cancel):**\n"
+                     + "\n".join(proposed_lines))
+    if not ready_syms and not newly_proposed and not replacements:
+        parts.append(f"All {len(existing_tickers)} positions intact — no changes today.")
+    if haiku_summary:
+        parts.append(f"_{haiku_summary}_")
+
+    discord_msg = "\n\n".join(parts)
+    print(f"  [Daily Basket Review] Done — "
+          f"applied={ready_syms}, proposed={newly_proposed}, added={[c['symbol'] for c in replacements]}")
+
+    return final_tickers, final_meta, discord_msg
+
+
+# ── Regime-driven sector opportunity scan ────────────────────────────────────
+
+_SP500_CSV_URL  = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
+_SP500_CACHE    = "/tmp/kimmy_sp500_constituents.csv"
+
+
+def _fetch_sp500_by_sector(winning_keys: set[str]) -> dict[str, list[str]]:
+    """
+    Fetch S&P 500 CSV (cached in /tmp for 24h), return {sector_key: [tickers]}.
+    Uses GICS Sub-Industry → internal sector mapping for precision.
+    """
+    import io, csv as _csv, time as _time
+
+    # 24-hour cache to avoid hammering GitHub
+    if os.path.exists(_SP500_CACHE):
+        if _time.time() - os.path.getmtime(_SP500_CACHE) < 86400:
+            with open(_SP500_CACHE) as f:
+                raw = f.read()
+        else:
+            raw = None
+    else:
+        raw = None
+
+    if raw is None:
+        try:
+            r = requests.get(_SP500_CSV_URL, timeout=15)
+            if r.status_code == 200:
+                raw = r.text
+                with open(_SP500_CACHE, "w") as f:
+                    f.write(raw)
+            else:
+                print(f"  [SectorScan] S&P 500 CSV fetch failed: {r.status_code}")
+                return {}
+        except Exception as e:
+            print(f"  [SectorScan] S&P 500 CSV error: {e}")
+            return {}
+
+    by_sector: dict[str, list[str]] = {k: [] for k in winning_keys}
+    reader = _csv.DictReader(io.StringIO(raw))
+    for row in reader:
+        sym      = (row.get("Symbol") or "").upper().strip()
+        sub_ind  = row.get("GICS Sub-Industry", "")
+        if not sym or not sym.isalpha():
+            continue
+        internal_keys = _GICS_SUB_TO_INTERNAL.get(sub_ind, [])
+        for key in internal_keys:
+            if key in winning_keys:
+                by_sector[key].append(sym)
+
+    return by_sector
+
+
+def _uw_screener_scan(winning: list[tuple], min_mcap: int, basket_set: set,
+                      max_per_sector: int, regime_label: str, regime_shift: bool) -> list[dict]:
+    """
+    Layer 1 (primary): UW options-flow screener.
+    Filters by sector, market cap, and net bullish options premium.
+    Works on the $150 UW plan — no FMP Professional needed.
+    Returns stocks where smart money (options flow) is net bullish in winning sectors.
+    """
+    if not config.UNUSUAL_WHALES_API_KEY:
+        return []
+
+    import requests as _req
+    headers = {"Authorization": f"Bearer {config.UNUSUAL_WHALES_API_KEY}", "Accept": "application/json"}
+
+    try:
+        r = _req.get(f"{_UW_BASE}/api/screener/stocks", headers=headers,
+                     params={"limit": 500}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return []
+        rows = r.json().get("data", r.json()) if isinstance(r.json(), dict) else r.json()
+        if not isinstance(rows, list) or not rows:
+            return []
+    except Exception:
+        return []
+
+    winning_keys = {s for s, _ in winning}
+    weight_map   = dict(winning)
+
+    # Build set of UW sectors that map to our winning internal sectors
+    target_uw_sectors: set[str] = set()
+    for uw_sec, internal_keys in _UW_SECTOR_TO_INTERNAL.items():
+        if any(k in winning_keys for k in internal_keys):
+            target_uw_sectors.add(uw_sec)
+
+    discoveries: list[dict] = []
+    seen:        set[str]   = set()
+    per_sector:  dict       = {}
+
+    for row in rows:
+        sym = (row.get("ticker") or "").upper()
+        if not sym or not sym.isalpha() or len(sym) > 5:
+            continue
+        if row.get("issue_type") == "ETF" or row.get("is_index"):
+            continue
+        if sym in basket_set or sym in seen:
+            continue
+
+        uw_sector = row.get("sector", "")
+        if uw_sector not in target_uw_sectors:
+            continue
+
+        mcap = float(row.get("marketcap") or 0)
+        if mcap < min_mcap:
+            continue
+
+        # Options flow quality gate: net bullish (call premium > put premium)
+        call_prem = float(row.get("call_premium") or 0)
+        put_prem  = float(row.get("put_premium")  or 0)
+        net_call  = float(row.get("net_call_premium") or 0)
+        if call_prem <= 0 or net_call <= 0:
+            continue
+
+        # Map to best-fit internal sector key
+        internal_keys = _UW_SECTOR_TO_INTERNAL.get(uw_sector, [])
+        best_key = next((k for k in internal_keys if k in winning_keys), None)
+        if not best_key:
+            continue
+
+        if per_sector.get(best_key, 0) >= max_per_sector:
+            continue
+
+        seen.add(sym)
+        per_sector[best_key] = per_sector.get(best_key, 0) + 1
+        weight = weight_map.get(best_key, 0.70)
+        iv_rank = float(row.get("iv_rank") or 0)
+        pc_ratio = float(row.get("put_call_ratio") or 1.0)
+
+        discoveries.append({
+            "symbol":        sym,
+            "sector_key":    best_key,
+            "sector_weight": weight,
+            "market_cap":    mcap,
+            "rev_growth":    None,
+            "regime_label":  regime_label,
+            "regime_shift":  regime_shift,
+            "source":        "uw_screener",
+            "note": (
+                f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                f"UW flow bullish | {best_key} ({weight:.2f}) | "
+                f"net_call=${net_call/1e6:.1f}M | IV_rank={iv_rank:.0f} | P/C={pc_ratio:.2f}"
+            ),
+        })
+
+    if discoveries:
+        print(f"  [SectorScan] Layer 1 (UW screener): {len(discoveries)} flow-confirmed opportunities")
+    return discoveries
+
+
+def _fmp_sector_scan(winning: list[tuple], min_mcap: int, min_rev_growth: float,
+                     basket_set: set, max_per_sector: int,
+                     regime_label: str, regime_shift: bool) -> list[dict]:
+    """FMP stock-screener (requires Professional plan — inactive on Starter)."""
+    discoveries: list[dict] = []
+    seen_syms:   set[str]   = set()
+    per_sector:  dict       = {}
+
+    for sector_key, weight in sorted(winning, key=lambda x: -x[1]):
+        fmp_param_list = _SECTOR_TO_FMP.get(sector_key)
+        if not fmp_param_list:
+            continue
+        for fmp_params in fmp_param_list:
+            if per_sector.get(sector_key, 0) >= max_per_sector:
+                break
+            params = {
+                "marketCapMoreThan":     int(min_mcap),
+                "revenueGrowthMoreThan": round(min_rev_growth, 3),
+                "country":               "US",
+                "exchange":              "NASDAQ,NYSE",
+                "limit":                 40,
+                "apikey":                config.FMP_API_KEY,
+                **fmp_params,
+            }
+            try:
+                resp = requests.get(f"{_FMP}/stock-screener", params=params, timeout=_TIMEOUT)
+                if resp.status_code != 200:
+                    return []   # signal caller to try fallback
+                results = resp.json() if isinstance(resp.json(), list) else []
+            except Exception:
+                return []
+            for row in results:
+                sym = (row.get("symbol") or "").upper()
+                if not sym or not sym.isalpha() or len(sym) > 5:
+                    continue
+                if sym in basket_set or sym in seen_syms:
+                    continue
+                if per_sector.get(sector_key, 0) >= max_per_sector:
+                    break
+                seen_syms.add(sym)
+                per_sector[sector_key] = per_sector.get(sector_key, 0) + 1
+                discoveries.append({
+                    "symbol":        sym,
+                    "sector_key":    sector_key,
+                    "sector_weight": weight,
+                    "market_cap":    row.get("marketCap", 0),
+                    "rev_growth":    row.get("revenueGrowth"),
+                    "regime_label":  regime_label,
+                    "regime_shift":  regime_shift,
+                    "source":        "fmp_screener",
+                    "note":          (
+                        f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                        f"FMP scan: {regime_label} | {sector_key} ({weight:.2f}) | "
+                        f"mcap ${row.get('marketCap', 0)/1e9:.1f}B"
+                    ),
+                })
+    return discoveries
+
+
+def _universe_sector_scan(winning: list[tuple], basket_set: set, max_per_sector: int,
+                          regime_label: str, regime_shift: bool) -> list[dict]:
+    """
+    Fallback path when FMP screener is unavailable.
+    Sources: S&P 500 CSV (GICS classification) + curated extended universe
+    for growth/speculative names outside S&P 500.
+    No revenue filter here — committee does the qualifying after onboarding research.
+    """
+    winning_keys = {s for s, _ in winning}
+    weight_map   = dict(winning)
+
+    # Layer 1: S&P 500 with GICS sub-industry precision
+    sp500_by_sector = _fetch_sp500_by_sector(winning_keys)
+
+    # Layer 2: Curated extended universe (growth/speculative names)
+    extended_by_sector: dict[str, list[str]] = {}
+    for key in winning_keys:
+        extended_by_sector[key] = _SECTOR_EXTENDED_UNIVERSE.get(key, [])
+
+    discoveries: list[dict] = []
+    seen_syms:   set[str]   = set()
+    per_sector:  dict       = {}
+
+    for sector_key, weight in sorted(winning, key=lambda x: -x[1]):
+        # Interleave S&P 500 and extended universe: 1 sp500 then 1 extended alternating
+        sp500_pool    = [s for s in sp500_by_sector.get(sector_key, [])
+                         if s not in basket_set and s not in seen_syms]
+        extended_pool = [s for s in extended_by_sector.get(sector_key, [])
+                         if s not in basket_set and s not in seen_syms]
+
+        # Alternate sources so we always get at least one from each layer
+        combined: list[tuple[str, str]] = []
+        i, j = 0, 0
+        while (i < len(sp500_pool) or j < len(extended_pool)) and len(combined) < max_per_sector * 2:
+            if i < len(sp500_pool):
+                combined.append((sp500_pool[i], "sp500_csv"))
+                i += 1
+            if j < len(extended_pool):
+                combined.append((extended_pool[j], "extended_universe"))
+                j += 1
+
+        for sym, source in combined:
+            if per_sector.get(sector_key, 0) >= max_per_sector:
+                break
+            if sym in seen_syms or sym in basket_set:
+                continue
+            if not sym.isalpha() or len(sym) > 5:
+                continue
+            seen_syms.add(sym)
+            per_sector[sector_key] = per_sector.get(sector_key, 0) + 1
+            discoveries.append({
+                "symbol":        sym,
+                "sector_key":    sector_key,
+                "sector_weight": weight,
+                "market_cap":    None,   # filled by onboarding research
+                "rev_growth":    None,
+                "regime_label":  regime_label,
+                "regime_shift":  regime_shift,
+                "source":        source,
+                "note":          (
+                    f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                    f"Universe scan: {regime_label} | {sector_key} ({weight:.2f}) | src={source}"
+                ),
+            })
+
+    return discoveries
+
+
+# ── Layer 4: Government contract / regulatory catalyst scan ───────────────────
+
+def _scan_government_catalysts(basket_set: set, regime_label: str) -> list[dict]:
+    """
+    Scan public government announcements for binary catalyst events:
+      - DARPA/DoD contract awards (defense, quantum, AI)
+      - NIH grant awards (biotech, pharma)
+      - USPTO patent grants to specific thesis-sector companies
+      - FCC spectrum auction winners
+
+    These are public announcements that frequently move stocks 20-50% but
+    are missed by most retail investors who only watch earnings/analyst upgrades.
+
+    Returns [{symbol, sector_key, source, note}] — symbol may be None if the
+    announcement doesn't name a public ticker (caller filters these out).
+    """
+    results: list[dict] = []
+
+    # DARPA / DoD contract awards via SAM.gov API (free, no key)
+    try:
+        from_date = (date.today() - timedelta(days=7)).strftime("%m/%d/%Y")
+        r = requests.get(
+            "https://api.sam.gov/opportunities/v2/search",
+            params={
+                "q": "artificial intelligence OR quantum OR autonomous OR satellite",
+                "postedFrom": from_date,
+                "limit": 20,
+                "api_key": "DEMO_KEY",  # SAM.gov public demo key
+            },
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 200:
+            opps = r.json().get("opportunitiesData", [])
+            for opp in opps[:10]:
+                dept    = opp.get("departmentName", "")
+                title   = opp.get("title", "")
+                awardee = opp.get("award", {}).get("awardee", {}).get("name", "") if opp.get("award") else ""
+                if awardee and any(k in title.lower() for k in
+                                   ["artificial intelligence", "quantum", "autonomous", "satellite"]):
+                    sector = "defense" if "defense" in dept.lower() or "darpa" in dept.lower() else "ai_software"
+                    results.append({
+                        "symbol":     None,  # no ticker yet — flag for research
+                        "sector_key": sector,
+                        "source":     "darpa_doD_contract",
+                        "note":       f"DoD contract: {awardee[:60]} — {title[:80]}",
+                        "awardee":    awardee,
+                    })
+    except Exception:
+        pass
+
+    # NIH grant awards (biotech/pharma) via NIH Reporter API (free)
+    try:
+        r = requests.get(
+            "https://api.reporter.nih.gov/v2/projects/search",
+            json={
+                "criteria": {
+                    "award_notice_date": {
+                        "from_date": (date.today() - timedelta(days=14)).isoformat(),
+                        "to_date": date.today().isoformat(),
+                    },
+                    "project_nums": [],
+                },
+                "limit": 15,
+                "offset": 0,
+            },
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 200:
+            projects = r.json().get("results", [])
+            for proj in projects[:8]:
+                org  = proj.get("organization", {}).get("org_name", "")
+                title = proj.get("project_title", "")
+                amt   = proj.get("award_amount", 0) or 0
+                if org and amt > 1_000_000:  # only $1M+ grants
+                    results.append({
+                        "symbol":     None,
+                        "sector_key": "biotech",
+                        "source":     "nih_grant",
+                        "note":       f"NIH grant ${amt/1e6:.1f}M: {org[:60]} — {title[:80]}",
+                        "awardee":    org,
+                    })
+    except Exception:
+        pass
+
+    # FCC spectrum auction winners (free public API)
+    try:
+        r = requests.get(
+            "https://data.fcc.gov/api/license-view/basicSearch/getLicenses",
+            params={"searchValue": "", "limit": 10, "offset": 0, "format": "json"},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 200:
+            licenses = r.json().get("Licenses", {}).get("License", [])
+            for lic in (licenses if isinstance(licenses, list) else [])[:5]:
+                holder = lic.get("licenseeName", "")
+                service = lic.get("serviceName", "")
+                if holder and "spectrum" in service.lower():
+                    results.append({
+                        "symbol":     None,
+                        "sector_key": "ai_infra",
+                        "source":     "fcc_spectrum",
+                        "note":       f"FCC spectrum: {holder[:60]} — {service}",
+                        "awardee":    holder,
+                    })
+    except Exception:
+        pass
+
+    return results
+
+
+def run_sector_opportunity_scan(macro: dict, existing_basket: list[str],
+                                max_per_sector: int = 3) -> list[dict]:
+    """
+    Scan the broader market for stocks in regime-winning sectors that are NOT
+    already in the basket. Bridge between macro regime and new stock discovery.
+
+    Flow:
+      1. Try FMP stock-screener (requires Starter+ plan) — returns [] if 404/403.
+      2. Fall back to S&P 500 CSV (GICS sub-industry map) + curated extended
+         universe. No pre-qualification filter — onboarding research handles that.
+
+    Called daily from main.py. Results go to MT basket for committee review.
+    Returns list of dicts: [{symbol, sector_key, sector_weight, source, note}]
+    """
+    from basket.tier_criteria import get_tier_criteria
+
+    sector_weights = macro.get("sector_weights", {})
+    regime_label   = macro.get("regime_label", "growth_driven")
+    regime_shift   = macro.get("regime_shift", False)
+
+    winning = [(s, w) for s, w in sector_weights.items() if w >= 0.70]
+    if not winning:
+        print("  [SectorScan] No winning sectors (≥0.70) — skipping")
+        return []
+
+    thresholds     = get_tier_criteria("large_growth", regime_label)
+    min_rev_growth = max(0.0, thresholds.get("min_rev_growth", 0.15) - 0.05)
+    min_mcap       = 2_000_000_000
+
+    basket_set = set(existing_basket) | _ETHICAL_EXCLUSIONS
+
+    # Layer 1a: UW options-flow screener — net-bullish stocks in winning sectors
+    discoveries: list[dict] = []
+    if config.UNUSUAL_WHALES_API_KEY:
+        discoveries = _uw_screener_scan(
+            winning, min_mcap, basket_set, max_per_sector, regime_label, regime_shift,
+        )
+
+    # Layer 1b: FMP screener — only active on Professional plan ($49/month)
+    if not discoveries and config.FMP_API_KEY:
+        fmp_disc = _fmp_sector_scan(
+            winning, min_mcap, min_rev_growth, basket_set,
+            max_per_sector, regime_label, regime_shift,
+        )
+        if fmp_disc:
+            discoveries = fmp_disc
+
+    # Layer 2: S&P 500 CSV + extended curated universe (fallback when screeners unavailable)
+    if not discoveries:
+        print("  [SectorScan] Layer 2: S&P 500 + extended universe")
+        discoveries = _universe_sector_scan(
+            winning, basket_set, max_per_sector, regime_label, regime_shift,
+        )
+
+    # Layer 3: News-driven discovery — always runs, adds to whatever Layer 1/2 found.
+    # This catches companies mentioned in today's news that are in NO preselected list.
+    if config.FINNHUB_API_KEY and config.ANTHROPIC_API_KEY:
+        seen_syms    = {d["symbol"] for d in discoveries}
+        winning_keys = {s for s, _ in winning}
+        weight_map   = dict(winning)
+        news_hits    = _news_driven_tickers(
+            winning_keys, basket_set | seen_syms, regime_label, regime_shift,
+        )
+        for nd in news_hits:
+            sym = nd["symbol"]
+            if sym in seen_syms:
+                continue
+            seen_syms.add(sym)
+            sk     = nd["sector_key"]
+            weight = weight_map.get(sk, 0.70)
+            discoveries.append({
+                "symbol":        sym,
+                "sector_key":    sk,
+                "sector_weight": weight,
+                "market_cap":    None,
+                "rev_growth":    None,
+                "regime_label":  regime_label,
+                "regime_shift":  regime_shift,
+                "source":        "news_driven",
+                "note": (
+                    f"{'⚡ REGIME SHIFT → ' if regime_shift else ''}"
+                    f"News-driven: {regime_label} | {sk} ({weight:.2f}) | "
+                    f"{nd.get('rationale', '')}"
+                ),
+            })
+        if news_hits:
+            print(f"  [SectorScan] Layer 3 (News): {len(news_hits)} additional tickers from today's headlines")
+
+    # Layer 4: Government contract / regulatory catalyst scan
+    # Runs once a week (Friday) to avoid duplicate API calls on daily cycles.
+    import datetime as _dt_mod
+    if _dt_mod.date.today().weekday() == 4:  # Friday only
+        try:
+            seen_syms_l4 = {d["symbol"] for d in discoveries}
+            gov_hits     = _scan_government_catalysts(basket_set, regime_label)
+            print(f"  [SectorScan] Layer 4 (Gov Catalysts): {len(gov_hits)} announcements found")
+            for gh in gov_hits:
+                sym = gh.get("symbol")
+                if sym and sym not in seen_syms_l4 and sym not in basket_set:
+                    seen_syms_l4.add(sym)
+                    discoveries.append({
+                        "symbol":        sym,
+                        "sector_key":    gh["sector_key"],
+                        "sector_weight": sector_weights.get(gh["sector_key"], 0.60),
+                        "market_cap":    None,
+                        "rev_growth":    None,
+                        "regime_label":  regime_label,
+                        "regime_shift":  regime_shift,
+                        "source":        gh["source"],
+                        "note":          gh["note"],
+                    })
+                elif not sym and gh.get("note"):
+                    # Log the announcement even if we can't resolve a ticker
+                    print(f"  [SectorScan] Gov catalyst (no ticker): {gh['note'][:100]}")
+        except Exception as _gov_err:
+            print(f"  [SectorScan] Layer 4 error: {_gov_err}")
+
+    per_sector_count: dict = {}
+    for d in discoveries:
+        sk = d["sector_key"]
+        per_sector_count[sk] = per_sector_count.get(sk, 0) + 1
+
+    print(f"  [SectorScan] TOTAL {len(discoveries)} new opportunities across "
+          f"{len(per_sector_count)} winning sectors | regime={regime_label.upper()}")
+    for sk in sorted(per_sector_count):
+        syms   = [d["symbol"] for d in discoveries if d["sector_key"] == sk]
+        layers = [d["source"][:3].upper() for d in discoveries if d["sector_key"] == sk]
+        print(f"    {sk} ({per_sector_count[sk]}): {list(zip(syms, layers))}")
+
+    return discoveries

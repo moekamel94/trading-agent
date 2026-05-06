@@ -1,0 +1,131 @@
+{
+  "delisted": [
+    "PEV",
+    "WBA",
+    "SCS",
+    "GMS",
+    "ENZ",
+    "STRM",
+    "HITC",
+    "APXIF",
+    "SBOX",
+    "LVRO",
+    "ADN",
+    "GES",
+    "VRNT",
+    "REVG",
+    "BDRL",
+    "BASE",
+    "AHNR",
+    "BHAC",
+    "SPTN",
+    "GLLI",
+    "EVM",
+    "OCFT",
+    "BSTT",
+    "SNDK",
+    "USAR",
+    "LWLG",
+    "LAES",
+    "BBAI",
+    "PSTV",
+    "BULL",
+    "IREN"
+  ],
+  "PEV": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "WBA": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "SCS": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "GMS": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "ENZ": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "STRM": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "HITC": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "APXIF": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "SBOX": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "LVRO": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "ADN": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "GES": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "VRNT": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "REVG": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "BDRL": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "BASE": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "AHNR": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "BHAC": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "SPTN": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "GLLI": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "EVM": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "OCFT": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "EUSP": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  },
+  "BSTT": {
+    "delisted": true,
+    "confirmed": "2026-05-05"
+  }
+}

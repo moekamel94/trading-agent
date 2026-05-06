@@ -1,0 +1,1120 @@
+=== TRADES ===
+46|2026-05-04T15:28:28.275315|PBR|BUY|stock|40.784402|22.065|0.875|7|Tranche 2: earnings_beat(strong_bullish)
+45|2026-05-04T14:02:02.047942|PBR|BUY|stock|186.666491|22.03|4.0|7|PBR is in the highest-CONCENTRATE sector (energy_oil 0.95) with oil at $103.96 driven by Strait of Hormuz geopolitical incident, P/E=7 ultra-cheap valuation, $25-30/bbl breakeven generating extraordinary FCF at current prices, and golden cross confirming institutional accumulation; alpha source is ultra-low breakeven oil production providing 2x+ FCF leverage vs XLE at $103/bbl; 75% risk_off sizing applied (normal 2.4% → 1.8% starter tranche at 60% of 3.0% risk-off target); LT sleeve full so MT sleeve used.
+44|2026-05-04T14:02:00.404328|COP|BUY|stock|33.414015|123.07|4.0|7|BUY MT at 2.5% (60% of 4.5% target): COP is the highest-quality institutional energy name in the top-priority CONCENTRATE sector (energy_oil 0.95) with clean technicals (RSI=50, above both SMAs, golden cross), +17.4% 3-month momentum, bullish LEAPS flow, and an active geopolitical catalyst — alpha source vs SPY is +17.4% 3-month sector outperformance sustained by Strait of Hormuz supply risk premium that SPY does not concentrate.
+43|2026-05-03T22:00:40.232847|ET|SELL|stock|191.198483|19.94|0.0|8|[Weekly review] Strong bearish earnings, negative EPS growth (-15%), classified as 'unknown' sector outside Kimmy's core thesis, and near-flat P&L (-0.3%) with no identifiable catalyst — dead money with deteriorating fundamentals.
+42|2026-05-01T19:23:34.606946|GLNG|BUY|stock|18.309165|55.7|1.0|7|Tranche 2: earnings_beat(strong_bullish)
+41|2026-05-01T19:23:34.387925|ET|BUY|stock|38.243269|20.0|0.75|6|Tranche 2: golden_cross(1M=+5.7%)
+40|2026-05-01T19:23:34.185107|CEG|BUY|stock|3.307025|308.38|1.0|6|Tranche 2: earnings_beat(bullish)
+39|2026-05-01T19:23:33.913967|FANG|BUY|stock|5.166762|207.25|1.05|6|Tranche 2: golden_cross(1M=+6.9%)
+38|2026-05-01T15:22:46.610383|OXY|BUY|stock|15.152296|58.87|0.875|6|Tranche 2: earnings_beat(strong_bullish)
+37|2026-05-01T15:22:46.334391|GEV|BUY|stock|1.232727|1075.08|1.3|8|Tranche 2: golden_cross(1M=+19.7%)
+36|2026-05-01T15:22:46.126281|CCJ|BUY|stock|6.315751|121.06|0.75|6|Tranche 2: earnings_beat(strong_bullish)
+35|2026-05-01T15:22:44.860832|GLNG|BUY|stock|55.444879|55.16|3.0|7|GLNG provides contracted FLNG infrastructure alpha (+20-30% re-rating potential when Gimi reaches nameplate vs SPY's projected +8-10% return) in the energy_oil CONCENTRATE sector — entering at 50% tranche (2% allocation) with target 4% as Gimi production ramp confirmation materializes in Q2 2026 earnings; elevated P/E=92 warrants gradual entry but the contracted BP revenue stream de-risks the valuation.
+34|2026-05-01T15:22:43.764427|ET|BUY|stock|152.955214|19.995|3.0|6|ET offers rare 209% DCF upside in the top CONCENTRATE sector (energy_oil 0.95) with P/E=17, golden cross, 26/30 analyst buys, and direct geopolitical tailwind from US-Iran supply disruption — alpha source vs SPY is the extreme valuation gap closing as earnings confirm DCF, sized at starter 1.5% tranche (75% of normal for risk_off regime) with scale-in on earnings confirmation.
+33|2026-05-01T15:22:42.385946|GD|BUY|stock|8.874527|344.62|3.0|6|BUY medium_term at tranche-1 (pre-earnings green-light, T-8): GD is the only defense CONCENTRATE candidate today with intact technical trend (RSI=57, golden cross, above SMA200); alpha source is Virginia-class submarine production rate increase and Gulfstream delivery beat vs SPY +8% — sized at 75% of normal per risk-off regime, tranche-1 only per pre-earnings green-light rule.
+32|2026-05-01T15:22:41.580149|CEG|BUY|stock|6.460268|315.605|2.0|6|BUY long_term at 60% tranche: CEG is the highest-quality pure-play on nuclear power data center demand with 21 GW fleet vs VST's 6.8 GW — alpha source is incremental hyperscaler PPA announcements (each adds ~$3-5/share to consensus estimates) vs SPY EPS +8% — multiple PPA re-rates provide a clear 15-25% outperformance pathway; sized at 75% of normal per risk-off regime, death cross caution warrants starter position.
+31|2026-05-01T14:04:01.154402|MU|SELL|stock|0.281594|543.68|0.0|0|[HardCap] hard_cap: 8.2% > 8.0% limit (standard cap) — trimming 0.2816 sh ($153) back to 8.0%
+30|2026-04-30T20:09:28.768487|OXY|BUY|stock|50.34514|60.355|3.0|6|BUY medium_term at 60% starter tranche (2.0% vs 3.5% target) — alpha source is geopolitical oil supply disruption (Iran blockade, $107 oil) generating $8-10B annualized FCF at current prices well above consensus; energy_oil is the highest-weighted CONCENTRATE sector at 0.95 and OXY is the purest Permian leveraged play with Buffett validation; size reduced for pre-earnings binary risk (CRO Caution -1 conf).
+29|2026-04-30T20:09:27.630811|FANG|BUY|stock|14.942248|203.355|3.0|6|BUY at 60% tranche in the highest-weighted CONCENTRATE sector (energy_oil 0.95) — alpha source: Permian FCF at $107 oil generates ~$4B+ annual FCF vs consensus modeled at $85-90 oil, projecting 30-50% earnings upside vs SPY +8% — a 22-42pt alpha gap; final_confidence = CIO 7 - 1 CRO Caution - 2 DA High = 4; PM exercises sizing discretion at 2.5% given CONCENTRATE sector mandate and geopolitical tailwind; risk_off regime sizing at 75% of normal applied.
+28|2026-04-30T20:09:26.658540|TLN|BUY|stock|5.410868|374.38|2.0|6|EXECUTING standing 2026-04-28 directive at 60% tranche (~2.1%); alpha source: Amazon co-location PPA first full-quarter recognition + additional hyperscaler wins project 40-60% earnings growth vs SPY +8%, a 32-52pt alpha gap; final_confidence = CIO 7 - 1 CRO Caution - 1 DA Medium = 5, but PM executing standing directive at minimum stated allocation; conditions not materially deteriorated — price above both SMAs, strong 1m momentum, bullish UW flow.
+27|2026-04-30T20:09:25.728469|GEV|BUY|stock|4.696604|1078.29|5.0|8|EXECUTING standing 2026-04-28 directive at 60% tranche (~3.1%); alpha source: GEV gas turbine margin expansion from 3% to 8% + nuclear services TAM entry projects 40-60% earnings growth vs SPY EPS +8%, a 32-52pt alpha gap; conditions have NOT materially deteriorated — technicals are strongly bullish and nuclear sector routing remains CONCENTRATE at 0.80; QUANT Strongly_Bullish adds +1 to final_confidence.
+26|2026-04-30T20:09:24.614564|CCJ|BUY|stock|16.559475|122.33|2.0|6|BUY at minimal tranche (1.5% allocation, half target) — CCJ is in the CONCENTRATE nuclear sector (0.80), is the only tier-1 Western uranium producer with Westinghouse downstream exposure, and the AI nuclear renaissance thesis is structurally intact; extreme P/E=124, earnings in 14 days, and CRO Caution (-1) bring final confidence to 6, warranting a small starter position at 75% of normal sizing per risk_off protocol; alpha source vs SPY: uranium contract pricing re-rating and nuclear power capex cycle that is completely uncorrelated to AI-capex hyperscaler guidance risk that dominates 70% of current portfolio.
+25|2026-04-30T20:09:24.265147|TSM|SELL|stock|6.799491|395.61|0.0|6|[CommitteeTrim] TRIM 33% — hard cap at 8% fires mechanically (position is 8.1%), semis is AVOID sector in current GEOPOLITICALLY_STRESSED regime, and the portfolio needs to reduce AI-capex cluster concentration to make room for GEV/VST/TLN defensive hedges per the PM deployment plan; core position retained as TSM thesis is structurally intact.
+24|2026-04-30T13:50:21.629191|MU|SELL|stock|0.4918|530.66|0.0|0|[HardCap] hard_cap: 8.3% > 8.0% limit — trimming 0.4918 sh ($261) back to 8.0%
+23|2026-04-30T13:50:21.594976|META|SELL|auto|5.936919|607.23|0.0|10|ATR_stop: price $607.42 ≤ stop $621.75 (entry $673.49 - 2.5×ATR $20.70)
+22|2026-04-29T23:09:29.324949|AMD|SELL|stock|1.0|337.095|0.0|0|[TEST] Cancelled pending MT/MD test order
+21|2026-04-29T23:09:28.035903|AAPL|SELL|stock|1.0|270.15|0.0|0|[TEST] Cancelled pending LT test order
+20|2026-04-29T23:09:25.492666|AMD|BUY|stock|1.0|337.095|0.0|4|[TEST] BUCKET — thesis is intact and AMD remains a top AI-#2 candidate, but +65% 1M + RSI 76 + P/E 129 is the wrong entry. Wait for pullback to $230-240 or post-earnings consolidation. Current cash should go
+19|2026-04-29T23:09:22.985386|AAPL|BUY|stock|1.0|270.15|0.0|5|[TEST] BUCKET — no clear alpha source >10% vs SPY; AAPL is a SPY-tracker not a SPY-beater in current regime. Cash better deployed into committee-approved nuclear/defense hedges (GEV/VST/TLN/KTOS) per PM dire
+18|2026-04-29T23:03:53.749228|AMD|SELL|stock|1.0|337.095|0.0|0|[TEST] Full cycle test — cancelled pending MT/MD order
+17|2026-04-29T23:03:51.500223|AAPL|SELL|stock|1.0|270.15|0.0|0|[TEST] Full cycle test — cancelled pending LT order
+=== TRADE COUNT ===
+46
+=== SNAPSHOTS ===
+103897.87|17171.84|2026-05-05T14:02:18.805880
+102715.37|17171.84|2026-05-04T19:26:45.717557
+102703.49|17171.84|2026-05-04T19:24:16.046410
+102793.48|17171.84|2026-05-04T15:28:30.171975
+103087.14|18072.36|2026-05-04T14:02:03.841386
+=== SNAPSHOT COUNT ===
+28
+=== DECISION LOG ===
+974|2026-05-05T14:02:18.570593+00:00|GLNG|HOLD|5|mid_growth|Blocked: confidence 5/10 below add minimum 6/10|6|Medium|Neutral|[]|[]|0.0||||
+973|2026-05-05T14:02:18.555767+00:00|TLN|HOLD|5|mid_growth|Blocked: confidence 5/10 below add minimum 6/10|6|Medium|Bullish|[]|[]|0.0||||
+972|2026-05-05T14:02:18.533217+00:00|NKE|BUCKET|1|mid_growth|PERMANENT REMOVE consideration: NKE is structurally losing share to On Running and Hoka, RSI=30 near hard block, death cross confirmed, -33% 3m trend, EPS declining, and no product pipeline catalyst visible — this is a value trap not a growth compounder; remove from watchlist and do not re-evaluate until 2 consecutive quarters of revenue re-acceleration are confirmed.|2|High|Block|[]|[]|0.0||||
+971|2026-05-05T14:02:18.519617+00:00|ZETA|BUCKET|5|mid_growth|BUCKET — confidence reduced to 5 after devil severity=High (-2) and CRO=Caution (-1) apply; death cross still active and privacy regulation risk to the identity graph moat is a genuine thesis-killer probability; monitor for death cross resolution and Q2 earnings approach before promoting to MT BUY.|7|High|Bullish|[]|[]|0.0||||
+970|2026-05-05T14:02:18.504078+00:00|PINS|BUCKET|2|mid_growth|BUCKET — QUANT Block (RSI=76, BB upper), CRO Block (extreme valuation, IV=90), CRS Fail (EPS declining, no fresh catalyst); the post-earnings move is already priced and chasing at this level offers unfavorable 1.5:1 risk/reward at an overbought entry point.|5|Medium|Block|[]|[]|0.0||||
+969|2026-05-05T14:02:18.488194+00:00|LVS|BUCKET|3|mid_growth|BUCKET — CRS growth_gate Fail (no structural tailwind, no near-term catalyst, sector outside framework), broken technicals, and bearish institutional flow; revisit only if Macau GGR accelerates materially or Singapore licence expansion is confirmed.|4|Medium|Bearish|[]|[]|0.0||||
+968|2026-05-05T14:02:18.473094+00:00|SLB|HOLD|0|mid_growth|Blocked: confidence 0/10 below new-position minimum 7/10|0|Low|Neutral|[]|[]|0.0||||
+967|2026-05-05T14:02:18.460234+00:00|HAL|BUCKET|3|mid_growth|CRS growth_gate=Fail (TAM:Shrinking, Position:Losing, revenue declining, no catalyst within 18 months) and RSI=67 elevated after +22% run — BUCKET with no capital deployed; remove from watchlist if no structural improvement by next cycle.|4|Medium|Neutral|[]|[]|0.0||||
+966|2026-05-05T14:02:18.449157+00:00|NEM|HOLD|6|mid_growth|Blocked: confidence 6/10 below new-position minimum 7/10|7|Medium|Bullish|[]|[]|0.0||||
+965|2026-05-05T14:02:18.436930+00:00|PBR|HOLD|5|mid_growth|Blocked: confidence 5/10 below add minimum 6/10|5|Medium|Bullish|[]|[]|0.0||||
+=== SIGNAL PERFORMANCE ===
+=== SIGNAL WEIGHTS ===
+uw_flow|1.0|||7|2026-05-05T13:50:18.463276
+uw_darkpool|1.5|0.8|0.8|10|2026-05-05T13:50:18.476140
+congress|1.0|||6|2026-05-05T13:50:18.484367
+insider|1.0|||6|2026-05-05T13:50:18.490189
+sentiment|1.0|||8|2026-05-05T13:50:18.500258
+=== TABLE STRUCTURES ===
+0|id|INTEGER|0||1
+1|ts|TEXT|1||0
+2|symbol|TEXT|1||0
+3|action|TEXT|1||0
+4|asset_type|TEXT|1||0
+5|qty|REAL|0||0
+6|price|REAL|0||0
+7|allocation|REAL|0||0
+8|confidence|INTEGER|0||0
+9|rationale|TEXT|0||0
+0|id|INTEGER|0||1
+1|ts|TEXT|1||0
+2|symbol|TEXT|1||0
+3|action|TEXT|1||0
+4|confidence|INTEGER|0||0
+5|tier|TEXT|0||0
+6|rationale|TEXT|0||0
+7|cio_conf|INTEGER|0||0
+8|da_severity|TEXT|0||0
+9|quant_dec|TEXT|0||0
+10|bull_signals|TEXT|0||0
+11|bear_signals|TEXT|0||0
+12|allocation_pct|REAL|0||0
+13|outcome_pct|REAL|0||0
+14|outcome_days|INTEGER|0||0
+15|outcome_ts|TEXT|0||0
+16|signal_score|REAL|0||0
+0|id|INTEGER|0||1
+1|ts|TEXT|1||0
+2|signal_type|TEXT|1||0
+3|tier|TEXT|0||0
+4|correct|INTEGER|0||0
+5|outcome_pct|REAL|0||0
+=== MACRO REGIME ===
+{
+  "date": "2026-05-04",
+  "regime": {
+    "inflation_trend": "rising",
+    "cpi_yoy_est": 9.9,
+    "yield_curve": "normal",
+    "yield_spread_bps": 51.0,
+    "yield_10y": 4.38,
+    "yield_2y": 3.88,
+    "labor": "strong",
+    "unemployment_rate": 4.3,
+    "jobless_claims": 189000,
+    "claims_trend": "falling",
+    "dxy": 98.43,
+    "dollar": "neutral",
+    "gold": 4573.0,
+    "oil_wti": 103.96,
+    "fed_funds_rate": 3.64,
+    "consumer_sentiment": 53.3,
+    "consumer_mood": "pessimistic",
+    "industrial_production_trend": "contracting",
+    "rotation_bias": "balanced"
+  },
+  "regime_label": "geopolitically_stressed",
+  "sector_weights": {
+    "defense": 0.95,
+    "energy_oil": 0.9,
+    "commodities_metals": 0.88,
+    "cyber": 0.85,
+    "nuclear": 0.8,
+    "space": 0.65,
+    "healthcare": 0.55,
+    "biotech": 0.45,
+    "fintech": 0.4,
+    "ai_software": 0.35,
+    "semis": 0.3,
+    "ai_infra": 0.35,
+    "robotics": 0.45,
+    "mega_tech": 0.3,
+    "ecommerce": 0.2,
+    "voice_ai": 0.2,
+    "quantum": 0.2
+  },
+  "geo_flags": {
+    "flags": {
+      "active_war": true,
+      "supply_disruption": true,
+      "energy_crisis": false,
+      "trade_war": false
+    },
+    "headlines": [
+      "Iran's Fars News agency reports incident with U.S. warship in Strait of Hormuz - Reuters",
+      "Iran's Fars News agency reports incident with U.S. warship in Strait of Hormuz - Reuters"
+    ],
+    "any_active": true
+  },
+  "raw": {
+    "cpi": {
+      "value": 330.293,
+      "prev": 327.46,
+      "date": "2026-03-01",
+      "change": 2.833000000000027,
+      "pct_change": 0.865
+    },
+    "pce": {
+      "value": 130.344,
+      "prev": 129.484,
+      "date": "2026-03-01",
+      "change": 0.8599999999999852,
+      "pct_change": 0.664
+    },
+    "fed_rate": {
+      "value": 3.64,
+      "prev": 3.64,
+      "date": "2026-04-01",
+      "change": 0.0,
+      "pct_change": 0.0
+    },
+    "yield_10y": {
+      "value": 4.4,
+      "prev": 4.42,
+      "date": "2026-04-30",
+      "change": -0.019999999999999574,
+      "pct_change": -0.452
+    },
+    "yield_2y": {
+      "value": 3.88,
+      "prev": 3.92,
+      "date": "2026-04-30",
+      "change": -0.040000000000000036,
+      "pct_change": -1.02
+    },
+    "yield_spread": {
+      "value": 0.51,
+      "prev": 0.52,
+      "date": "2026-05-01",
+      "change": -0.010000000000000009,
+      "pct_change": -1.923
+    },
+    "unemployment": {
+      "value": 4.3,
+      "prev": 4.4,
+      "date": "2026-03-01",
+      "change": -0.10000000000000053,
+      "pct_change": -2.273
+    },
+    "nfp_thousands": {
+      "value": 158637.0,
+      "prev": 158459.0,
+      "date": "2026-03-01",
+      "change": 178.0,
+      "pct_change": 0.112
+    },
+    "jobless_claims": {
+      "value": 189000.0,
+      "prev": 215000.0,
+      "date": "2026-04-25",
+      "change": -26000.0,
+      "pct_change": -12.093
+    },
+    "consumer_sentiment": {
+      "value": 53.3,
+      "prev": 56.6,
+      "date": "2026-03-01",
+      "change": -3.3000000000000043,
+      "pct_change": -5.83
+    },
+    "industrial_production": {
+      "value": 101.7898,
+      "prev": 102.344,
+      "date": "2026-03-01",
+      "change": -0.5541999999999945,
+      "pct_change": -0.542
+    },
+    "mfg_employment_thousands": {
+      "value": 12591.0,
+      "prev": 12576.0,
+      "date": "2026-03-01",
+      "change": 15.0,
+      "pct_change": 0.119
+    },
+    "yield_10y_live": 4.378,
+    "yield_3m_live": 3.575,
+    "dxy": 98.433,
+    "gold_price": 4572.8,
+    "oil_price": 103.96,
+    "vix": 18.12
+  },
+  "upcoming_events": [],
+  "regime_shift": false,
+  "prev_regime_label": null,
+  "regime_forecast": {
+    "likely_next_regime": "growth_driven",
+    "transition_probability": 5,
+    "horizon_weeks": "8-16 weeks",
+    "leading_signals": [
+      "Oil \u219110.0% \u2014 supply disruption deepening, stress entrenching",
+      "2 geo flags active \u2014 conflict ongoing"
+    ],
+    "pre_position_sectors": [
+      "ai_software",
+      "semis",
+      "cyber",
+      "ai_infra",
+      "mega_tech"
+    ]
+  }
+}=== RECENT DECISIONS ===
+{"log_type": "committee", "symbol": "CCJ", "action": "BUY", "sleeve": "long_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 2.0, "catalyst_type": "", "catalyst_date": "", "rationale": "BUY at minimal tranche (1.5% allocation, half target) \u2014 CCJ is in the CONCENTRATE nuclear sector (0.80), is the only tier-1 Western uranium producer with Westinghouse downstream exposure, and the AI n", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 122.33, "price_target": 135.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-04-30T20:09:24.629806+00:00"}
+{"log_type": "committee", "symbol": "GEV", "action": "BUY", "sleeve": "long_term", "confidence": 8, "cio_confidence": 8, "regime": "elevated", "allocation_pct": 5.0, "catalyst_type": "", "catalyst_date": "", "rationale": "EXECUTING standing 2026-04-28 directive at 60% tranche (~3.1%); alpha source: GEV gas turbine margin expansion from 3% to 8% + nuclear services TAM entry projects 40-60% earnings growth vs SPY EPS +8%", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 1078.29, "price_target": 1150.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-04-30T20:09:25.742537+00:00"}
+{"log_type": "committee", "symbol": "TLN", "action": "BUY", "sleeve": "long_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 2.0, "catalyst_type": "", "catalyst_date": "", "rationale": "EXECUTING standing 2026-04-28 directive at 60% tranche (~2.1%); alpha source: Amazon co-location PPA first full-quarter recognition + additional hyperscaler wins project 40-60% earnings growth vs SPY ", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 374.38, "price_target": 430.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-04-30T20:09:26.688502+00:00"}
+{"log_type": "committee", "symbol": "FANG", "action": "BUY", "sleeve": "long_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 3.0, "catalyst_type": "", "catalyst_date": "", "rationale": "BUY at 60% tranche in the highest-weighted CONCENTRATE sector (energy_oil 0.95) \u2014 alpha source: Permian FCF at $107 oil generates ~$4B+ annual FCF vs consensus modeled at $85-90 oil, projecting 30-50%", "da_severity": "High", "crs_growth_gate": "Pass", "price_at_decision": 203.355, "price_target": 230.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-04-30T20:09:27.652044+00:00"}
+{"log_type": "committee", "symbol": "OXY", "action": "BUY", "sleeve": "medium_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 3.0, "catalyst_type": "", "catalyst_date": "", "rationale": "BUY medium_term at 60% starter tranche (2.0% vs 3.5% target) \u2014 alpha source is geopolitical oil supply disruption (Iran blockade, $107 oil) generating $8-10B annualized FCF at current prices well abov", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 60.355, "price_target": 80.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-04-30T20:09:28.789636+00:00"}
+{"log_type": "committee", "symbol": "CEG", "action": "BUY", "sleeve": "long_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 2.0, "catalyst_type": "", "catalyst_date": "", "rationale": "BUY long_term at 60% tranche: CEG is the highest-quality pure-play on nuclear power data center demand with 21 GW fleet vs VST's 6.8 GW \u2014 alpha source is incremental hyperscaler PPA announcements (eac", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 315.605, "price_target": 380.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-05-01T15:22:41.592731+00:00"}
+{"log_type": "committee", "symbol": "GD", "action": "BUY", "sleeve": "medium_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 3.0, "catalyst_type": "", "catalyst_date": "", "rationale": "BUY medium_term at tranche-1 (pre-earnings green-light, T-8): GD is the only defense CONCENTRATE candidate today with intact technical trend (RSI=57, golden cross, above SMA200); alpha source is Virgi", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 344.62, "price_target": 390.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-05-01T15:22:42.403150+00:00"}
+{"log_type": "committee", "symbol": "ET", "action": "BUY", "sleeve": "medium_term", "confidence": 6, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 3.0, "catalyst_type": "", "catalyst_date": "", "rationale": "ET offers rare 209% DCF upside in the top CONCENTRATE sector (energy_oil 0.95) with P/E=17, golden cross, 26/30 analyst buys, and direct geopolitical tailwind from US-Iran supply disruption \u2014 alpha so", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 19.995, "price_target": 24.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-05-01T15:22:43.779889+00:00"}
+{"log_type": "committee", "symbol": "GLNG", "action": "BUY", "sleeve": "long_term", "confidence": 7, "cio_confidence": 8, "regime": "elevated", "allocation_pct": 3.0, "catalyst_type": "", "catalyst_date": "", "rationale": "GLNG provides contracted FLNG infrastructure alpha (+20-30% re-rating potential when Gimi reaches nameplate vs SPY's projected +8-10% return) in the energy_oil CONCENTRATE sector \u2014 entering at 50% tra", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 55.16, "price_target": 75.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-05-01T15:22:44.873526+00:00"}
+{"log_type": "committee", "symbol": "COP", "action": "BUY", "sleeve": "medium_term", "confidence": 7, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 4.0, "catalyst_type": "", "catalyst_date": "", "rationale": "BUY MT at 2.5% (60% of 4.5% target): COP is the highest-quality institutional energy name in the top-priority CONCENTRATE sector (energy_oil 0.95) with clean technicals (RSI=50, above both SMAs, golde", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 123.07, "price_target": 145.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-05-04T14:02:00.429782+00:00"}
+{"log_type": "committee", "symbol": "PBR", "action": "BUY", "sleeve": "medium_term", "confidence": 7, "cio_confidence": 7, "regime": "elevated", "allocation_pct": 4.0, "catalyst_type": "", "catalyst_date": "", "rationale": "PBR is in the highest-CONCENTRATE sector (energy_oil 0.95) with oil at $103.96 driven by Strait of Hormuz geopolitical incident, P/E=7 ultra-cheap valuation, $25-30/bbl breakeven generating extraordin", "da_severity": "Medium", "crs_growth_gate": "Pass", "price_at_decision": 22.03, "price_target": 28.0, "source": "committee", "outcome_pct": null, "outcome_days": null, "ts": "2026-05-04T14:02:02.062082+00:00"}
+=== BASKET FILES ===
+total 196
+drwxr-xr-x  3 root root  4096 May  5 08:53 .
+drwxr-xr-x 18 root root  4096 May  5 11:19 ..
+-rw-r--r--  1 root root  1508 May  5 10:02 .basket_excluded.json
+-rw-r--r--  1 root root  7032 May  5 09:50 .basket_suspended.json
+-rw-r--r--  1 root root   175 May  5 10:02 .filter_failures.json
+-rw-r--r--  1 root root     0 Apr 21 10:07 __init__.py
+drwxr-xr-x  2 root root  4096 May  5 08:56 __pycache__
+-rw-r--r--  1 root root  1255 May  4 08:09 basket.json
+-rw-r--r--  1 root root  8179 May  4 11:30 basket_manager_employee.py
+-rw-r--r--  1 root root  9221 May  5 10:02 basket_mt.json
+-rw-r--r--  1 root root   588 May  4 10:49 committee_agenda.json
+-rw-r--r--  1 root root 98553 May  5 08:53 curation.py
+-rw-r--r--  1 root root 12340 May  1 10:26 manager.py
+-rw-r--r--  1 root root  2871 Apr 29 18:28 pending_removals.py
+-rw-r--r--  1 root root  5102 Apr 25 13:30 thesis_state.json
+-rw-r--r--  1 root root  9132 Apr 30 03:16 tier_criteria.py
+=== COMMITTEE AGENDA ===
+{
+  "items": [],
+  "_archived": [
+    {
+      "id": "pm_deployment_plan",
+      "added": "2026-04-28",
+      "archived": "2026-05-04",
+      "archive_reason": "Stale — expired after 7 days. Original directive was to deploy cash into GEV/KTOS/VST/TLN and sell INTC. User confirmed INTC was never held. Follow-up required: check if GEV/KTOS/VST/TLN were purchased."
+    },
+    {
+      "id": "quantum_redundancy",
+      "added": "2026-04-28",
+      "archived": "2026-05-04",
+      "archive_reason": "Stale — expired after 7 days. RGTI vs IONQ quantum slot decision pending."
+    }
+  ]
+}
+=== RESEARCH CACHE SUMMARY ===
+Total tickers: 179
+MSFT: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+GOOGL: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+META: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+AMZN: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+ORCL: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+PLTR: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+CRM: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+NOW: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+AI: cached=2026-04-21 growth=MISSING sent=neutral fund=OK uw=MISSING
+NVDA: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+AMD: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+AVGO: cached=2026-05-04 growth=MISSING sent=neutral fund=OK uw=MISSING
+AMAT: cached=2026-04-21 growth=60 sent=neutral fund=OK uw=MISSING
+LRCX: cached=2026-04-21 growth=65 sent=neutral fund=OK uw=MISSING
+KLAC: cached=2026-04-21 growth=57 sent=neutral fund=OK uw=MISSING
+=== BOT LOG LAST 100 ===
+
+**⏱ Scheduler Jobs Ran:** close_summary, midday_check, trading_cycle_close, watchdog
+
+✅ **No issues detected today.**
+
+============================================================
+WEEKLY BASKET REVIEW started at 2026-05-01T20:30:00.039304+00:00
+============================================================
+  [Watchdog] All expected jobs on schedule.
+
+  [WeeklyCuration] Scoring basket tickers (tier-aware)...
+  [WeeklyCuration] TIER PROMOTION CANDIDATES (committee): ['AVGO', 'MU', 'TSM', 'RKLB', 'CCJ', 'CEG', 'LLY']
+  [WeeklyCuration] Checking congress activity...
+  [WeeklyCuration] Asking Claude for weekly recommendations...
+  [WeeklyCuration] ADD: [] | REMOVE: []
+  [WeeklyCuration] Reasoning: Macro regime (geopolitically stressed) supports current basket composition. Defense (0.95), energy/oil (0.90), metals (0.88), cyber (0.85), nuclear (0.80) are all well-represented: LMT, RTX, NOC, GD, AXON, BWXT, GE, CACI, KTOS, ETN, TDG (defense); COP, FCX (energy/commodities); CCJ, OKLO, SMR, CEG (
+
+  [MT Curation] Weekly medium-term basket refresh...
+  [MT Retire] INTC RSI overbought (87)
+  [MT Retire] GOOG RSI overbought (86)
+  [MT Retire] BE RSI overbought (83)
+  [MT Curation] Sourcing: congress buys...
+  [Congress] 8 tickers with net congress buying: ['WFC', 'MSFT', 'ACN', 'DBEU', 'FTCB', 'FTSL', 'SCIO', 'LGOV']
+  [MT Curation] Sourcing: earnings catalysts...
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: PEV"}}}
+$PEV: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: WBA"}}}
+$WBA: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$SCS: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$GMS: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$ENZ: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$STRM: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$HITC: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$APXIF: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$SBOX: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$LVRO: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$ADN: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$GES: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$VRNT: possibly delisted; no price data found  (period=3mo)
+$REVG: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$BDRL: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$BASE: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$AHNR: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$BHAC: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$SPTN: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$GLLI: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$EVM: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$OCFT: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$EUSP: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+$BSTT: possibly delisted; no price data found  (period=3mo) (Yahoo error = "No data found, symbol may be delisted")
+  [MT Curation] Sourcing: sector rotation...
+  [MT Curation] Sourcing: UW discoveries...
+  [MT Curation] 23 new candidates (congress=7 earnings=15 sector=3 uw=0)
+  [MT Curation] Final: 20 tickers | Added: ['WFC', 'ACN', 'PSTV'] | Removed: ['BE', 'INTC', 'GOOG']
+  [MT Curation] Reasoning: WFC and ACN: congress_buy auto-approvals (2/8 congress cap). PSTV: earnings catalyst with exceptional 524% upside and clean RSI=57, near-term catalyst (05-28). Retirements (BE, INTC, GOOG) free 3 slot
+  [MT Basket] 20 tickers — congress=3 earnings=3 sector=0 uw=0
+  [Weekly Review] 3 ticker(s) with no cache — running full onboarding: ['WFC', 'ACN', 'PSTV']
+
+  [Onboarding] 3 new basket ticker(s) — running full research: ['WFC', 'ACN', 'PSTV']
+
+  [WFC] onboarding (full, mid_growth)...
+  [API_SKIP] alpha_vantage: quota/trial exceeded — skipping for this session
+  [HEALTH] API quota: alpha_vantage at 2026-05-01T20:31:57+00:00 — HTTP 429
+  [API_SKIP] firecrawl: quota/trial exceeded — skipping for this session
+  [WFC] onboarded: growth=0 sent=neutral snippets=3 short=None%
+
+  [ACN] onboarding (full, mid_growth)...
+  [ACN] onboarded: growth=0 sent=neutral snippets=3 short=None%
+
+  [PSTV] onboarding (full, mid_growth)...
+  [PSTV] onboarded: growth=0 sent=neutral snippets=3 short=None%
+
+  [Onboarding] Complete — 3/3 new tickers fully researched
+  [Cache Warmup] All tickers fresh — nothing to warm
+Weekly basket review:
+LT basket: no changes
+MT basket: 20 tickers (congress_buy=3 | earnings_catalyst=3 | uw_oi_buildup=10 | regime_scan=4)
+MT holdings: ERIE, WFC, ACN, ORCL, APPS, PSTV, GEHC, OXY, OI, PBF, HLT, SMCI, SOFI, SHOO, BULL
+MT reasoning: WFC and ACN: congress_buy auto-approvals (2/8 congress cap). PSTV: earnings catalyst with exceptional 524% upside and clean RSI=57, near-term catalyst (05-28). Retirements (BE, INTC, GOOG) free 3 slot
+  [Watchdog] All expected jobs on schedule.
+  [Watchdog] All expected jobs on schedule.
+[2026-05-01 18:11:45] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-01 18:52:08] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-01 20:52:21] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-01 21:39:12] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-01 22:38:18] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 00:23:46] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 02:16:36] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 03:45:06] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 06:45:55] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 10:23:49] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 13:28:36] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 15:18:19] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 19:04:05] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-02 22:50:23] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-03 02:02:33] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-03 05:39:43] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-03 07:47:34] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-03 08:17:28] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+[2026-05-03 10:34:43] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session f1f0874567be95e8f9605c3b00891394.
+=== FUTURE GROWTH TEST ===
+NVDA: growth=93 sent=neutral pe=40.2245
+MSFT: growth=76 sent=neutral pe=24.4273
+PLTR: growth=90 sent=neutral pe=155.3933
+CRWD: growth=38 sent=neutral pe=None
+=== AGENT BRAIN HEAD ===
+import json
+import anthropic
+import config
+
+# Mirrors the cluster definitions in the FACTOR CLUSTER CONCENTRATION section of _SYSTEM.
+_FACTOR_CLUSTERS: dict[str, set[str]] = {
+    "ai_tech":       {"MSFT","GOOGL","META","AMZN","NVDA","AAPL","TSLA","PLTR","CRM","NOW","ORCL","AI","ANET","SNOW","PSTG"},
+    "semis":         {"AMD","AVGO","ARM","MRVL","TSM","AMAT","LRCX","KLAC","MU","SNPS","KEYS","APH"},
+    "defense":       {"LMT","RTX","NOC","GD","AXON","BWXT","GE","CACI","KTOS","TDG"},
+    "nuclear_energy":{"CCJ","CEG","GEV","VST","TLN"},
+    "ecommerce":     {"SHOP","UBER","SE","GRAB","MELI"},
+    "fintech":       {"HOOD","COIN","NU","MA","MSCI"},
+    "healthcare":    {"LLY","DXCM","VEEV","RXRX"},
+    "cyber":         {"CRWD","PANW","ZS"},
+    "space":         {"RKLB","ASTS","LUNR"},
+    "quantum":       {"IONQ","RGTI"},
+    "voice_ai":      {"SOUN"},
+}
+
+_AI_CAPEX_GROUP: set[str] = {"NVDA","MU","TSM","AVGO","GOOGL","MSFT","META","AMZN","ORCL"}
+
+
+def _compute_cluster_exposure(holdings: list[dict], equity: float) -> str:
+    """
+    Compute each factor cluster's % of gross equity from current holdings.
+    Returns a formatted string for the portfolio status block.
+    """
+    if not holdings or equity <= 0:
+        return ""
+
+    held_pcts = {h["symbol"]: h["pct"] for h in holdings}
+
+    lines = []
+    ai_capex_held = [s for s in _AI_CAPEX_GROUP if s in held_pcts]
+
+    for cluster, members in _FACTOR_CLUSTERS.items():
+        total_pct = sum(held_pcts.get(sym, 0) for sym in members if sym in held_pcts)
+        if total_pct == 0:
+            continue
+        tickers_held = [s for s in members if s in held_pcts]
+        breach = " ⚠️ CLUSTER CAP BREACH (>40%)" if total_pct > 40 else ""
+        lines.append(f"  {cluster:<16} {total_pct:5.1f}%  ({', '.join(tickers_held)}){breach}")
+
+    if len(ai_capex_held) >= 6:
+        lines.append(f"  ⚠️ AI CAPEX CONCENTRATION: {len(ai_capex_held)} holdings "
+                     f"({', '.join(ai_capex_held)}) share hyperscaler guidance risk")
+
+    return ("\nFactor Clusters:\n" + "\n".join(lines)) if lines else ""
+
+_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+_SYSTEM = """You are Kimmy, a disciplined position/swing trading portfolio manager.
+Goal: 2× the S&P 500 annual return when SPY is positive (SPY +12% → target +24%; SPY +25% → target +50%).
+When SPY is NEGATIVE: always beat SPY — lose LESS than the index, ideally stay flat or positive.
+Never double a loss. Downside discipline is as important as upside capture.
+Beat the index through concentration in the highest-conviction outperformers.
+Hold multi-day to multi-month. Never day-trade.
+
+You receive a complete picture — 15+ data sources synthesized into a unified view of
+each stock: technicals, fundamentals, financial data (Finnhub/AV/FMP/Polygon), analyst
+consensus, DCF valuation, social sentiment, web research, congress/insider activity,
+future growth score, and macro context.
+
+Your task: read the holistic synthesis and all raw signals, then make ONE decision.
+No single signal rules. Weigh the full picture — bull signals vs bear signals vs risks.
+
+BASKET CONTEXT:
+Focused ~65-ticker watchlist covering high-conviction sectors aligned with the
+10-year thesis. Congress-bought tickers are auto-added and carry extra conviction weight.
+
+═══════════════════════════════════════════════════════
+INVESTMENT THESIS — Chief Research Officer Framework:
+We invest in companies with GREAT PRODUCTS and STRONG FUTURE OUTLOOKS.
+A great balance sheet alone is not enough — the business must have real competitive
+advantage and be riding a secular growth wave.
+
+Priority industries and themes (prefer companies in these):
+• Artificial Intelligence & infrastructure (chips, data centers, software)
+• Semiconductors & quantum computing
+• Cybersecurity & cloud infrastructure
+• Space technology (launch, satellite internet, lunar economy)
+• Nuclear energy (SMRs — powering AI data centers)
+• Defense technology & aerospace (especially autonomous systems)
+• Clean energy & energy transition
+• Robotics & industrial automation (ETN, ISRG, SYM, TRMB)
+• Healthcare AI & biotech platforms (LLY, DXCM, VEEV, RXRX)
+• E-commerce & marketplace platforms (SHOP, UBER, SE, GRAB)
+• Financial infrastructure (MA, MSCI — toll booths on global capital flows)
+• AI data infrastructure (PWR, PSTG, SNOW — picks-and-shovels of AI buildout)
+• Energy & commodities tied to AI/EV megatrends:
+  FANG/COP (Permian FCF engines), WMB (Transco gas pipeline for AI data centers),
+  FCX (copper is the physical substrate of AI infrastructure — 50,000 tons per data center),
+  RGLD (gold royalty streams, 75%+ margins), MP (only US rare earth magnet producer, DoD-backed)
+• Consumer platforms with network effects (marketplace lock-in)
+• Speculative bets with real revenue + asymmetric future (max 10% total — min conf 7, 1.5-3% each):
+  IONQ (quantum computing — $130M revenue +200% YoY, DARPA/NVIDIA, networked qubits),
+  MP (only US rare earth magnet producer — DoD + Apple contracts, strategic asset),
+  SOUN (AI voice platform — $84M revenue +90% YoY, NVIDIA partner, automotive/restaurant ARR),
+  LUNR (NASA lunar infrastructure — $200M+ Artemis contracts, only public pure-play),
+  RXRX (AI drug discovery — $12B Roche milestones, 23PB irreplaceable data moat),
+  ASTS (satellite-to-phone internet — binary moonshot slot, max 1%, hold through vol).
+  Entry bar: revenue >$50M growing >40% YoY OR binary catalyst within 18mo + Tier-1 partner.
+  3-year thesis windows. Quarterly milestone review. Kill switch: spec tier -40% → halve + freeze 90d.
+
+What makes a company qualify as "great product + great outlook":
+• Market leadership or rapidly gaining share in a growing market
+• High switching costs — customers can't easily leave
+• Revenue growing faster than the industry average
+• Expanding margins — pricing power is real
+• Product pipeline or R&D with upcoming catalysts
+• Future Growth Score ≥ 60 (scored by our research system)
+• Structural tailwinds confirmed by web research snippets
+
+De-prioritise: commodity businesses, shrinking industries, companies with no
+pricing power, or stocks where the only bull case is "it's cheap."
+Cheap + no growth = value trap. Avoid.
+
+Return target context: 2× SPY when positive. Beat SPY when negative.
+SPY +15% → need +30%. SPY +25% → need +50%. SPY -15% → need > -15% (lose less, not more).
+This requires 8-12 names per year that significantly outperform the index.
+Every decision: ask "will this name outperform SPY materially?" A stock that tracks SPY is a failure.
+Be selective. A HOLD is always right when conviction is not high. Quality over quantity.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+CHIEF RESEARCH OFFICER (CRS) — Growth & Product Thesis Gate:
+
+The CRS is the research conscience of the committee. Every BUY must be justified by a
+detailed, specific research case — not sector momentum, not price action, not "it looks
+cheap." The PM receives the CRS output in Discord after every BUY so they can understand
+exactly WHY the capital was deployed.
+
+The CRS produces FIVE structured research sections. Each must be substantive and specific:
+
+1. MARKET OUTLOOK — the industry backdrop
+   • What is the TAM and how fast is it growing? (use real numbers where known)
+   • What structural tailwind is driving this market? Is it durable or cyclical?
+   • What is the competitive intensity — fragmented, consolidating, winner-take-most?
+   • Where are we in the adoption curve — early, mid, late?
+   Example quality: "The global AI data center power market is growing from $50B to $200B
+   by 2030 (30% CAGR) driven by hyperscaler capex commitments that are locked in via
+   multi-year contracts. This is a structural, not cyclical, expansion — demand is
+   supply-constrained, not demand-constrained."
+
+2. COMPETITIVE EDGE — why this company beats named peers
+   • Name the top 2-3 competitors explicitly and explain the gap
+   • What does this company have that competitors cannot easily copy?
+   • Is the moat widening or narrowing? Give evidence.
+   • Where is market share moving — toward or away from this company?
+   Example quality: "VST beats NRG and Vistra's merchant peers because it owns the only
+   operating nuclear fleet in deregulated Texas markets — zero marginal cost power that
+   cannot be replicated by gas competitors facing $5-7/MMBtu fuel cost. Its 6.8GW nuclear
+   capacity is fully contracted to Microsoft via a 20-year PPA signed in Sept 2024, which
+   competitors cannot match without decade-long construction timelines."
+
+3. PRODUCT ADVANTAGE — what makes the product/technology distinctly better
+   • What is the specific product, platform, or technology and why is it better?
+   • Is there a proprietary process, patent, dataset, or network effect?
+   • What does a customer get from this company they cannot get elsewhere?
+   • What is in the pipeline that will drive the next product cycle?
+   Example quality: "NVDA's Blackwell B200 delivers 4× the training throughput of H100
+   at similar power envelope via NVLink 5 which bonds 72 GPUs into a single logical unit —
+   AMD MI300X cannot approach this because it lacks NVLink and requires 8× the memory
+   bandwidth to compensate, costing 30% more per training FLOP. CUDA's 4M+ developer base
+   and 600+ software libraries represent a switching cost no hardware spec can overcome."
+
+4. GROWTH CATALYST — the specific next event with timeline and expected impact
+   • Name the exact catalyst (product launch, earnings, contract, approval, milestone)
+   • When does it happen? (specific quarter or date range)
+   • What is the expected financial impact or market reaction?
+   • What evidence exists that this catalyst is on track?
+   Example quality: "GEV's Vernova X gas turbine backlog hit $21B in Q1 2025 (+60% YoY)
+   with 18-month lead times — Q2 2025 earnings (est. Aug) will show the first full quarter
+   of Vernova margin expansion from ~3% to ~8% as manufacturing efficiency improves.
+   The AWS nuclear data center MOU signed Feb 2025 provides a visible path to 5GW of
+   nuclear services revenue by 2030 that is not yet in consensus estimates."
+
+5. WHY THIS OVER PEERS — the decisive reason to own THIS name vs the sector ETF or
+   closest competitor
+   • If someone asked "why not just buy the sector ETF?" what is the answer?
+   • If there is a close peer (e.g. IONQ vs RGTI, VST vs CEG), why this one specifically?
+   • What re-rating event exists for this stock that does NOT exist for the peer/ETF?
+   Example quality: "Buy GEV not XLI (industrials ETF) because XLI has zero pure-play
+   exposure to nuclear data center power — GEV is the only large-cap that combines gas
+   turbine dominance (pricing power), nuclear services (secular growth), and electrification
+   (grid hardening spend). The peer CEG is nuclear-only and trades at 24× vs GEV at 18×
+   for inferior revenue diversity. GEV is the only name where a single AWS/Google contract
+   announcement is a genuine 20-30% re-rating catalyst."
+
+CRS FAIL conditions (no BUY):
+• Cannot name specific competitors and explain the gap
+• TAM is shrinking or no evidence of structural demand growth
+• Company is a pure sector rider — remove and the thesis is identical to the ETF
+• Pipeline is empty: no identifiable catalyst in the next 18 months
+• Revenue growth is price-only, not unit/volume-driven
+• "It's cheap" or "strong momentum" is the entire case — no product story
+
+Confidence impact: -1 to final_confidence if CRS.growth_gate = Fail.
+Gate: action cannot be BUY if CRS.growth_gate = Fail — downgrade to BUCKET.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+VALUATION RISK (CRO flag — not a hard block, informs sizing):
+• P/E < 60 or multiple in line with growth rate → Low valuation risk
+• P/E 60–120 (non-high-growth) → Elevated — require stronger momentum confirmation, reduce size
+• P/E > 120 (non-high-growth) or extreme premium with no earnings → Extreme — small position only
+
+High growth stocks (future_growth score ≥ 70) can carry high multiples — they grow into them.
+But valuation risk MUST be reflected in CRO output and PM sizing decisions.
+Elevated/Extreme valuation = never a hard reject; always a risk flag.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+NARRATIVE STAGE DETECTOR (CIO mandatory classification):
+
+For EVERY stock evaluated, classify its narrative stage and use it to weight entries:
+
+UNDISCOVERED:  <5 analyst ratings, low/no social volume, insider buying present
+               → BEST entry point: information asymmetry is maximal
+               → Size UP: +0.5 conviction bonus, prioritize over consensus names
+               → Entry: buy aggressively when all other criteria pass
+
+EARLY:         5-15 analysts, social volume growing, institutional accumulation beginning
+               → Good entry: early institutional sponsorship building
+               → Standard sizing, prioritize over consensus names
+
+CONSENSUS:     15-30 analysts, high social volume, widely known story, crowded trade
+               → Caution: upside compressed, high bar to outperform
+               → Standard sizing only. Require higher conviction (≥8) before new entry.
+
+LATE:          30+ analysts, maximum coverage, all bullish, priced for perfection
+               → Exit signal: any disappointment = large selloff
+               → NO new entries (BUCKET only). Trim existing positions aggressively.
+               → If already held: evaluate for immediate exit unless thesis strongly intact.
+
+ENTRY PRIORITY: UNDISCOVERED > EARLY > CONSENSUS. Never enter LATE.
+
+Use the analyst count from financial_data (strong_buy + buy + hold + sell = total analysts)
+plus your judgment from research snippets to determine stage.
+Output the classified stage in the "narrative_stage" field of your CIO decision.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+CONVICTION FORMULA (deterministic — compute this, do not estimate):
+
+Score = A + B + C + D + E  (max 10 before override)
+
+A. Earnings Growth Acceleration (0–3):
+   +3 = revenue AND EPS both accelerating QoQ (growth rate increasing, not just positive)
+   +2 = one of revenue or EPS accelerating, the other growing but flat
+   +1 = both growing but neither accelerating
+    0 = decelerating or missing
+
+B. Relative Strength vs SPY — 90-day return rank (0–2):
+   +2 = stock in top 20% performers vs SPY over 90 days
+   +1 = top 40%
+    0 = below top 40% (underperforming the market)
+
+C. Institutional Accumulation (0–2):
+   +2 = Congress net buying OR multiple insider Form 4 buys in 60 days
+        OR UW dark pool accumulation (≥1 large print >$1M in 3 days) with bullish flow
+        OR UW bullish sweep (norm_pct ≥ 85, aligned expiry) — institutions are positioning
+   +1 = strong analyst upgrades OR volume surge (>1.5x 20d avg) on up days
+        OR UW bullish lean / call OI accumulation (institutions quietly building)
+    0 = no institutional signal or net selling
+
+D. Breakout Quality + Volume Confirmation (0–2):
+   +2 = clean break above prior resistance/consolidation on 1.5x+ volume
+   +1 = constructive base building OR post-earnings gap holding
+    0 = no setup, sideways, or breaking down
+
+E. Narrative Stage (−1 to +1):
+   +1 = Early (<10 analysts, tailwind sector, story not mainstream)
+    0 = Consensus
+   −1 = Late (>25 analysts, consensus buy, analyst upside <10%)
+
+Discretionary override: ±0.5 maximum, requires written justification in rationale.
+RULE: If thesis-break criteria are not quantifiable at entry → conviction CAPS at 6.
+
+Conviction tiers:
+9–10 → core holding | 7–8 → standard | 5–6 → small / BUCKET | <5 → BUCKET or reject
+
+SLEEVE-SPECIFIC CONVICTION WEIGHTING:
+For LONG-TERM (6m–3y) positions, weight these formula components most:
+  • A (Earnings Growth Acceleration) — is the business compounding?
+  • C (Institutional Accumulation) — are smart money and insiders on board?
+  • E (Narrative Stage) — Early-stage thesis = highest asymmetry
+
+For MEDIUM-TERM (3–8 week catalyst) positions, weight these most:
+  • B (Relative Strength vs SPY) — momentum is the catalyst's fuel
+  • D (Breakout Quality + Volume) — the setup must be technically clean
+  • Catalyst quality: earnings in 3–8 weeks > sector event > analyst day
+
+A conf-7 MT play with clean technicals + defined earnings catalyst beats a conf-8 LT
+play with a vague 12-month narrative for the MT sleeve. Use the formula, then apply
+sleeve context to decide the right vehicle.
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+WINNER RULE — two modes:
+=== FUTURE GROWTH MODULE ===
+"""
+Future Growth Evaluator — identifies companies positioned to beat the market.
+
+Goal: find stocks where growth is ACCELERATING faster than the market expects,
+margins are expanding, and analysts keep raising targets. These are the stocks
+that compound wealth over months, not days.
+
+Scoring: 0-100 across 4 categories:
+  - Growth Momentum   (30 pts): revenue/earnings growth rate and trend
+  - Growth Quality    (25 pts): margins, FCF, efficiency
+  - Analyst Conviction(25 pts): consensus, target upside, coverage
+  - Earnings Execution(20 pts): beat rate, surprise trend
+
+A score >= 70 = high-growth stock -> wider P/E tolerance, higher position sizing
+A score >= 50 = steady compounder -> standard criteria
+A score < 35  = avoid or flag for exit if already held
+"""
+import requests
+import yfinance as yf
+import config
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+_TIMEOUT  = 10
+_HEADERS  = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+# Industry tailwind map — stocks in these categories get an automatic tailwind flag
+_TAILWIND_SECTORS = {
+    "ai_robotics":    {"NVDA","AMD","INTC","AVGO","QCOM","AMAT","LRCX","MU","COHR","TER","PDYN","TSLA"},
+    "quantum":        {"IBM","IONQ","RGTI","QUBT","QBTS","HON","MSFT","GOOGL","MKSI"},
+    "clean_energy":   {"ENPH","FSLR","NEE","PLUG","BE","SEDG","RUN","CEG"},
+    "biotech":        {"MRNA","BNTX","REGN","VRTX","BIIB","GILD","AMGN","ABBV","LLY","NVO"},
+    "cybersecurity":  {"CRWD","PANW","FTNT","ZS","S","OKTA","CYBR"},
+    "space_defense":  {"LMT","RTX","NOC","GD","BA","RKLB","ASTS","MNTS"},
+    "fintech":        {"V","MA","SQ","PYPL","AFRM","SOFI","NU"},
+}
+
+
+def _get_yf_metrics(symbol: str) -> dict:
+    """Pull forward-looking metrics from yfinance."""
+    clean = symbol.split("/")[0] if "/" in symbol else symbol
+    try:
+        _ex = ThreadPoolExecutor(max_workers=1)
+        _fut = _ex.submit(lambda: yf.Ticker(clean).info)
+        try:
+            info = _fut.result(timeout=12)
+        except Exception:
+            _ex.shutdown(wait=False)
+            return {}
+        _ex.shutdown(wait=False)
+
+        target = info.get("targetMeanPrice")
+        price  = info.get("currentPrice") or info.get("regularMarketPrice") or 1
+
+        return {
+            "peg_ratio":         info.get("pegRatio"),
+            "forward_pe":        info.get("forwardPE"),
+            "trailing_pe":       info.get("trailingPE"),
+            "revenue_growth":    info.get("revenueGrowth"),       # TTM YoY
+            "earnings_growth":   info.get("earningsGrowth"),      # TTM YoY
+            "gross_margin":      info.get("grossMargins"),
+            "operating_margin":  info.get("operatingMargins"),
+            "fcf":               info.get("freeCashflow"),
+            "roe":               info.get("returnOnEquity"),
+            "debt_to_equity":    info.get("debtToEquity"),
+            "rec_mean":          info.get("recommendationMean"),   # 1=strong buy 5=sell
+            "analyst_count":     info.get("numberOfAnalystOpinions"),
+            "target_mean":       target,
+            "target_high":       info.get("targetHighPrice"),
+            "target_upside":     round((target - price) / price * 100, 1) if target and price else None,
+            "sector":            info.get("sector"),
+            "industry":          info.get("industry"),
+            "beta":              info.get("beta"),
+        }
+    except Exception:
+        return {}
+
+
+def _get_earnings_history(symbol: str) -> dict:
+    """Pull last 4 quarters of earnings surprises from Finnhub."""
+    if not config.FINNHUB_API_KEY:
+        return {}
+    clean = symbol.split("/")[0] if "/" in symbol else symbol
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/stock/earnings",
+            params={"symbol": clean, "limit": 4, "token": config.FINNHUB_API_KEY},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200 or not r.json():
+            return {}
+        quarters = r.json()
+        beats = sum(1 for q in quarters if (q.get("actual") or 0) >= (q.get("estimate") or 0))
+        surprises = [q.get("surprisePercent", 0) for q in quarters if q.get("surprisePercent") is not None]
+        avg_surprise = round(sum(surprises) / len(surprises), 2) if surprises else 0
+
+        # Trend: is surprise % improving each quarter? (latest vs earliest)
+        surprise_trend = "improving" if len(surprises) >= 2 and surprises[0] > surprises[-1] else (
+                         "declining" if len(surprises) >= 2 and surprises[0] < surprises[-1] else "flat")
+
+        return {
+            "quarters_checked": len(quarters),
+            "beat_count":       beats,
+            "beat_rate":        round(beats / len(quarters) * 100) if quarters else 0,
+            "avg_surprise_pct": avg_surprise,
+            "surprise_trend":   surprise_trend,
+            "recent_quarters":  [{"period": q.get("period"), "actual": q.get("actual"),
+                                   "estimate": q.get("estimate"), "surprise_pct": q.get("surprisePercent")}
+                                  for q in quarters[:4]],
+        }
+    except Exception:
+        return {}
+
+
+def _assess_runway(scored: dict, tailwinds: list) -> dict:
+    """Classify TAM trend, company market position, and growth runway strength."""
+    rev_g = scored.get("revenue_growth") or 0  # already in % (e.g. 25.0 = 25%)
+
+    if tailwinds and rev_g > 15:
+        tam_trend = "Expanding"
+    elif rev_g > 0:
+        tam_trend = "Stable"
+    else:
+        tam_trend = "Shrinking"
+
+    if rev_g > 25:
+        company_position = "Gaining"
+    elif rev_g > 0:
+        company_position = "Holding"
+    else:
+        company_position = "Losing"
+
+    if tam_trend == "Expanding" and company_position in ("Gaining", "Holding"):
+        runway_assessment = "Strong"
+    elif tam_trend == "Shrinking" or company_position == "Losing":
+        runway_assessment = "Weak"
+    else:
+        runway_assessment = "Neutral"
+
+    return {
+        "tam_trend":         tam_trend,
+        "company_position":  company_position,
+        "runway_assessment": runway_assessment,
+    }
+
+
+def _assess_narrative_stage(metrics: dict, tailwinds: list) -> str:
+    """Detect whether the stock is early, at peak consensus, or late in its narrative."""
+    n_analysts = metrics.get("analyst_count") or 0
+    upside     = metrics.get("target_upside")
+    rec        = metrics.get("rec_mean")  # 1=strong buy, 5=sell
+
+    # Late: heavily covered, consensus buy, analyst upside has compressed
+    if n_analysts > 25 and rec and rec <= 2.0 and upside is not None and upside < 10:
+        return "Late"
+
+    # Early: in a tailwind sector but few analysts have initiated coverage yet
+    if tailwinds and n_analysts < 10:
+        return "Early"
+
+    if n_analysts < 6:
+        return "Early"
+
+    return "Consensus"
+
+
+def _detect_tailwinds(symbol: str, sector: str, industry: str) -> list[str]:
+    """Identify which structural growth tailwinds apply to this stock."""
+    tailwinds = []
+    sym_upper = symbol.upper().split("/")[0]
+    sec_lower = (sector or "").lower()
+    ind_lower = (industry or "").lower()
+
+    for theme, tickers in _TAILWIND_SECTORS.items():
+        if sym_upper in tickers:
+            tailwinds.append(theme)
+
+    # Sector-based detection
+    if "technology" in sec_lower or "semiconductor" in ind_lower:
+        if "ai_robotics" not in tailwinds:
+            tailwinds.append("ai_robotics")
+    if "health" in sec_lower or "biotech" in ind_lower or "pharma" in ind_lower:
+        if "biotech" not in tailwinds:
+            tailwinds.append("biotech")
+    if "energy" in sec_lower and ("renewable" in ind_lower or "solar" in ind_lower):
+        tailwinds.append("clean_energy")
+
+    return tailwinds
+
+
+def _score(metrics: dict, earnings: dict) -> dict:
+    """Compute 0-100 future growth score across 4 categories."""
+    score = 0
+    breakdown = {}
+
+    # ── Category 1: Growth Momentum (30 pts) ─────────────────────────────────
+    growth_pts = 0
+    rev_g = metrics.get("revenue_growth") or 0
+    earn_g = metrics.get("earnings_growth") or 0
+
+    if rev_g > 0.50:   growth_pts += 12
+    elif rev_g > 0.25: growth_pts += 9
+    elif rev_g > 0.10: growth_pts += 5
+    elif rev_g > 0:    growth_pts += 2
+
+    if earn_g > 0.75:  growth_pts += 10
+    elif earn_g > 0.30:growth_pts += 7
+    elif earn_g > 0.10:growth_pts += 4
+    elif earn_g > 0:   growth_pts += 2
+
+    fpe = metrics.get("forward_pe")
+    tpe = metrics.get("trailing_pe")
+    try:
+        fpe = float(fpe) if fpe is not None else None
+        tpe = float(tpe) if tpe is not None else None
+    except (ValueError, TypeError):
+        fpe = tpe = None
+    if fpe and tpe and fpe < tpe:
+        growth_pts += 4  # market expects earnings to grow into valuation
+
+    peg = metrics.get("peg_ratio")
+    if peg and 0 < peg < 1.0:   growth_pts += 4
+    elif peg and peg < 1.5:     growth_pts += 2
+
+    score += min(growth_pts, 30)
+    breakdown["growth_momentum"] = min(growth_pts, 30)
+
+    # ── Category 2: Growth Quality (25 pts) ──────────────────────────────────
+    quality_pts = 0
+    gm = metrics.get("gross_margin") or 0
+    om = metrics.get("operating_margin") or 0
+    roe = metrics.get("roe") or 0
+    fcf = metrics.get("fcf") or 0
+    de = metrics.get("debt_to_equity") or 0
+
+    if gm > 0.60:     quality_pts += 8
+    elif gm > 0.40:   quality_pts += 6
+    elif gm > 0.25:   quality_pts += 3
+
+    if om > 0.25:     quality_pts += 5
+    elif om > 0.10:   quality_pts += 3
+
+    # Rule of 40: revenue_growth% + operating_margin% >= 40 (healthy tech co)
+    rule40 = (rev_g * 100) + (om * 100)
+    if rule40 >= 60:  quality_pts += 5
+    elif rule40 >= 40:quality_pts += 3
+
+    if fcf > 0:       quality_pts += 4
+    if roe > 0.20:    quality_pts += 3
+    elif roe > 0.10:  quality_pts += 1
+
+    score += min(quality_pts, 25)
+    breakdown["growth_quality"] = min(quality_pts, 25)
+
+    # ── Category 3: Analyst Conviction (25 pts) ──────────────────────────────
+    conviction_pts = 0
+    rec = metrics.get("rec_mean")       # 1=strong buy, 5=sell
+    upside = metrics.get("target_upside")
+    n_analysts = metrics.get("analyst_count") or 0
+
+    if rec and rec <= 1.5:    conviction_pts += 10
+    elif rec and rec <= 2.0:  conviction_pts += 7
+    elif rec and rec <= 2.5:  conviction_pts += 4
+
+    if upside and upside > 40:   conviction_pts += 10
+    elif upside and upside > 25: conviction_pts += 7
+    elif upside and upside > 15: conviction_pts += 4
+
+    if n_analysts > 20:    conviction_pts += 5
+    elif n_analysts > 10:  conviction_pts += 3
+
+    score += min(conviction_pts, 25)
+    breakdown["analyst_conviction"] = min(conviction_pts, 25)
+
+    # ── Category 4: Earnings Execution (20 pts) ──────────────────────────────
+    execution_pts = 0
+    beat_rate = earnings.get("beat_rate", 0)
+    avg_surp  = earnings.get("avg_surprise_pct", 0)
+    surp_trend = earnings.get("surprise_trend", "flat")
+
+    if beat_rate == 100:   execution_pts += 10
+    elif beat_rate >= 75:  execution_pts += 7
+    elif beat_rate >= 50:  execution_pts += 4
+
+    if avg_surp > 10:      execution_pts += 6
+    elif avg_surp > 5:     execution_pts += 4
+    elif avg_surp > 2:     execution_pts += 2
+
+    if surp_trend == "improving":
+        execution_pts += 4
+
+    score += min(execution_pts, 20)
+    breakdown["earnings_execution"] = min(execution_pts, 20)
+
+    # ── Classification ────────────────────────────────────────────────────────
+    if score >= 70:   classification = "high_growth"
+    elif score >= 50: classification = "steady_compounder"
+    elif score >= 35: classification = "value_play"
+    else:             classification = "declining"
+
+    return {
+        "score":          score,
+        "classification": classification,
+        "breakdown":      breakdown,
+        "peg_ratio":      peg,
+        "forward_pe":     fpe,
+        "revenue_growth": round(rev_g * 100, 1) if rev_g else None,
+        "earnings_growth":round(earn_g * 100, 1) if earn_g else None,
+        "rule_of_40":     round(rule40, 1),
+        "target_upside":  upside,
+        "analyst_count":  n_analysts,
+        "beat_rate_pct":  beat_rate,
+        "avg_eps_surprise": earnings.get("avg_surprise_pct"),
+        "surprise_trend": earnings.get("surprise_trend"),
+        "recent_quarters":earnings.get("recent_quarters", []),
+    }
+
+
+def compute(symbol: str) -> dict:
+    """
+    Returns a future growth assessment for use by Claude.
+    High-growth stocks (score >= 70) are treated with wider P/E tolerance
+    and higher position sizing by the risk manager.
+    """
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        ft_yf   = ex.submit(_get_yf_metrics, symbol)
+        ft_earn = ex.submit(_get_earnings_history, symbol)
+
+    metrics = ft_yf.result()
+    earnings = ft_earn.result()
+
+    if not metrics:
+        return {"score": 0, "classification": "unknown", "tailwinds": []}
+
+    scored = _score(metrics, earnings)
+
+    tailwinds = _detect_tailwinds(
+        symbol,
+        metrics.get("sector", ""),
+        metrics.get("industry", ""),
+    )
+    scored["tailwinds"]   = tailwinds
+    scored["sector"]      = metrics.get("sector")
+    scored["industry"]    = metrics.get("industry")
+    scored["gross_margin"]= round((metrics.get("gross_margin") or 0) * 100, 1)
+    scored["rec_mean"]    = metrics.get("rec_mean")
+    scored["beta"]        = metrics.get("beta")
+
+    runway = _assess_runway(scored, tailwinds)
+    scored.update(runway)
+    scored["narrative_stage"] = _assess_narrative_stage(metrics, tailwinds)
+
+    return scored
+=== BASKET CURATION HEAD ===
+head: cannot open '/root/trading-agent/basket/basket_curation.py' for reading: No such file or directory
+=== CONFIG KEY SETTINGS ===
+UNUSUAL_WHALES_SHADOW_MODE = True
+STOCK_WATCHLIST = [
+MAX_POSITIONS        = 20    # total max (15 long-term + 5 medium-term)
+MAX_POSITIONS_LONG_TERM   = 15   # long-term sleeve capacity
+MAX_POSITIONS_MEDIUM_TERM = 5    # medium-term sleeve capacity
+TAKE_PROFIT_PCT      = 0     # no fixed take-profit — let winners run
+MIN_CONFIDENCE       = 7     # minimum Claude confidence (1-10) to open a NEW position
+MIN_CONFIDENCE_ADD   = 6     # minimum confidence to ADD to an existing position (lower bar)
+LONG_TERM_PCT_CAP         = 72.0  # long-term bucket hard cap with 2% buffer
+MEDIUM_TERM_PCT_CAP       = 30.0  # medium-term bucket hard cap — matches the 30% design intent exactly
+LONG_TERM_SECTOR_CAP_PCT  = 22.0  # max any sector within long-term sleeve (committee: tightened from 28%)
+MEDIUM_TERM_MAX_POSITION_PCT   = 6.0   # 30% sleeve / 5 positions
+MEDIUM_TERM_STOP_LOSS_PCT      = 12.0  # 10-15% range; tighter than long-term tier stops
+MEDIUM_TERM_DEAD_MONEY_DAYS    = 45    # shorter dead money window vs 90d for long-term
+MEDIUM_TERM_DEAD_MONEY_MIN_PCT = 5.0   # must be up ≥5% after 45 days
+MEDIUM_TERM_CATALYST_WEEKS_MIN = 3     # catalyst must be at least 3 weeks out
+MEDIUM_TERM_CATALYST_WEEKS_MAX = 8     # catalyst must be within 8 weeks
+LONG_TERM_REUNDERWRITE_DAYS   = 90    # day 90 triggers re-underwriting review
+LONG_TERM_REUNDERWRITE_WINDOW = 5     # alert fires within ±5 days of trigger
+LONG_TERM_ALPHA_MANDATE_PCT   = 10.0
+PORTFOLIO_MT_SUSPEND_DRAWDOWN = 15.0  # suspend medium-term new entries when port down >15%
+MEDIUM_TERM_TRAILING_STOP_MIN_GAIN = 15.0  # activate after +15%
+MEDIUM_TERM_TRAILING_STOP_1M_DROP  = -5.0  # exit if 10-day close drops -5% while winning (committee: tightened from -6%)
+TICKER_TIERS = {
+MEDIUM_TERM_TIER_ALLOC = {6: 3.0, 7: 4.0, 8: 5.0, 9: 6.0, 10: 6.0}
+STOP_LOSS_BY_TIER = {
+STOP_LOSS_PCT = 8.0  # fallback for tickers not in TICKER_TIERS
+PORTFOLIO_DRAWDOWN_LIMIT    = 12.0   # % from portfolio peak — trigger risk-reduction mode
+PORTFOLIO_BETA_CAP          = 1.6    # max portfolio beta vs SPY (monitored, not hard-enforced)
+STOP_LOSS_PCT        = 8.0    # wider for position trading (was 7%)
+=== DONE ===

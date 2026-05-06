@@ -1,0 +1,359 @@
+{
+  "META": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "TSLA": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SNPS": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "eps_decline_-82%"
+    ],
+    "strike_count": 2
+  },
+  "PLTR": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "CRM": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "NOW": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "AI": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "revenue_decline_-46%"
+    ],
+    "strike_count": 3
+  },
+  "ZS": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "AXON": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "eps_decline_-98%"
+    ],
+    "strike_count": 3
+  },
+  "ISRG": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "MA": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SHOP": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "eps_decline_-42%"
+    ],
+    "strike_count": 3
+  },
+  "UBER": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "eps_decline_-96%"
+    ],
+    "strike_count": 3
+  },
+  "COIN": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "revenue_decline_-22%"
+    ],
+    "strike_count": 3
+  },
+  "IBM": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "S": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "DXCM": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "VEEV": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "DUOL": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "RDDT": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SNOW": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SE": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SYM": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "TRMB": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "FSLR": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "CELH": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "3m_return_-33pct"
+    ],
+    "strike_count": 3
+  },
+  "ERIE": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "APPS": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "GEHC": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "eps_decline_-31%"
+    ],
+    "strike_count": 3
+  },
+  "OI": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "3m_return_-47pct"
+    ],
+    "strike_count": 3
+  },
+  "SMCI": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SOFI": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "BULL": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "MSTR": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SGI": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "RKT": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "3m_return_-30pct",
+      "eps_decline_-90%"
+    ],
+    "strike_count": 4
+  },
+  "TDOC": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "AAL": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "SMR": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "3m_return_-31pct",
+      "revenue_decline_-95%"
+    ],
+    "strike_count": 4
+  },
+  "CLF": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "VST": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended",
+      "eps_decline_-52%"
+    ],
+    "strike_count": 3
+  },
+  "AFRM": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  },
+  "PANW": {
+    "suspended_since": "2026-05-04",
+    "reasons": [
+      "death_cross_252d",
+      "below_sma200_extended"
+    ],
+    "strike_count": 2
+  }
+}
