@@ -23,7 +23,7 @@ UNUSUAL_WHALES_API_KEY  = os.getenv("UNUSUAL_WHALES_API_KEY", "")
 # Unusual Whales shadow mode: True for first 90 days — signal is logged but +0.5 bonus NOT applied.
 # Set to False after shadow validation (hit rate ≥55% at 20 days on bullish sweeps in our universe).
 # Bearish sweep penalty (-0.5) is ALWAYS live regardless of this flag.
-UNUSUAL_WHALES_SHADOW_MODE = True
+UNUSUAL_WHALES_SHADOW_MODE = False
 
 # Shadow mode auto-graduation thresholds
 UW_SHADOW_MIN_SIGNALS   = 20    # need ≥20 bullish sweep signals tracked before graduating
