@@ -1444,6 +1444,25 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         _macro_regime = _apply_uw_sector_overlay(_macro_regime, uw_mkt_ctx["sector_flows"])
 
     print(f"Portfolio: equity=${portfolio['equity']:,.2f}  cash=${portfolio['cash']:,.2f}  positions={port_ctx['position_count']}")
+    try:
+        from database import research_cache as _rc2
+        _ca = _rc2.load_all() if hasattr(_rc2,"load_all") else {}
+        _sh = []
+        from datetime import datetime as _dt2, timezone as _tz2
+        for _p in positions:
+            _s = _p["symbol"]
+            _cd = _ca.get(_s, {})
+            _ts = _cd.get("_cached_at") or _cd.get("spec_refresh_ts","")
+            if _ts:
+                try:
+                    _age = (_dt2.now(_tz2.utc)-_dt2.fromisoformat(_ts[:19]).replace(tzinfo=_tz2.utc)).days
+                    if _age > 5: _sh.append(_s+"("+str(_age)+"d)")
+                except Exception: pass
+        if _sh:
+            discord.send("STALE CACHE on held positions: "+", ".join(_sh))
+            print("  [CacheAlert] Stale: "+str(_sh))
+    except Exception: pass
+
 
     # --- Load gap scan alerts from 08:45 pre-open job ---
     import json as _json, os as _os
@@ -1602,6 +1621,7 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
     try:
         from learning import tracker as _ltracker
         _ltracker.outcome_update()
+        _ltracker.record_midpoint_outcomes()
         # Recompute adaptive signal weights from accumulated outcomes
         _ltracker.compute_weights()
     except Exception as _le:
