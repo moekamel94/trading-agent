@@ -177,6 +177,22 @@ def refresh() -> list[str]:
             config.TICKER_TIERS[sym] = tier
 
     tier_counts = {t: len(v) for t, v in SECTOR_LIST.items()}
+    # Enforce LT basket cap: max 50 tickers
+    # Priority: pinned tickers first, then by tier (mega > large > mid > spec)
+    MAX_LT = 50
+    if len(merged) > MAX_LT:
+        pinned_set = set(_PINNED)
+        tier_order = ["mega","large_growth","mid_growth","speculative"]
+        priority = []
+        for sym in merged:
+            if sym in pinned_set: priority.append((0,sym))
+            else:
+                tier = config.TICKER_TIERS.get(sym,"mid_growth")
+                priority.append((tier_order.index(tier) if tier in tier_order else 3, sym))
+        priority.sort(key=lambda x:x[0])
+        merged = [sym for _,sym in priority[:MAX_LT]]
+        print("  [Basket] Trimmed LT basket to "+str(MAX_LT)+" tickers (was "+str(len(priority))+")")
+
     data = {
         "updated": datetime.utcnow().isoformat(),
         "tickers": merged,
@@ -297,6 +313,11 @@ def load_combined() -> list[str]:
 
 
 def save_mt(tickers: list[str], metadata: dict) -> None:
+    # Enforce MT basket cap: max 20 tickers
+    MAX_MT = 20
+    if len(tickers) > MAX_MT:
+        tickers = tickers[:MAX_MT]
+        print("  [Basket] Trimmed MT basket to "+str(MAX_MT)+" tickers")
     """Persist the MT basket to disk."""
     data = {
         "updated":  datetime.utcnow().isoformat(),
