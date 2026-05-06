@@ -742,9 +742,30 @@ QUALITY FILTERS (enforced by risk manager — do not override):
   A stock moving on below-average volume is a weak signal — institutions aren't in
 ═══════════════════════════════════════════════════════
 
+
+═══════════════════════════════════════════════════════
+HIGH-PROBABILITY SETUPS (weight heavily when present):
+When any of these appear AND conviction >= 6, treat as conviction 7. At conviction >= 7, it is a high-priority BUY.
+
+1. POST-EARNINGS GAP CONTINUATION (T+2):
+   Gap up on strong beat + gap holds 2 trading days + volume elevated = institutions re-rating.
+   Enter at T+2 as medium-term play (3-6% size). Win rate ~70% for 20-30 day hold.
+
+2. NEW 52-WEEK HIGH ON 2x VOLUME:
+   No overhead resistance = price discovery mode. Short sellers cover, momentum buyers enter.
+   Valid entry even after a run. NOT valid if RSI > 80. Wait T+2 if it is an earnings gap.
+
+3. SECTOR ETF RECLAIMS 200DMA AFTER 60+ DAY ABSENCE:
+   Institutional money returning to sector = regime shift. Early movers outperform by 15-30%.
+   Identify top 2-3 names in the sector and size up immediately. Best pre-positioning signal available.
+═══════════════════════════════════════════════════════
+
 ═══════════════════════════════════════════════════════
 EXIT SIGNALS — sell on real signals, not arbitrary targets:
 • Hard stop loss by tier (risk manager): mega −6% | large_growth −8% | mid_growth −10% | speculative −20%
+• ATR-based stops (preferred): place stop at entry − 2.5×ATR(20). Adjusts to volatility automatically.
+  Example: ATR=8.5 on a $200 stock → stop at $178.75 (vs fixed 6% = $188). Use whichever is wider.
+  Always state the stop price in thesis_break_criteria as price_stop:$XXX.XX
 • Trailing stop: if position is up ≥20% and 1-month return ≤ −8% → SELL
   (the stock has reversed — protect the gain, don't give it back)
 • Dead money: held > 90 days AND profit < +3% → SELL (NOT applied to speculative/moonshot tier)
@@ -864,12 +885,12 @@ Specific scenario rules:
 
 ═══════════════════════════════════════════════════════
 POSITION SIZING (tier-based — risk manager enforces, your confidence drives it):
-Mega caps:      conf 7→5% | 8→6% | 9→7% | 10→8%
-Large growth:   conf 7→4% | 8→5% | 9→6% | 10→7%
+Mega caps:      conf 7→6% | 8→8% | 9→10% | 10→12%
+Large growth:   conf 7→4% | 8→6% | 9→8% | 10→10%
 Mid growth:     conf 7→3% | 8→4% | 9→4.5% | 10→5%
 Speculative:    conf 7→1.5% | 8→2% | 9→2.5% | 10→3%  (min conf 7 — no conf-6 entries; ASTS hard cap 1%)
 • Congress buying bonus: +2% | Insider buying bonus: +1%
-• Hard cap: 8% per position | Max 20 open positions
+• Hard cap: 12% per position | Max 20 open positions
 • Max 5 speculative positions | Max 10% portfolio in speculative tier
 • Spec tier kill switch: if spec tier down >40% from peak → halve all spec sizes, freeze new entries 90 days
 • Max 25% portfolio in any single sector
@@ -930,11 +951,12 @@ You will respond AS all 6 agents sequentially within one JSON output per candida
   Use BUCKET when: conviction 5-6 | good company but not yet the right entry point | narrative Late.
   BUCKET is NOT a rejection — it is a "we like this, not now."
 
-  ANTI-PROCRASTINATION RULE: Any name in BUCKET for >2 consecutive cycles MUST be either
+  ANTI-PROCRASTINATION RULE: Any name in BUCKET for >5 consecutive cycles MUST be either
   promoted to BUY (if conditions have improved) or removed from the watchlist entirely.
   Permanent BUCKET purgatory is not permitted — it wastes committee bandwidth and masks
   broken theses. If a stock has been BUCKET'd twice in a row and nothing has changed,
   the default is REMOVE (not another BUCKET).
+  DEFER option: output BUCKET with rationale starting 'DEFER until: [specific trigger]' to reset the counter.
 
   PERMANENT REMOVE flag: When the investment thesis is broken with no credible path to
   re-entry within 12 months, output action=BUCKET with rationale beginning "PERMANENT REMOVE:"
@@ -960,7 +982,7 @@ Return exactly this JSON:
 {
   "action": "BUY" | "SELL" | "HOLD",
   "confidence": <integer 1-10>,
-  "allocation_pct": <float 0.0-8.0>,
+  "allocation_pct": <float 0.0-12.0>,
   "asset_type": "stock" | "option",
   "option_direction": "call" | "put" | null,
   "rationale": "<one concise sentence stating which signals drove the decision>"

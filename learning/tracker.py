@@ -269,3 +269,86 @@ def _save_weights(weights: dict[str, float]) -> None:
             json.dump(weights, f, indent=2)
     except Exception as e:
         print(f"  [Tracker] Failed to save weights: {e}")
+
+
+def record_midpoint_outcomes() -> int:
+    """Record 7d/14d/30d unrealized returns for open positions so learning loop has data."""
+    import sqlite3, os
+    import yfinance as yf
+    from datetime import datetime, timezone
+    DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trading_agent.db")
+    try:
+        conn = sqlite3.connect(DB)
+        cur  = conn.cursor()
+        cur.execute("SELECT symbol, price, ts FROM trades WHERE action='BUY' ORDER BY ts DESC")
+        trades = cur.fetchall()
+        now = datetime.now(timezone.utc)
+        recorded = 0
+        seen = set()
+        for sym, entry_price, entry_ts_str in trades:
+            if sym in seen or not entry_price or not entry_ts_str:
+                continue
+            seen.add(sym)
+            try:
+                entry_ts = datetime.fromisoformat(entry_ts_str[:19]).replace(tzinfo=timezone.utc)
+                days_held = (now - entry_ts).days
+            except Exception:
+                continue
+            if not any(abs(days_held - m) <= 1 for m in [7, 14, 30, 60]):
+                continue
+            try:
+                hist = yf.Ticker(sym).history(period="2d")
+                if hist.empty:
+                    continue
+                current_price = float(hist["Close"].iloc[-1])
+                return_pct = round((current_price - entry_price) / entry_price * 100, 2)
+                cur.execute("INSERT OR IGNORE INTO signal_performance (ts, signal_type, tier, correct, outcome_pct) VALUES (?,?,?,?,?)",
+                    (now.isoformat(), f"midpoint_{days_held}d", "open_position", 1 if return_pct > 0 else 0, return_pct))
+                recorded += 1
+                if abs(return_pct) > 5:
+                    print(f"  [Learner] {sym} {days_held}d midpoint: {return_pct:+.1f}%")
+            except Exception:
+                pass
+        conn.commit()
+        conn.close()
+        if recorded > 0:
+            print(f"  [Learner] Recorded {recorded} midpoint outcomes")
+        return recorded
+    except Exception as e:
+        print(f"  [Learner] midpoint error: {e}")
+        return 0
+
+
+def send_weekly_learning_report():
+    try:
+        import sqlite3, os, json
+        from notifications import discord_bot as discord
+        DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trading_agent.db")
+        WF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights.json")
+        weights = {}
+        try: weights = json.load(open(WF))
+        except Exception: pass
+        conn = sqlite3.connect(DB)
+        cur  = conn.cursor()
+        cur.execute("SELECT signal_type, AVG(correct) as wr, COUNT(*) as n, AVG(outcome_pct) as ar FROM signal_performance WHERE ts >= datetime('now', '-30 days') GROUP BY signal_type ORDER BY wr DESC")
+        rows = cur.fetchall()
+        conn.close()
+        lines = ["📊 **WEEKLY LEARNING REPORT**", "Signal performance (last 30 days):"]
+        if rows:
+            for sig, wr, n, ar in rows:
+                if n < 3: continue
+                wp = round((wr or 0)*100,1); av = round(ar or 0,1); w = weights.get(sig,1.0)
+                em = "🟢" if wp>=60 else ("🟡" if wp>=45 else "🔴")
+                lines.append(em+" "+sig+": "+str(wp)+"% win | avg "+str(av)+"% | n="+str(n)+" | w="+str(w))
+        else:
+            lines.append("No data yet — building over time as positions close.")
+        lines.append("")
+        lines.append("**Signal weights:**")
+        for sig, w in weights.items():
+            if not sig.startswith("_"): lines.append("  "+sig+": "+str(w))
+        msg = "\n".join(lines)
+        discord.send(msg)
+        return msg
+    except Exception as e:
+        print("  [LearningReport] error: "+str(e))
+        return None

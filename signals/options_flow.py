@@ -1078,7 +1078,8 @@ def conviction_bonus(flow_result: dict) -> float:
         return -0.5
 
     # Bullish bonus is gated by shadow mode
-    if flow_result.get("is_shadow_mode", True):
+    import config as _cfg
+    if getattr(_cfg, "UNUSUAL_WHALES_SHADOW_MODE", False):
         return 0.0  # shadow mode: log but do not boost conviction
 
     if (flow_result.get("flow_signal") == "bullish_sweep"

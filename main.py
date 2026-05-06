@@ -2092,6 +2092,24 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
         })
         print(f"  [{symbol}] -> CANDIDATE | queued for committee review")
 
+    # FIX 7: Rank candidates by composite score before committee
+    if candidates:
+        def _composite(cand):
+            sig = cand.get("signals", {})
+            t = sig.get("technical", {}); g = sig.get("future_growth", {}); u = sig.get("options_flow", {})
+            r3m = t.get("return_3m", 0) or 0
+            gscore = g.get("score", 0) or 0
+            uwpct = (u.get("normalized_prem_pct", 50) or 50) - 50
+            gc = 5 if t.get("golden_cross") else 0
+            return r3m*0.4 + gscore*0.4 + uwpct*0.2 + gc
+        _ranked = sorted(candidates, key=_composite, reverse=True)
+        _rank_map = {cand["symbol"]: i+1 for i, cand in enumerate(_ranked)}
+        _total = len(candidates)
+        for cand in candidates:
+            rank = _rank_map.get(cand["symbol"], _total)
+            prefix = "RANK: #" + str(rank) + " of " + str(_total) + " candidates today\n"
+            cand["synthesis"] = prefix + cand["synthesis"]
+
     # =========================================================
     # PHASE 2: One committee Claude call for ALL candidates
     # =========================================================
@@ -3061,6 +3079,11 @@ def main():
 
     if args.weekly:
         weekly_review.run()
+        try:
+            from learning import tracker as _wlt
+            _wlt.send_weekly_learning_report()
+        except Exception as _wle:
+            print("  [LearningReport] error: " + str(_wle))
         return
 
     if args.weekly_basket:
