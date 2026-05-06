@@ -348,6 +348,16 @@ def check_macro_shocks():
                 px=cm.get(name,{}).get("price",0)
                 fired.append(name+" "+("+" if pct>=0 else "")+str(round(pct,1))+"% ($"+str(px)+")")
         if not fired: return
+        # Geopolitical risk assessment
+        try:
+            from signals import geopolitical as _geo
+            geo=_geo.compute_geo_risk()
+            peace=geo["peace_probability"]
+            if peace>=50:
+                fired.append("GEO: Peace probability "+str(peace)+"% -- oil war premium at risk")
+            elif peace<=25:
+                fired.append("GEO: Escalation risk high "+str(100-peace)+"% -- war premium supported")
+        except Exception: pass
         alerts,insights=_macro_insights(cm,macro)
         out=["MACRO SHOCK ALERT"]+["  "+f for f in fired]
         if insights:

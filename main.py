@@ -2771,6 +2771,15 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
 
     equity = portfolio_final["equity"]
     cash   = portfolio_final["cash"]
+    # Decision memo -- CIO-grade cycle summary
+    try:
+        from summaries import decision_memo as _dm
+        import zoneinfo as _dmzi
+        _now_et=datetime.now(_dmzi.ZoneInfo("America/New_York"))
+        _cycle_lbl=_now_et.strftime("%I:%M %p ET -- %a %b %d")
+        _dm.generate_cycle_memo(_cycle_lbl,candidates,positions,portfolio,_macro_regime,dry_run=dry_run)
+    except Exception as _dme:
+        print(f"  [DecisionMemo] error: {_dme}")
     print(f"\nCycle complete. Equity: ${equity:,.2f}")
 
     # Daily basket intelligence — proactive rotation/macro scan using Haiku (cheap).
