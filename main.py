@@ -3465,7 +3465,7 @@ def main():
             id="spec_research_biweekly",
             misfire_grace_time=GRACE,
         )
-        # Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)
+        # Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)
         scheduler.add_job(
             _safe_weekly,
             CronTrigger(day_of_week="sun", hour=18, minute=0),
@@ -3503,6 +3503,14 @@ def main():
             id="startup_catchup",
         )
 
+        # Macro shock monitor: every 15 min during market hours
+        from summaries import reporter as _rep
+        scheduler.add_job(
+            _rep.check_macro_shocks,
+            _IntervalTrigger(minutes=15),
+            id="macro_shock_monitor",
+            misfire_grace_time=300,
+        )
         scheduler.start()
         print(
             f"[Scheduler] Started inside Kimmy:\n"
@@ -3516,7 +3524,7 @@ def main():
             f"  Daily MT basket review: Mon-Thu 16:15 ET (Haiku; removes broken, adds 1:1)\n"
             f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d}  ET (23:30 AST) full weekly refresh\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly, spec tier only)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)\n"
+            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)\n"
             f"  UW sweep feed scan    : every 5 min Mon-Fri 9:30-16:00 ET (23:00 AST)\n"
             f"  UW basket refresh     : every 15 min Mon-Fri 9:30-16:00 ET (23:00 AST) (~5K calls/day)"
         )
@@ -3636,7 +3644,7 @@ def main():
             f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d}  ET (23:05 AST)\n"
             f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (23:30 AST)\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)\n"
+            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)\n"
             f"  UW sweep feed scan    : every 5 min (market hours only)\n"
             f"  UW basket refresh     : every 15 min (market hours only, ~5K calls/day)"
         )
