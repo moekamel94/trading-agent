@@ -3437,9 +3437,9 @@ def main():
         scheduler.start()
         print(
             f"[Scheduler] Started inside Kimmy:\n"
-            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d}  (15:00 AST)\n"
+            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET (15:00 AST)\n"
             f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d}  ET (15:45 AST) lightweight\n"
-            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d}  (16:00 AST)\n"
+            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET (16:00 AST)\n"
             f"  Trading cycle (AM)    : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d}  ET (16:50 AST)\n"
             f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d}  ET (19:30 AST) no Claude\n"
             f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d}  ET (22:00 AST)\n"
@@ -3558,14 +3558,14 @@ def main():
         )
         print(
             f"Scheduler started:\n"
-            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d}  (15:00 AST)\n"
-            f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d}  (15:45 AST)\n"
-            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d}  (16:00 AST)\n"
+            f"  Monthly research      : 1st Monday/month {config.BASKET_REFRESH_HOUR}:{config.BASKET_REFRESH_MINUTE:02d} ET (15:00 AST)\n"
+            f"  Gap + catalyst scan   : Mon-Fri {config.GAP_SCAN_HOUR}:{config.GAP_SCAN_MINUTE:02d} ET (15:45 AST)\n"
+            f"  Pre-market summary    : Mon-Fri {config.PREMARKET_SUMMARY_HOUR}:{config.PREMARKET_SUMMARY_MINUTE:02d} ET (16:00 AST)\n"
             f"  Trading cycle (AM)    : Mon-Fri {config.RUN_HOUR}:{config.RUN_MINUTE:02d}  ET (16:50 AST)\n"
-            f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d}  (19:30 AST)\n"
+            f"  Midday stop check     : Mon-Fri {config.MIDDAY_HOUR}:{config.MIDDAY_MINUTE:02d} ET (19:30 AST)\n"
             f"  Trading cycle (PM)    : Mon-Fri {config.AFTERNOON_HOUR}:{config.AFTERNOON_MINUTE:02d}  ET (22:00 AST)\n"
             f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d}  ET (23:05 AST)\n"
-            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d}  (23:30 AST)\n"
+            f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (23:30 AST)\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly)\n"
             f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST)\n"
             f"  UW sweep feed scan    : every 5 min (market hours only)\n"
