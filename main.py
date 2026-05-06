@@ -583,6 +583,15 @@ def run_monthly_research():
     print(f"\n{msg}")
     discord.send(msg)
 
+    # Research Engine: monthly full scan + dynamic discovery
+    try:
+        from signals import research_engine as _re
+        _scan=_re.run_full_scan(notify=True)
+        print("[ResearchEngine] Surfaced: "+str(_scan["total_surfaced"])+" of "+str(_scan["total_scanned"]))
+        _top=[s for s,w in sorted((_macro_regime or {}).get("sector_weights",{}).items(),key=lambda x:-x[1]) if w>=0.7]
+        _disc=_re.run_discovery_scan(top_sectors=_top,notify=True)
+        print("[Discovery] "+str(_disc["candidates"])+" scanned | "+str(len(_disc["surfaced"]))+" surfaced | "+str(len(_disc["added_to_basket"]))+" added")
+    except Exception as _ree: print("[ResearchEngine] error: "+str(_ree))
     # ── Monthly deep-dive: full committee analysis using the freshly-cached data ──
     try:
         from reports.monthly_deep_dive import run as _deep_dive
@@ -2422,6 +2431,18 @@ def run_cycle(dry_run: bool = False, force_opus: bool = False):
                             decision["action"] = "BUCKET"
                             action = "BUCKET"
                         else:
+                            # Research Engine quality gate
+                            try:
+                                from signals import research_engine as _rg
+                                _ok,_ga,_gr=_rg.check_buy_quality_gate(symbol,alloc)
+                                if not _ok:
+                                    print("  [QualityGate] "+symbol+" BLOCKED: "+_gr)
+                                    discord.send("QUALITY GATE: "+symbol+" BUY blocked -- "+_gr)
+                                    decision["action"]="BUCKET"; action="BUCKET"
+                                elif _ga!=alloc:
+                                    print("  [QualityGate] "+symbol+" alloc "+str(alloc)+"% -> "+str(_ga)+"% | "+_gr)
+                                    alloc=_ga
+                            except Exception: pass
                             from monitoring import self_healer as _sh
                             _ok, _err = _sh.place_order_with_retry(symbol, qty, action)
                             if not _ok:
@@ -3099,6 +3120,11 @@ def main():
 
     if args.weekly:
         weekly_review.run()
+        # Research Engine: weekly basket re-scoring
+        try:
+            from signals import research_engine as _re_hc
+            _re_hc.run_basket_health_check(basket_mgr.load_combined(),notify=True)
+        except Exception as _hce: print("[BasketHealthCheck] error: "+str(_hce))
         try:
             from learning import tracker as _wlt
             _wlt.send_weekly_learning_report()
@@ -3439,7 +3465,7 @@ def main():
             id="spec_research_biweekly",
             misfire_grace_time=GRACE,
         )
-        # Weekly portfolio review: Sunday 18:00 ET (01:00 AST)
+        # Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)
         scheduler.add_job(
             _safe_weekly,
             CronTrigger(day_of_week="sun", hour=18, minute=0),
@@ -3490,7 +3516,7 @@ def main():
             f"  Daily MT basket review: Mon-Thu 16:15 ET (Haiku; removes broken, adds 1:1)\n"
             f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d}  ET (23:30 AST) full weekly refresh\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly, spec tier only)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST)\n"
+            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)\n"
             f"  UW sweep feed scan    : every 5 min Mon-Fri 9:30-16:00 ET (23:00 AST)\n"
             f"  UW basket refresh     : every 15 min Mon-Fri 9:30-16:00 ET (23:00 AST) (~5K calls/day)"
         )
@@ -3610,7 +3636,7 @@ def main():
             f"  Close summary         : Mon-Fri {config.CLOSE_SUMMARY_HOUR}:{config.CLOSE_SUMMARY_MINUTE:02d}  ET (23:05 AST)\n"
             f"  Basket review         : Friday {config.BASKET_WEEKLY_REVIEW_HOUR}:{config.BASKET_WEEKLY_REVIEW_MINUTE:02d} ET (23:30 AST)\n"
             f"  Spec research refresh : Wednesday {config.SPEC_REFRESH_HOUR}:{config.SPEC_REFRESH_MINUTE:02d} ET (bi-weekly)\n"
-            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST)\n"
+            f"  Weekly portfolio review: Sunday 18:00 ET (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST) (01:00 AST)\n"
             f"  UW sweep feed scan    : every 5 min (market hours only)\n"
             f"  UW basket refresh     : every 15 min (market hours only, ~5K calls/day)"
         )

@@ -1364,6 +1364,12 @@ def _build_synthesis(symbol: str, signals: dict) -> str:
         risks.append(f"⚠️  VIX TERM STRUCTURE INVERTED: spot={vts['vix_spot']} vs 3m={vts['vix_3m']} "
                      f"(spread={vts['spread']:+.1f}) — acute fear signal, 25% gross exposure reduction rule triggered")
 
+    # Research Engine Score
+    try:
+        from signals import research_engine as _re
+        _s=_re.get_synthesis_for_committee(symbol)
+        if _s: bull.append(_s)
+    except Exception: pass
     # ── Build output ──────────────────────────────────────────────────────────
     lines = [f"=== HOLISTIC SYNTHESIS: {symbol} ==="]
 
