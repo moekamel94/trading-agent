@@ -66,7 +66,8 @@ def _fmp(ep, params=None):
     try:
         p = {"apikey": config.FMP_API_KEY}
         if params: p.update(params)
-        r = requests.get("https://financialmodelingprep.com/api/v3/"+ep, params=p, timeout=_TIMEOUT)
+        base = "https://financialmodelingprep.com/stable/" if not ep.startswith("v3/") else "https://financialmodelingprep.com/api/"
+        r = requests.get(base+ep, params=p, timeout=_TIMEOUT)
         if r.status_code == 200: return r.json()
     except Exception: pass
     return None
@@ -83,12 +84,12 @@ def _finnhub(ep, params=None):
 
 def _get_financials(ticker):
     f = {}
-    inc = _fmp("income-statement/"+ticker, {"limit":8,"period":"quarter"})
+    inc = _fmp("income-statement", {"symbol":ticker,"limit":8,"period":"quarter"})
     if inc and len(inc) >= 5:
         rn=inc[0].get("revenue",0); ra=inc[4].get("revenue",0)
         if ra and ra>0: f["revenue_growth_yoy"] = round((rn-ra)/ra*100,1)
-        f["gross_margin"] = round((inc[0].get("grossProfitRatio",0) or 0)*100,1)
-        f["net_margin"]   = round((inc[0].get("netIncomeRatio",0) or 0)*100,1)
+        # gross_margin comes from ratios endpoint, not income-statement
+        # net_margin comes from ratios endpoint
         if len(inc)>=6:
             rn2=inc[1].get("revenue",0); ra2=inc[5].get("revenue",0)
             if ra2 and ra2>0:
@@ -103,18 +104,24 @@ def _get_financials(ticker):
                 f["revenue_3q_accel"]=(g1>g2x>g3>0)
         neg=sum(1 for i in range(min(4,len(inc)-4)) if inc[i+4].get("revenue",0)>0 and inc[i].get("revenue",0)<inc[i+4].get("revenue",0))
         f["rev_decline_qtrs"]=neg
-    inc_a=_fmp("income-statement/"+ticker,{"limit":6,"period":"annual"})
+    inc_a=_fmp("income-statement", {"symbol":ticker,"limit":6,"period":"annual"})
     if inc_a and len(inc_a)>=5:
         r5n=inc_a[0].get("revenue",0); r5a=inc_a[4].get("revenue",0)
         if r5a and r5a>0 and r5n>0: f["revenue_cagr_5y"]=round((math.pow(r5n/r5a,0.2)-1)*100,1)
-    m=_fmp("key-metrics-ttm/"+ticker)
+    m=_fmp("key-metrics", {"symbol":ticker,"limit":1})
     if m and isinstance(m,list) and m:
         mx=m[0]
-        f["pe"]=mx.get("peRatioTTM"); f["peg"]=mx.get("pegRatioTTM")
-        f["fcf_yield"]=round((mx.get("freeCashFlowYieldTTM") or 0)*100,2)
-        f["roic"]=round((mx.get("roicTTM") or 0)*100,1)
-        f["debt_eq"]=mx.get("debtToEquityTTM")
-    dcf=_fmp("discounted-cash-flow/"+ticker)
+        f["pe"]=mx.get("priceEarningsRatio") or mx.get("peRatio"); f["peg"]=mx.get("priceToEarningsGrowthRatio") or mx.get("pegRatio")
+        f["fcf_yield"]=round((mx.get("freeCashFlowYield") or 0)*100,2)
+        f["roic"]=round((mx.get("returnOnInvestedCapital") or 0)*100,1)
+        f["debt_eq"]=mx.get("debtToEquityRatio") or mx.get("debtToEquity")
+    rat=_fmp("ratios", {"symbol":ticker,"limit":1})
+    if rat and isinstance(rat,list) and rat:
+        rx=rat[0]
+        f["gross_margin"]=round((rx.get("grossProfitMargin") or 0)*100,1)
+        f["net_margin"]=round((rx.get("netProfitMargin") or 0)*100,1)
+        if not f.get("roic"): f["roic"]=round((rx.get("returnOnEquity") or 0)*100,1)
+    dcf=_fmp("discounted-cash-flow", {"symbol":ticker})
     if dcf and isinstance(dcf,list) and dcf: f["dcf_value"]=dcf[0].get("dcf")
     elif dcf and isinstance(dcf,dict): f["dcf_value"]=dcf.get("dcf")
     recs=_finnhub("stock/recommendation",{"symbol":ticker})
